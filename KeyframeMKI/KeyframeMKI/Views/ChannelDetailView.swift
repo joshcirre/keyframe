@@ -2,7 +2,7 @@ import SwiftUI
 import AVFoundation
 import AudioToolbox
 
-/// Detailed view for editing a channel's instrument, effects, and settings
+/// Detailed view for editing a channel - Teenage Engineering style
 struct ChannelDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var channel: ChannelStrip
@@ -12,72 +12,451 @@ struct ChannelDetailView: View {
     
     @State private var showingInstrumentPicker = false
     @State private var showingEffectPicker = false
-    @State private var showingInstrumentUI = false
-    @State private var selectedEffectIndex: Int?
+    @State private var showingPluginUI = false
     @State private var pluginViewController: UIViewController?
     
     var body: some View {
-        NavigationStack {
+        ZStack {
+            TEColors.cream.ignoresSafeArea()
+            
             ScrollView {
-                VStack(spacing: 20) {
-                    // Channel Header
-                    ChannelHeaderSection(config: $config, channel: channel)
+                VStack(spacing: 24) {
+                    // Header with name
+                    channelHeader
                     
-                    // Instrument Section
-                    InstrumentSection(
-                        channel: channel,
-                        config: $config,
-                        onSelectInstrument: { showingInstrumentPicker = true },
-                        onOpenUI: { openInstrumentUI() }
-                    )
+                    // Instrument section
+                    instrumentSection
                     
-                    // Effects Section
-                    EffectsSection(
-                        channel: channel,
-                        config: $config,
-                        onAddEffect: { showingEffectPicker = true },
-                        onOpenEffectUI: { index in openEffectUI(at: index) }
-                    )
+                    // Effects chain
+                    effectsSection
                     
-                    // MIDI Settings
-                    MIDISettingsSection(config: $config)
+                    // Mixer controls
+                    mixerSection
                     
-                    // Mixer Controls
-                    MixerControlsSection(channel: channel, config: $config)
+                    // MIDI routing
+                    midiSection
                 }
-                .padding()
+                .padding(20)
             }
-            .background(Color(UIColor.systemGroupedBackground))
-            .navigationTitle(config.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
+        }
+        .preferredColorScheme(.light)
+        .sheet(isPresented: $showingInstrumentPicker) {
+            PluginBrowserView(mode: .instrument) { component in
+                loadInstrument(component)
+            }
+        }
+        .sheet(isPresented: $showingEffectPicker) {
+            PluginBrowserView(mode: .effect) { component in
+                loadEffect(component)
+            }
+        }
+        .sheet(isPresented: $showingPluginUI) {
+            if let vc = pluginViewController {
+                PluginUIHostView(viewController: vc)
+            }
+        }
+    }
+    
+    // MARK: - Channel Header
+    
+    private var channelHeader: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Button("CLOSE") {
+                    dismiss()
+                }
+                .font(TEFonts.mono(12, weight: .bold))
+                .foregroundColor(TEColors.darkGray)
+                
+                Spacer()
+                
+                Text("CHANNEL")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
+            }
+            
+            // Editable name
+            TextField("NAME", text: $config.name)
+                .font(TEFonts.display(28, weight: .black))
+                .foregroundColor(TEColors.black)
+                .multilineTextAlignment(.center)
+                .textInputAutocapitalization(.characters)
+            
+            // Color picker
+            HStack(spacing: 8) {
+                ForEach(ChannelColor.allCases) { color in
+                    Button {
+                        config.color = color
+                    } label: {
+                        RoundedRectangle(cornerRadius: 0)
+                            .fill(Color(color.uiColor))
+                            .frame(width: 28, height: 28)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 0)
+                                    .strokeBorder(TEColors.black, lineWidth: config.color == color ? 3 : 0)
+                            )
                     }
                 }
             }
         }
-        .sheet(isPresented: $showingInstrumentPicker) {
-            PluginBrowserView(
-                mode: .instrument,
-                onSelect: { component in
-                    loadInstrument(component)
+        .padding(20)
+        .background(
+            Rectangle()
+                .strokeBorder(TEColors.black, lineWidth: 2)
+                .background(TEColors.warmWhite)
+        )
+    }
+    
+    // MARK: - Instrument Section
+    
+    private var instrumentSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("INSTRUMENT")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+            
+            if let instrument = config.instrument {
+                HStack(spacing: 12) {
+                    // Instrument info
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(instrument.name.uppercased())
+                            .font(TEFonts.mono(14, weight: .bold))
+                            .foregroundColor(TEColors.black)
+                        
+                        Text(instrument.manufacturerName.uppercased())
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundColor(TEColors.midGray)
+                    }
+                    
+                    Spacer()
+                    
+                    // UI button
+                    TEButton(label: "UI", style: .secondary) {
+                        openInstrumentUI()
+                    }
+                    
+                    // Change button
+                    TEButton(label: "CHANGE", style: .secondary) {
+                        showingInstrumentPicker = true
+                    }
                 }
-            )
-        }
-        .sheet(isPresented: $showingEffectPicker) {
-            PluginBrowserView(
-                mode: .effect,
-                onSelect: { component in
-                    loadEffect(component)
+                .padding(16)
+                .background(
+                    Rectangle()
+                        .strokeBorder(TEColors.black, lineWidth: 2)
+                        .background(TEColors.warmWhite)
+                )
+            } else {
+                Button {
+                    showingInstrumentPicker = true
+                } label: {
+                    HStack {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("SELECT INSTRUMENT")
+                            .font(TEFonts.mono(12, weight: .bold))
+                    }
+                    .foregroundColor(TEColors.darkGray)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 60)
+                    .background(
+                        Rectangle()
+                            .strokeBorder(TEColors.darkGray, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    )
                 }
-            )
-        }
-        .sheet(isPresented: $showingInstrumentUI) {
-            if let vc = pluginViewController {
-                PluginUIHostView(viewController: vc)
             }
+            
+            if channel.isLoading {
+                HStack {
+                    ProgressView()
+                        .tint(TEColors.orange)
+                    Text("LOADING...")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Effects Section
+    
+    private var effectsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("EFFECTS")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(TEColors.midGray)
+                    .tracking(2)
+                
+                Spacer()
+                
+                Text("\(config.effects.count)/\(channel.maxEffects)")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
+            }
+            
+            VStack(spacing: 8) {
+                ForEach(Array(config.effects.enumerated()), id: \.element.id) { index, effect in
+                    effectSlot(effect: effect, index: index)
+                }
+                
+                if config.effects.count < channel.maxEffects {
+                    Button {
+                        showingEffectPicker = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("ADD EFFECT")
+                                .font(TEFonts.mono(11, weight: .bold))
+                        }
+                        .foregroundColor(TEColors.darkGray)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.darkGray, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+    private func effectSlot(effect: PluginConfiguration, index: Int) -> some View {
+        let isBypassed = channel.effects[safe: index]?.auAudioUnit.shouldBypassEffect ?? false
+        
+        return HStack(spacing: 12) {
+            // Index
+            Text("\(index + 1)")
+                .font(TEFonts.mono(12, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 24, height: 24)
+                .background(TEColors.black)
+            
+            // Name
+            VStack(alignment: .leading, spacing: 2) {
+                Text(effect.name.uppercased())
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(isBypassed ? TEColors.midGray : TEColors.black)
+                    .lineLimit(1)
+                
+                Text(effect.manufacturerName.uppercased())
+                    .font(TEFonts.mono(9, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
+            }
+            
+            Spacer()
+            
+            // UI button
+            Button {
+                openEffectUI(at: index)
+            } label: {
+                Text("UI")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(TEColors.black)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                    )
+            }
+            
+            // Bypass toggle
+            Button {
+                channel.setEffectBypassed(!isBypassed, at: index)
+            } label: {
+                Rectangle()
+                    .fill(isBypassed ? TEColors.lightGray : TEColors.green)
+                    .frame(width: 32, height: 24)
+                    .overlay(
+                        Text(isBypassed ? "OFF" : "ON")
+                            .font(TEFonts.mono(8, weight: .bold))
+                            .foregroundColor(isBypassed ? TEColors.darkGray : .white)
+                    )
+            }
+            
+            // Remove
+            Button {
+                channel.removeEffect(at: index)
+                config.effects.remove(at: index)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(TEColors.red)
+                    .frame(width: 24, height: 24)
+            }
+        }
+        .padding(12)
+        .background(
+            Rectangle()
+                .strokeBorder(TEColors.black, lineWidth: 2)
+                .background(TEColors.warmWhite)
+        )
+    }
+    
+    // MARK: - Mixer Section
+    
+    private var mixerSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("MIXER")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+            
+            VStack(spacing: 20) {
+                // Volume
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("VOLUME")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundColor(TEColors.midGray)
+                        Spacer()
+                        Text("\(Int(channel.volume * 100))")
+                            .font(TEFonts.mono(16, weight: .bold))
+                            .foregroundColor(TEColors.black)
+                    }
+                    
+                    TESlider(value: $channel.volume)
+                        .onChange(of: channel.volume) { _, newValue in
+                            config.volume = newValue
+                        }
+                }
+                
+                // Pan
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("PAN")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundColor(TEColors.midGray)
+                        Spacer()
+                        Text(panLabel)
+                            .font(TEFonts.mono(16, weight: .bold))
+                            .foregroundColor(TEColors.black)
+                    }
+                    
+                    TESlider(value: $channel.pan, range: -1...1, centered: true)
+                        .onChange(of: channel.pan) { _, newValue in
+                            config.pan = newValue
+                        }
+                }
+                
+                // Mute/Solo buttons
+                HStack(spacing: 12) {
+                    Button {
+                        channel.isMuted.toggle()
+                        config.isMuted = channel.isMuted
+                    } label: {
+                        Text("MUTE")
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundColor(channel.isMuted ? .white : TEColors.red)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                Rectangle()
+                                    .fill(channel.isMuted ? TEColors.red : TEColors.cream)
+                            )
+                            .overlay(
+                                Rectangle()
+                                    .strokeBorder(TEColors.red, lineWidth: 2)
+                            )
+                    }
+                    
+                    Button {
+                        channel.isSoloed.toggle()
+                    } label: {
+                        Text("SOLO")
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundColor(channel.isSoloed ? TEColors.black : TEColors.yellow)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                Rectangle()
+                                    .fill(channel.isSoloed ? TEColors.yellow : TEColors.cream)
+                            )
+                            .overlay(
+                                Rectangle()
+                                    .strokeBorder(TEColors.yellow, lineWidth: 2)
+                            )
+                    }
+                }
+            }
+            .padding(16)
+            .background(
+                Rectangle()
+                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .background(TEColors.warmWhite)
+            )
+        }
+    }
+    
+    private var panLabel: String {
+        if channel.pan < -0.01 {
+            return "L\(Int(abs(channel.pan) * 100))"
+        } else if channel.pan > 0.01 {
+            return "R\(Int(channel.pan * 100))"
+        } else {
+            return "C"
+        }
+    }
+    
+    // MARK: - MIDI Section
+    
+    private var midiSourceOptions: [String: String] {
+        var options: [String: String] = ["": "ALL"]
+        for source in MIDIEngine.shared.connectedSources {
+            options[source.name] = source.name.uppercased()
+        }
+        return options
+    }
+    
+    private var midiChannelOptions: [Int: String] {
+        var options: [Int: String] = [0: "ALL"]
+        for ch in 1...16 {
+            options[ch] = "CH \(ch)"
+        }
+        return options
+    }
+    
+    private var midiSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("MIDI")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+            
+            VStack(spacing: 16) {
+                // Source picker
+                TEPicker(
+                    label: "INPUT",
+                    selection: Binding(
+                        get: { config.midiSourceName ?? "" },
+                        set: { config.midiSourceName = $0.isEmpty ? nil : $0 }
+                    ),
+                    options: midiSourceOptions
+                )
+                
+                // Channel picker
+                TEPicker(
+                    label: "CHANNEL",
+                    selection: $config.midiChannel,
+                    options: midiChannelOptions
+                )
+                
+                // Scale filter toggle
+                TEToggle(label: "SCALE FILTER", isOn: $config.scaleFilterEnabled)
+                
+                // NM2 toggle
+                TEToggle(label: "NM2 CHORDS", isOn: $config.isNM2ChordChannel)
+            }
+            .padding(16)
+            .background(
+                Rectangle()
+                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .background(TEColors.warmWhite)
+            )
         }
     }
     
@@ -117,7 +496,7 @@ struct ChannelDetailView: View {
         channel.getInstrumentViewController { vc in
             if let vc = vc {
                 pluginViewController = vc
-                showingInstrumentUI = true
+                showingPluginUI = true
             }
         }
     }
@@ -126,419 +505,167 @@ struct ChannelDetailView: View {
         channel.getEffectViewController(at: index) { vc in
             if let vc = vc {
                 pluginViewController = vc
-                showingInstrumentUI = true
+                showingPluginUI = true
             }
         }
     }
 }
 
-// MARK: - Channel Header Section
+// MARK: - TE Custom Controls
 
-struct ChannelHeaderSection: View {
-    @Binding var config: ChannelConfiguration
-    @ObservedObject var channel: ChannelStrip
+struct TEButton: View {
+    let label: String
+    var style: ButtonStyle = .primary
+    let action: () -> Void
     
-    var body: some View {
-        VStack(spacing: 12) {
-            // Name editor
-            TextField("Channel Name", text: $config.name)
-                .font(.title2)
-                .fontWeight(.bold)
-                .multilineTextAlignment(.center)
-            
-            // Color picker
-            HStack(spacing: 8) {
-                ForEach(ChannelColor.allCases) { color in
-                    Circle()
-                        .fill(Color(color.uiColor))
-                        .frame(width: 28, height: 28)
-                        .overlay(
-                            Circle()
-                                .strokeBorder(Color.white, lineWidth: config.color == color ? 2 : 0)
-                        )
-                        .onTapGesture {
-                            config.color = color
-                        }
-                }
-            }
-        }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
+    enum ButtonStyle {
+        case primary, secondary
     }
-}
-
-// MARK: - Instrument Section
-
-struct InstrumentSection: View {
-    @ObservedObject var channel: ChannelStrip
-    @Binding var config: ChannelConfiguration
-    let onSelectInstrument: () -> Void
-    let onOpenUI: () -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("INSTRUMENT")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-                .tracking(1)
-            
-            if let instrument = config.instrument {
-                // Instrument loaded
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(instrument.name)
-                            .font(.headline)
-                        Text(instrument.manufacturerName)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                    
-                    Button("UI") {
-                        onOpenUI()
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.cyan)
-                    
-                    Button("Change") {
-                        onSelectInstrument()
-                    }
-                    .buttonStyle(.bordered)
-                }
-            } else {
-                // No instrument
-                Button {
-                    onSelectInstrument()
-                } label: {
-                    HStack {
-                        Image(systemName: "pianokeys")
-                            .font(.title2)
-                        Text("Select Instrument")
-                            .fontWeight(.medium)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(Color.cyan.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [4]))
-                    )
-                    .foregroundColor(.cyan)
-                }
-            }
-            
-            if channel.isLoading {
-                ProgressView("Loading...")
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
-    }
-}
-
-// MARK: - Effects Section
-
-struct EffectsSection: View {
-    @ObservedObject var channel: ChannelStrip
-    @Binding var config: ChannelConfiguration
-    let onAddEffect: () -> Void
-    let onOpenEffectUI: (Int) -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("INSERT EFFECTS")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .tracking(1)
-                
-                Spacer()
-                
-                Text("\(config.effects.count)/\(channel.maxEffects)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            // Effect slots
-            ForEach(Array(config.effects.enumerated()), id: \.element.id) { index, effect in
-                EffectSlotView(
-                    effect: effect,
-                    index: index,
-                    isBypassed: channel.effects[safe: index]?.auAudioUnit.shouldBypassEffect ?? false,
-                    onOpenUI: { onOpenEffectUI(index) },
-                    onToggleBypass: {
-                        channel.setEffectBypassed(!channel.effects[index].auAudioUnit.shouldBypassEffect, at: index)
-                    },
-                    onRemove: {
-                        channel.removeEffect(at: index)
-                        config.effects.remove(at: index)
-                    }
+        Button(action: action) {
+            Text(label)
+                .font(TEFonts.mono(11, weight: .bold))
+                .foregroundColor(style == .primary ? .white : TEColors.black)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    Rectangle()
+                        .fill(style == .primary ? TEColors.orange : TEColors.cream)
                 )
-            }
-            
-            // Add effect button
-            if config.effects.count < channel.maxEffects {
-                Button {
-                    onAddEffect()
-                } label: {
-                    HStack {
-                        Image(systemName: "plus.circle.fill")
-                        Text("Add Effect")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .foregroundColor(.cyan)
-                }
-            }
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(TEColors.black, lineWidth: 2)
+                )
         }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
     }
 }
 
-// MARK: - Effect Slot View
+struct TESlider: View {
+    @Binding var value: Float
+    var range: ClosedRange<Float> = 0...1
+    var centered: Bool = false
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                // Track
+                Rectangle()
+                    .fill(TEColors.lightGray)
+                    .frame(height: 8)
+                
+                // Fill
+                if centered {
+                    let center = geometry.size.width / 2
+                    let fillWidth = abs(CGFloat(value) / CGFloat(range.upperBound)) * center
+                    let fillX = value >= 0 ? center : center - fillWidth
+                    
+                    Rectangle()
+                        .fill(TEColors.orange)
+                        .frame(width: fillWidth, height: 8)
+                        .offset(x: fillX)
+                } else {
+                    Rectangle()
+                        .fill(TEColors.orange)
+                        .frame(width: geometry.size.width * CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound)), height: 8)
+                }
+                
+                // Border
+                Rectangle()
+                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .frame(height: 8)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        let percent = Float(gesture.location.x / geometry.size.width)
+                        let newValue = range.lowerBound + (range.upperBound - range.lowerBound) * min(max(percent, 0), 1)
+                        value = newValue
+                    }
+            )
+        }
+        .frame(height: 8)
+    }
+}
 
-struct EffectSlotView: View {
-    let effect: PluginConfiguration
-    let index: Int
-    let isBypassed: Bool
-    let onOpenUI: () -> Void
-    let onToggleBypass: () -> Void
-    let onRemove: () -> Void
+struct TEPicker<T: Hashable>: View {
+    let label: String
+    @Binding var selection: T
+    let options: [T: String]
     
     var body: some View {
         HStack {
-            // Index
-            Text("\(index + 1)")
-                .font(.caption)
-                .fontWeight(.bold)
-                .foregroundColor(.white)
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(Color.cyan))
-            
-            // Name
-            VStack(alignment: .leading, spacing: 2) {
-                Text(effect.name)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(isBypassed ? .gray : .primary)
-                Text(effect.manufacturerName)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
+            Text(label)
+                .font(TEFonts.mono(10, weight: .medium))
+                .foregroundColor(TEColors.midGray)
             
             Spacer()
             
-            // UI button
-            Button("UI") {
-                onOpenUI()
-            }
-            .font(.caption)
-            .buttonStyle(.bordered)
-            .tint(.cyan)
-            
-            // Bypass button
-            Button {
-                onToggleBypass()
+            Menu {
+                ForEach(Array(options.keys), id: \.self) { key in
+                    Button {
+                        selection = key
+                    } label: {
+                        if selection == key {
+                            Label(options[key] ?? "", systemImage: "checkmark")
+                        } else {
+                            Text(options[key] ?? "")
+                        }
+                    }
+                }
             } label: {
-                Image(systemName: isBypassed ? "power.circle" : "power.circle.fill")
-                    .foregroundColor(isBypassed ? .gray : .green)
+                HStack(spacing: 8) {
+                    Text(options[selection] ?? "")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                    
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(TEColors.darkGray)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    Rectangle()
+                        .strokeBorder(TEColors.black, lineWidth: 2)
+                )
             }
-            .buttonStyle(.plain)
-            
-            // Remove button
-            Button {
-                onRemove()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.red.opacity(0.7))
-            }
-            .buttonStyle(.plain)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(UIColor.tertiarySystemGroupedBackground))
-        )
     }
 }
 
-// MARK: - MIDI Settings Section
-
-struct MIDISettingsSection: View {
-    @Binding var config: ChannelConfiguration
-    @StateObject private var midiEngine = MIDIEngine.shared
+struct TEToggle: View {
+    let label: String
+    @Binding var isOn: Bool
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("MIDI SETTINGS")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-                .tracking(1)
-            
-            // MIDI Source (Controller) Selection
+        Button {
+            isOn.toggle()
+        } label: {
             HStack {
-                Text("MIDI Input")
-                Spacer()
-                Picker("", selection: Binding(
-                    get: { config.midiSourceName ?? "" },
-                    set: { config.midiSourceName = $0.isEmpty ? nil : $0 }
-                )) {
-                    Text("All Controllers").tag("")
-                    ForEach(midiEngine.connectedSources, id: \.name) { source in
-                        Text(source.name).tag(source.name)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-            
-            // MIDI Channel
-            HStack {
-                Text("MIDI Channel")
-                Spacer()
-                Picker("", selection: $config.midiChannel) {
-                    Text("All Channels").tag(0)
-                    ForEach(1...16, id: \.self) { ch in
-                        Text("Ch \(ch)").tag(ch)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-            
-            // Summary of MIDI routing
-            let sourceText = config.midiSourceName ?? "Any controller"
-            let channelText = config.midiChannel == 0 ? "all channels" : "channel \(config.midiChannel)"
-            Text("Listens to: \(sourceText) on \(channelText)")
-                .font(.caption)
-                .foregroundColor(.cyan)
-            
-            Divider()
-            
-            // Scale Filter
-            Toggle("Scale Filter", isOn: $config.scaleFilterEnabled)
-            
-            // NM2 Chord Channel
-            Toggle("NM2 Chord Trigger", isOn: $config.isNM2ChordChannel)
-            
-            if config.isNM2ChordChannel {
-                Text("This channel will receive chord triggers from the NM2 controller")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
-    }
-}
-
-// MARK: - Mixer Controls Section
-
-struct MixerControlsSection: View {
-    @ObservedObject var channel: ChannelStrip
-    @Binding var config: ChannelConfiguration
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("MIXER")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-                .tracking(1)
-            
-            // Volume
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Volume")
-                    Spacer()
-                    Text("\(Int(channel.volume * 100))%")
-                        .monospacedDigit()
-                        .foregroundColor(.secondary)
-                }
-                
-                Slider(value: $channel.volume, in: 0...1)
-                    .tint(.cyan)
-                    .onChange(of: channel.volume) { _, newValue in
-                        config.volume = newValue
-                    }
-            }
-            
-            // Pan
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Pan")
-                    Spacer()
-                    Text(panLabel)
-                        .monospacedDigit()
-                        .foregroundColor(.secondary)
-                }
-                
-                Slider(value: $channel.pan, in: -1...1)
-                    .tint(.cyan)
-                    .onChange(of: channel.pan) { _, newValue in
-                        config.pan = newValue
-                    }
-            }
-            
-            // Mute/Solo
-            HStack(spacing: 16) {
-                Button {
-                    channel.isMuted.toggle()
-                    config.isMuted = channel.isMuted
-                } label: {
-                    Text("MUTE")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(channel.isMuted ? .black : .red)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(channel.isMuted ? Color.red : Color.red.opacity(0.2))
-                        )
-                }
-                .buttonStyle(.plain)
-                
-                Button {
-                    channel.isSoloed.toggle()
-                } label: {
-                    Text("SOLO")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(channel.isSoloed ? .black : .yellow)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(channel.isSoloed ? Color.yellow : Color.yellow.opacity(0.2))
-                        )
-                }
-                .buttonStyle(.plain)
+                Text(label)
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
                 
                 Spacer()
+                
+                Rectangle()
+                    .fill(isOn ? TEColors.orange : TEColors.lightGray)
+                    .frame(width: 48, height: 24)
+                    .overlay(
+                        Rectangle()
+                            .fill(TEColors.warmWhite)
+                            .frame(width: 20, height: 20)
+                            .offset(x: isOn ? 12 : -12)
+                    )
+                    .overlay(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                    )
             }
         }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
-    }
-    
-    private var panLabel: String {
-        if channel.pan < -0.01 {
-            return "L \(Int(abs(channel.pan) * 100))"
-        } else if channel.pan > 0.01 {
-            return "R \(Int(channel.pan * 100))"
-        } else {
-            return "C"
-        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -549,17 +676,36 @@ struct PluginUIHostView: View {
     let viewController: UIViewController
     
     var body: some View {
-        NavigationStack {
-            PluginUIViewControllerWrapper(viewController: viewController)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") {
-                            dismiss()
-                        }
+        ZStack {
+            TEColors.cream.ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Spacer()
+                    
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("DONE")
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(TEColors.black)
                     }
                 }
+                .padding(16)
+                .background(TEColors.warmWhite)
+                
+                Rectangle()
+                    .fill(TEColors.black)
+                    .frame(height: 2)
+                
+                PluginUIViewControllerWrapper(viewController: viewController)
+            }
         }
+        .preferredColorScheme(.light)
     }
 }
 

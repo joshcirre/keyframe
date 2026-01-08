@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings view for the Performance Engine
+/// Settings view for the Performance Engine - TE Style
 struct PerformanceSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var audioEngine = AudioEngine.shared
@@ -13,183 +13,359 @@ struct PerformanceSettingsView: View {
     @State private var showingResetConfirmation = false
     
     var body: some View {
-        NavigationStack {
-            Form {
-                // Audio Section
-                Section("Audio") {
+        ZStack {
+            TEColors.cream.ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Header
+                header
+                
+                Rectangle()
+                    .fill(TEColors.black)
+                    .frame(height: 2)
+                
+                // Content
+                ScrollView {
+                    VStack(spacing: 24) {
+                        audioSection
+                        midiSection
+                        scaleFilterSection
+                        pluginsSection
+                        sessionSection
+                        aboutSection
+                    }
+                    .padding(20)
+                }
+            }
+        }
+        .preferredColorScheme(.light)
+        .alert("SAVE SESSION", isPresented: $showingSaveAs) {
+            TextField("Session Name", text: $newSessionName)
+                .textInputAutocapitalization(.characters)
+            Button("SAVE") {
+                sessionStore.saveSessionAs(newSessionName)
+                newSessionName = ""
+            }
+            Button("CANCEL", role: .cancel) {
+                newSessionName = ""
+            }
+        } message: {
+            Text("Enter a name for this session")
+        }
+        .confirmationDialog("RESET SESSION", isPresented: $showingResetConfirmation, titleVisibility: .visible) {
+            Button("RESET", role: .destructive) {
+                sessionStore.loadSession(Session.defaultSession())
+            }
+        } message: {
+            Text("This will reset to the default session. All changes will be lost.")
+        }
+    }
+    
+    // MARK: - Header
+    
+    private var header: some View {
+        HStack {
+            Text("SETTINGS")
+                .font(TEFonts.display(20, weight: .black))
+                .foregroundColor(TEColors.black)
+                .tracking(4)
+            
+            Spacer()
+            
+            Button {
+                dismiss()
+            } label: {
+                Text("DONE")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(TEColors.black)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(TEColors.warmWhite)
+    }
+    
+    // MARK: - Audio Section
+    
+    private var audioSection: some View {
+        TESettingsSection(title: "AUDIO") {
+            VStack(spacing: 16) {
+                TESettingsRow(label: "ENGINE") {
+                    HStack(spacing: 6) {
+                        Rectangle()
+                            .fill(audioEngine.isRunning ? TEColors.green : TEColors.red)
+                            .frame(width: 8, height: 8)
+                        Text(audioEngine.isRunning ? "RUN" : "OFF")
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundColor(TEColors.black)
+                    }
+                }
+                
+                TESettingsRow(label: "CHANNELS") {
+                    Text("\(audioEngine.channelStrips.count)/\(audioEngine.maxChannels)")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                }
+                
+                VStack(spacing: 8) {
                     HStack {
-                        Text("Engine Status")
+                        Text("MASTER")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundColor(TEColors.midGray)
                         Spacer()
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(audioEngine.isRunning ? Color.green : Color.red)
-                                .frame(width: 8, height: 8)
-                            Text(audioEngine.isRunning ? "Running" : "Stopped")
-                                .foregroundColor(.secondary)
-                        }
+                        Text("\(Int(audioEngine.masterVolume * 100))")
+                            .font(TEFonts.mono(14, weight: .bold))
+                            .foregroundColor(TEColors.black)
                     }
                     
-                    HStack {
-                        Text("Channels")
-                        Spacer()
-                        Text("\(audioEngine.channelStrips.count) / \(audioEngine.maxChannels)")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    HStack {
-                        Text("Master Volume")
-                        Spacer()
-                        Text("\(Int(audioEngine.masterVolume * 100))%")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Slider(value: Binding(
+                    TESlider(value: Binding(
                         get: { audioEngine.masterVolume },
                         set: { audioEngine.masterVolume = $0 }
-                    ), in: 0...1)
-                    .tint(.cyan)
+                    ))
+                }
+            }
+        }
+    }
+    
+    // MARK: - MIDI Section
+    
+    private var midiSection: some View {
+        TESettingsSection(title: "MIDI") {
+            VStack(spacing: 16) {
+                TESettingsRow(label: "SOURCES") {
+                    Text("\(midiEngine.connectedSources.count)")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
                 }
                 
-                // MIDI Section
-                Section("MIDI") {
-                    HStack {
-                        Text("Connected Sources")
-                        Spacer()
-                        Text("\(midiEngine.connectedSources.count)")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    ForEach(midiEngine.connectedSources) { source in
-                        HStack {
-                            Image(systemName: "pianokeys")
-                                .foregroundColor(.cyan)
-                            Text(source.name)
-                                .font(.caption)
-                        }
-                    }
-                    
-                    if let lastMessage = midiEngine.lastReceivedMessage {
-                        HStack {
-                            Text("Last Message")
-                            Spacer()
-                            Text(lastMessage)
-                                .font(.caption)
-                                .foregroundColor(.purple)
+                if !midiEngine.connectedSources.isEmpty {
+                    VStack(spacing: 8) {
+                        ForEach(midiEngine.connectedSources) { source in
+                            HStack(spacing: 8) {
+                                Rectangle()
+                                    .fill(TEColors.green)
+                                    .frame(width: 6, height: 6)
+                                Text(source.name.uppercased())
+                                    .font(TEFonts.mono(10, weight: .medium))
+                                    .foregroundColor(TEColors.darkGray)
+                                Spacer()
+                            }
                         }
                     }
                 }
                 
-                // Scale Filter Section
-                Section("Scale Filter") {
-                    Toggle("Enabled", isOn: $midiEngine.isScaleFilterEnabled)
-                    
-                    HStack {
-                        Text("Current Key")
-                        Spacer()
-                        Text("\(NoteName(rawValue: midiEngine.currentRootNote)?.displayName ?? "C") \(midiEngine.currentScaleType.rawValue)")
-                            .foregroundColor(.cyan)
+                if let lastMessage = midiEngine.lastReceivedMessage {
+                    TESettingsRow(label: "LAST MSG") {
+                        Text(lastMessage.uppercased())
+                            .font(TEFonts.mono(9, weight: .medium))
+                            .foregroundColor(TEColors.orange)
+                            .lineLimit(1)
                     }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Scale Filter Section
+    
+    private var scaleFilterSection: some View {
+        TESettingsSection(title: "SCALE FILTER") {
+            VStack(spacing: 16) {
+                TEToggle(label: "ENABLED", isOn: $midiEngine.isScaleFilterEnabled)
+                
+                TESettingsRow(label: "CURRENT KEY") {
+                    Text("\(NoteName(rawValue: midiEngine.currentRootNote)?.displayName ?? "C") \(midiEngine.currentScaleType.rawValue.uppercased())")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.orange)
+                }
+                
+                HStack {
+                    Text("NM2 CHANNEL")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
                     
-                    Picker("NM2 Channel", selection: $midiEngine.nm2Channel) {
+                    Spacer()
+                    
+                    Menu {
                         ForEach(1...16, id: \.self) { ch in
-                            Text("Ch \(ch)").tag(ch)
+                            Button("CH \(ch)") {
+                                midiEngine.nm2Channel = ch
+                            }
                         }
-                    }
-                }
-                
-                // Plugins Section
-                Section("Plugins") {
-                    HStack {
-                        Text("Instruments")
-                        Spacer()
-                        Text("\(pluginManager.availableInstruments.count)")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    HStack {
-                        Text("Effects")
-                        Spacer()
-                        Text("\(pluginManager.availableEffects.count)")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Button {
-                        pluginManager.scanForPlugins()
                     } label: {
-                        HStack {
-                            Image(systemName: "arrow.clockwise")
-                            Text("Rescan Plugins")
+                        HStack(spacing: 8) {
+                            Text("CH \(midiEngine.nm2Channel)")
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundColor(TEColors.black)
+                            
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(TEColors.darkGray)
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: 2)
+                        )
                     }
                 }
+            }
+        }
+    }
+    
+    // MARK: - Plugins Section
+    
+    private var pluginsSection: some View {
+        TESettingsSection(title: "PLUGINS") {
+            VStack(spacing: 16) {
+                TESettingsRow(label: "INSTRUMENTS") {
+                    Text("\(pluginManager.availableInstruments.count)")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                }
                 
-                // Session Section
-                Section("Session") {
+                TESettingsRow(label: "EFFECTS") {
+                    Text("\(pluginManager.availableEffects.count)")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                }
+                
+                Button {
+                    pluginManager.scanForPlugins()
+                } label: {
                     HStack {
-                        Text("Current Session")
-                        Spacer()
-                        Text(sessionStore.currentSession.name)
-                            .foregroundColor(.secondary)
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("RESCAN")
+                            .font(TEFonts.mono(11, weight: .bold))
                     }
-                    
-                    HStack {
-                        Text("Songs")
-                        Spacer()
-                        Text("\(sessionStore.currentSession.songs.count)")
-                            .foregroundColor(.secondary)
-                    }
-                    
+                    .foregroundColor(TEColors.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 40)
+                    .background(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                    )
+                }
+            }
+        }
+    }
+    
+    // MARK: - Session Section
+    
+    private var sessionSection: some View {
+        TESettingsSection(title: "SESSION") {
+            VStack(spacing: 16) {
+                TESettingsRow(label: "CURRENT") {
+                    Text(sessionStore.currentSession.name.uppercased())
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                }
+                
+                TESettingsRow(label: "SONGS") {
+                    Text("\(sessionStore.currentSession.songs.count)")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                }
+                
+                HStack(spacing: 12) {
                     Button {
                         showingSaveAs = true
                     } label: {
-                        Label("Save Session As...", systemImage: "square.and.arrow.down")
+                        Text("SAVE AS")
+                            .font(TEFonts.mono(11, weight: .bold))
+                            .foregroundColor(TEColors.black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(
+                                Rectangle()
+                                    .strokeBorder(TEColors.black, lineWidth: 2)
+                            )
                     }
                     
-                    Button(role: .destructive) {
+                    Button {
                         showingResetConfirmation = true
                     } label: {
-                        Label("Reset to Default", systemImage: "arrow.counterclockwise")
+                        Text("RESET")
+                            .font(TEFonts.mono(11, weight: .bold))
+                            .foregroundColor(TEColors.red)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(
+                                Rectangle()
+                                    .strokeBorder(TEColors.red, lineWidth: 2)
+                            )
                     }
+                }
+            }
+        }
+    }
+    
+    // MARK: - About Section
+    
+    private var aboutSection: some View {
+        TESettingsSection(title: "ABOUT") {
+            VStack(spacing: 8) {
+                TESettingsRow(label: "VERSION") {
+                    Text("1.0")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
                 }
                 
-                // About Section
-                Section("About") {
-                    HStack {
-                        Text("Keyframe Performance Engine")
-                        Spacer()
-                        Text("1.0")
-                            .foregroundColor(.secondary)
-                    }
-                }
+                Text("KEYFRAME PERFORMANCE ENGINE")
+                    .font(TEFonts.mono(9, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
+        }
+    }
+}
+
+// MARK: - TE Settings Section
+
+struct TESettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+            
+            VStack(spacing: 0) {
+                content
             }
-            .alert("Save Session", isPresented: $showingSaveAs) {
-                TextField("Session Name", text: $newSessionName)
-                Button("Save") {
-                    sessionStore.saveSessionAs(newSessionName)
-                    newSessionName = ""
-                }
-                Button("Cancel", role: .cancel) {
-                    newSessionName = ""
-                }
-            } message: {
-                Text("Enter a name for this session")
-            }
-            .confirmationDialog("Reset Session", isPresented: $showingResetConfirmation, titleVisibility: .visible) {
-                Button("Reset", role: .destructive) {
-                    sessionStore.loadSession(Session.defaultSession())
-                }
-            } message: {
-                Text("This will reset to the default session. All changes will be lost.")
-            }
+            .padding(16)
+            .background(
+                Rectangle()
+                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .background(TEColors.warmWhite)
+            )
+        }
+    }
+}
+
+// MARK: - TE Settings Row
+
+struct TESettingsRow<Content: View>: View {
+    let label: String
+    @ViewBuilder let content: Content
+    
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(TEFonts.mono(10, weight: .medium))
+                .foregroundColor(TEColors.midGray)
+            
+            Spacer()
+            
+            content
         }
     }
 }

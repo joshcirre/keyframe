@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Editor for creating and editing performance songs
+/// Editor for creating and editing performance songs - TE Style
 struct PerformanceSongEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var sessionStore = SessionStore.shared
@@ -12,122 +12,391 @@ struct PerformanceSongEditorView: View {
     @State private var showingDeleteConfirmation = false
     
     var body: some View {
-        NavigationStack {
-            Form {
-                // Basic Info
-                Section("Song Info") {
-                    TextField("Song Name", text: $song.name)
-                }
+        ZStack {
+            TEColors.cream.ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Header
+                header
                 
-                // Key Settings
-                Section("Key") {
-                    Picker("Root Note", selection: $song.rootNote) {
-                        ForEach(NoteName.allCases) { note in
-                            Text(note.displayName).tag(note.rawValue)
-                        }
-                    }
-                    
-                    Picker("Scale", selection: $song.scaleType) {
-                        ForEach(ScaleType.allCases) { scale in
-                            Text(scale.rawValue).tag(scale)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    
-                    Picker("Filter Mode", selection: $song.filterMode) {
-                        ForEach(FilterMode.allCases) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    
-                    Text(song.filterMode.description)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                Rectangle()
+                    .fill(TEColors.black)
+                    .frame(height: 2)
                 
-                // BPM
-                Section {
-                    Toggle("Set BPM", isOn: Binding(
-                        get: { song.bpm != nil },
-                        set: { song.bpm = $0 ? 120 : nil }
-                    ))
-                    
-                    if song.bpm != nil {
-                        Stepper("BPM: \(song.bpm ?? 120)", value: Binding(
-                            get: { song.bpm ?? 120 },
-                            set: { song.bpm = $0 }
-                        ), in: 40...240)
+                // Content
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Song name
+                        nameSection
                         
-                        HStack(spacing: 8) {
-                            ForEach([80, 100, 120, 140], id: \.self) { tempo in
-                                Button("\(tempo)") {
-                                    song.bpm = tempo
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(song.bpm == tempo ? .purple : .gray)
+                        // Key settings
+                        keySection
+                        
+                        // BPM
+                        bpmSection
+                        
+                        // Channel presets
+                        channelPresetsSection
+                        
+                        // Delete button
+                        if !isNew {
+                            deleteSection
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+        }
+        .preferredColorScheme(.light)
+        .confirmationDialog("DELETE SONG", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+            Button("DELETE", role: .destructive) {
+                sessionStore.deleteSong(song)
+                dismiss()
+            }
+        } message: {
+            Text("Are you sure you want to delete '\(song.name)'?")
+        }
+    }
+    
+    // MARK: - Header
+    
+    private var header: some View {
+        HStack {
+            Button {
+                dismiss()
+            } label: {
+                Text("CANCEL")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(TEColors.darkGray)
+            }
+            
+            Spacer()
+            
+            Text(isNew ? "NEW SONG" : "EDIT SONG")
+                .font(TEFonts.display(16, weight: .black))
+                .foregroundColor(TEColors.black)
+                .tracking(2)
+            
+            Spacer()
+            
+            Button {
+                saveSong()
+            } label: {
+                Text("SAVE")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(song.name.isEmpty ? TEColors.midGray : TEColors.orange)
+            }
+            .disabled(song.name.isEmpty)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(TEColors.warmWhite)
+    }
+    
+    // MARK: - Name Section
+    
+    private var nameSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("NAME")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+            
+            TextField("SONG NAME", text: $song.name)
+                .font(TEFonts.display(24, weight: .black))
+                .foregroundColor(TEColors.black)
+                .textInputAutocapitalization(.characters)
+                .padding(16)
+                .background(
+                    Rectangle()
+                        .strokeBorder(TEColors.black, lineWidth: 2)
+                        .background(TEColors.warmWhite)
+                )
+        }
+    }
+    
+    // MARK: - Key Section
+    
+    private var keySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("KEY")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+            
+            VStack(spacing: 16) {
+                // Root note picker
+                HStack {
+                    Text("ROOT")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                    
+                    Spacer()
+                    
+                    // Note buttons
+                    HStack(spacing: 4) {
+                        ForEach(NoteName.allCases) { note in
+                            Button {
+                                song.rootNote = note.rawValue
+                            } label: {
+                                Text(note.displayName)
+                                    .font(TEFonts.mono(12, weight: .bold))
+                                    .foregroundColor(song.rootNote == note.rawValue ? .white : TEColors.black)
+                                    .frame(width: 28, height: 32)
+                                    .background(
+                                        Rectangle()
+                                            .fill(song.rootNote == note.rawValue ? TEColors.orange : TEColors.cream)
+                                    )
+                                    .overlay(
+                                        Rectangle()
+                                            .strokeBorder(TEColors.black, lineWidth: song.rootNote == note.rawValue ? 0 : 1)
+                                    )
                             }
                         }
                     }
-                } header: {
-                    Text("Tempo")
                 }
                 
-                // Channel States
-                Section {
-                    ForEach(channels) { channel in
-                        ChannelStateEditor(
-                            channel: channel,
-                            state: binding(for: channel)
-                        )
+                // Scale type
+                HStack {
+                    Text("SCALE")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                    
+                    Spacer()
+                    
+                    HStack(spacing: 0) {
+                        ForEach(ScaleType.allCases) { scale in
+                            Button {
+                                song.scaleType = scale
+                            } label: {
+                                Text(scale.rawValue.uppercased())
+                                    .font(TEFonts.mono(11, weight: .bold))
+                                    .foregroundColor(song.scaleType == scale ? .white : TEColors.black)
+                                    .frame(width: 70, height: 36)
+                                    .background(
+                                        Rectangle()
+                                            .fill(song.scaleType == scale ? TEColors.black : TEColors.cream)
+                                    )
+                            }
+                        }
                     }
-                } header: {
-                    Text("Channel Presets")
-                } footer: {
-                    Text("Configure what happens to each channel when this song is selected")
+                    .overlay(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                    )
                 }
                 
-                // Delete
-                if !isNew {
-                    Section {
-                        Button(role: .destructive) {
-                            showingDeleteConfirmation = true
+                // Filter mode
+                HStack {
+                    Text("MODE")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                    
+                    Spacer()
+                    
+                    HStack(spacing: 0) {
+                        ForEach(FilterMode.allCases) { mode in
+                            Button {
+                                song.filterMode = mode
+                            } label: {
+                                Text(mode.rawValue.uppercased())
+                                    .font(TEFonts.mono(11, weight: .bold))
+                                    .foregroundColor(song.filterMode == mode ? .white : TEColors.black)
+                                    .frame(width: 70, height: 36)
+                                    .background(
+                                        Rectangle()
+                                            .fill(song.filterMode == mode ? TEColors.orange : TEColors.cream)
+                                    )
+                            }
+                        }
+                    }
+                    .overlay(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                    )
+                }
+                
+                // Mode description
+                Text(song.filterMode.description.uppercased())
+                    .font(TEFonts.mono(9, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
+            }
+            .padding(16)
+            .background(
+                Rectangle()
+                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .background(TEColors.warmWhite)
+            )
+        }
+    }
+    
+    // MARK: - BPM Section
+    
+    private var bpmSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("TEMPO")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+            
+            VStack(spacing: 16) {
+                HStack {
+                    Text("BPM")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                    
+                    Spacer()
+                    
+                    if let bpm = song.bpm {
+                        Text("\(bpm)")
+                            .font(TEFonts.mono(24, weight: .bold))
+                            .foregroundColor(TEColors.black)
+                    } else {
+                        Text("OFF")
+                            .font(TEFonts.mono(14, weight: .bold))
+                            .foregroundColor(TEColors.midGray)
+                    }
+                }
+                
+                // Enable toggle
+                Button {
+                    song.bpm = song.bpm == nil ? 120 : nil
+                } label: {
+                    HStack {
+                        Text("ENABLE BPM")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundColor(TEColors.midGray)
+                        
+                        Spacer()
+                        
+                        Rectangle()
+                            .fill(song.bpm != nil ? TEColors.orange : TEColors.lightGray)
+                            .frame(width: 48, height: 24)
+                            .overlay(
+                                Rectangle()
+                                    .fill(TEColors.warmWhite)
+                                    .frame(width: 20, height: 20)
+                                    .offset(x: song.bpm != nil ? 12 : -12)
+                            )
+                            .overlay(
+                                Rectangle()
+                                    .strokeBorder(TEColors.black, lineWidth: 2)
+                            )
+                    }
+                }
+                .buttonStyle(.plain)
+                
+                if song.bpm != nil {
+                    // Preset buttons
+                    HStack(spacing: 8) {
+                        ForEach([80, 100, 120, 140, 160], id: \.self) { tempo in
+                            Button {
+                                song.bpm = tempo
+                            } label: {
+                                Text("\(tempo)")
+                                    .font(TEFonts.mono(11, weight: .bold))
+                                    .foregroundColor(song.bpm == tempo ? .white : TEColors.black)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 36)
+                                    .background(
+                                        Rectangle()
+                                            .fill(song.bpm == tempo ? TEColors.orange : TEColors.cream)
+                                    )
+                                    .overlay(
+                                        Rectangle()
+                                            .strokeBorder(TEColors.black, lineWidth: 2)
+                                    )
+                            }
+                        }
+                    }
+                    
+                    // Stepper
+                    HStack {
+                        Button {
+                            song.bpm = max((song.bpm ?? 120) - 1, 40)
                         } label: {
-                            HStack {
-                                Image(systemName: "trash")
-                                Text("Delete Song")
-                            }
+                            Image(systemName: "minus")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(TEColors.black)
+                                .frame(width: 44, height: 44)
+                                .background(
+                                    Rectangle()
+                                        .strokeBorder(TEColors.black, lineWidth: 2)
+                                )
+                        }
+                        
+                        Spacer()
+                        
+                        Button {
+                            song.bpm = min((song.bpm ?? 120) + 1, 240)
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(TEColors.black)
+                                .frame(width: 44, height: 44)
+                                .background(
+                                    Rectangle()
+                                        .strokeBorder(TEColors.black, lineWidth: 2)
+                                )
                         }
                     }
                 }
             }
-            .navigationTitle(isNew ? "New Song" : "Edit Song")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+            .padding(16)
+            .background(
+                Rectangle()
+                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .background(TEColors.warmWhite)
+            )
+        }
+    }
+    
+    // MARK: - Channel Presets Section
+    
+    private var channelPresetsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("CHANNEL PRESETS")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+            
+            VStack(spacing: 8) {
+                ForEach(channels) { channel in
+                    ChannelStateEditor(
+                        channel: channel,
+                        state: binding(for: channel)
+                    )
                 }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        saveSong()
-                    }
-                    .fontWeight(.semibold)
-                    .disabled(song.name.isEmpty)
-                }
-            }
-            .confirmationDialog("Delete Song", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
-                    sessionStore.deleteSong(song)
-                    dismiss()
-                }
-            } message: {
-                Text("Are you sure you want to delete '\(song.name)'?")
             }
         }
     }
+    
+    // MARK: - Delete Section
+    
+    private var deleteSection: some View {
+        Button {
+            showingDeleteConfirmation = true
+        } label: {
+            HStack {
+                Image(systemName: "trash")
+                    .font(.system(size: 14, weight: .bold))
+                Text("DELETE SONG")
+                    .font(TEFonts.mono(12, weight: .bold))
+            }
+            .foregroundColor(TEColors.red)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(
+                Rectangle()
+                    .strokeBorder(TEColors.red, lineWidth: 2)
+            )
+        }
+    }
+    
+    // MARK: - Helpers
     
     private func saveSong() {
         if isNew {
@@ -164,123 +433,54 @@ struct ChannelStateEditor: View {
     let channel: ChannelConfiguration
     @Binding var state: ChannelPresetState?
     
-    // Computed property to check if this channel has a preset
-    private var isEnabled: Bool {
-        state != nil
-    }
+    @State private var isExpanded = false
     
-    // Current values (from state or channel defaults)
-    private var currentVolume: Float {
-        state?.volume ?? channel.volume
-    }
-    
-    private var currentMuted: Bool {
-        state?.muted ?? channel.isMuted
-    }
-    
-    private var currentEffectBypasses: [Bool] {
-        state?.effectBypasses ?? channel.effects.map { $0.isBypassed }
-    }
+    private var isEnabled: Bool { state != nil }
+    private var currentVolume: Float { state?.volume ?? channel.volume }
+    private var currentMuted: Bool { state?.muted ?? channel.isMuted }
+    private var currentEffectBypasses: [Bool] { state?.effectBypasses ?? channel.effects.map { $0.isBypassed } }
     
     var body: some View {
-        DisclosureGroup {
-            if isEnabled {
-                // Volume
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Volume")
-                        Spacer()
+        VStack(spacing: 0) {
+            // Header row
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    // Color indicator
+                    Rectangle()
+                        .fill(Color(channel.color.uiColor))
+                        .frame(width: 4, height: 44)
+                    
+                    // Channel name
+                    Text(channel.name.uppercased())
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                    
+                    // Status
+                    if isEnabled {
                         Text("\(Int(currentVolume * 100))%")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Slider(value: Binding(
-                        get: { currentVolume },
-                        set: { newVolume in
-                            updateState(volume: newVolume, muted: currentMuted, effectBypasses: currentEffectBypasses)
-                        }
-                    ), in: 0...1)
-                    .tint(.cyan)
-                }
-                
-                // Mute
-                Toggle("Mute Channel", isOn: Binding(
-                    get: { currentMuted },
-                    set: { newMuted in
-                        updateState(volume: currentVolume, muted: newMuted, effectBypasses: currentEffectBypasses)
-                    }
-                ))
-                
-                // Effect Bypasses
-                if !channel.effects.isEmpty {
-                    Divider()
-                    
-                    Text("EFFECTS")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.top, 4)
-                    
-                    ForEach(Array(channel.effects.enumerated()), id: \.element.id) { index, effect in
-                        HStack {
-                            let isBypassed = index < currentEffectBypasses.count ? currentEffectBypasses[index] : false
-                            
-                            Circle()
-                                .fill(!isBypassed ? Color.green : Color.gray)
-                                .frame(width: 8, height: 8)
-                            
-                            Text(effect.name)
-                                .font(.subheadline)
-                            
-                            Spacer()
-                            
-                            Toggle("", isOn: Binding(
-                                get: {
-                                    // true = effect ON (not bypassed)
-                                    index < currentEffectBypasses.count ? !currentEffectBypasses[index] : true
-                                },
-                                set: { isOn in
-                                    var newBypasses = currentEffectBypasses
-                                    // Ensure array is large enough
-                                    while newBypasses.count <= index {
-                                        newBypasses.append(false)
-                                    }
-                                    newBypasses[index] = !isOn  // Store as bypassed (inverted)
-                                    updateState(volume: currentVolume, muted: currentMuted, effectBypasses: newBypasses)
-                                }
-                            ))
-                            .labelsHidden()
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundColor(TEColors.orange)
+                        
+                        if currentMuted {
+                            Text("M")
+                                .font(TEFonts.mono(10, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: 18, height: 18)
+                                .background(TEColors.red)
                         }
                     }
-                }
-            }
-        } label: {
-            HStack {
-                Circle()
-                    .fill(Color(channel.color.uiColor))
-                    .frame(width: 12, height: 12)
-                
-                Text(channel.name)
-                    .fontWeight(.medium)
-                
-                if isEnabled {
-                    Text("• \(Int(currentVolume * 100))%\(currentMuted ? " M" : "")")
-                        .font(.caption)
-                        .foregroundColor(.cyan)
-                }
-                
-                if !channel.effects.isEmpty {
-                    Text("(\(channel.effects.count) FX)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                Toggle("", isOn: Binding(
-                    get: { isEnabled },
-                    set: { newEnabled in
-                        if newEnabled {
-                            // Create new state with channel defaults
+                    
+                    Spacer()
+                    
+                    // Enable toggle
+                    Button {
+                        if isEnabled {
+                            state = nil
+                        } else {
                             state = ChannelPresetState(
                                 channelId: channel.id,
                                 volume: channel.volume,
@@ -288,14 +488,133 @@ struct ChannelStateEditor: View {
                                 muted: channel.isMuted,
                                 effectBypasses: channel.effects.map { $0.isBypassed }
                             )
-                        } else {
-                            state = nil
+                        }
+                    } label: {
+                        Rectangle()
+                            .fill(isEnabled ? TEColors.orange : TEColors.lightGray)
+                            .frame(width: 48, height: 24)
+                            .overlay(
+                                Rectangle()
+                                    .fill(TEColors.warmWhite)
+                                    .frame(width: 20, height: 20)
+                                    .offset(x: isEnabled ? 12 : -12)
+                            )
+                            .overlay(
+                                Rectangle()
+                                    .strokeBorder(TEColors.black, lineWidth: 2)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    
+                    // Expand indicator
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(TEColors.darkGray)
+                }
+                .padding(.trailing, 16)
+            }
+            .buttonStyle(.plain)
+            
+            // Expanded content
+            if isExpanded && isEnabled {
+                VStack(spacing: 16) {
+                    Rectangle()
+                        .fill(TEColors.black)
+                        .frame(height: 1)
+                    
+                    // Volume slider
+                    VStack(spacing: 8) {
+                        HStack {
+                            Text("VOLUME")
+                                .font(TEFonts.mono(9, weight: .medium))
+                                .foregroundColor(TEColors.midGray)
+                            Spacer()
+                            Text("\(Int(currentVolume * 100))")
+                                .font(TEFonts.mono(14, weight: .bold))
+                                .foregroundColor(TEColors.black)
+                        }
+                        
+                        TESlider(value: Binding(
+                            get: { currentVolume },
+                            set: { newVolume in
+                                updateState(volume: newVolume, muted: currentMuted, effectBypasses: currentEffectBypasses)
+                            }
+                        ))
+                    }
+                    
+                    // Mute toggle
+                    Button {
+                        updateState(volume: currentVolume, muted: !currentMuted, effectBypasses: currentEffectBypasses)
+                    } label: {
+                        HStack {
+                            Text("MUTE")
+                                .font(TEFonts.mono(9, weight: .medium))
+                                .foregroundColor(TEColors.midGray)
+                            Spacer()
+                            Rectangle()
+                                .fill(currentMuted ? TEColors.red : TEColors.lightGray)
+                                .frame(width: 48, height: 24)
+                                .overlay(
+                                    Rectangle()
+                                        .fill(TEColors.warmWhite)
+                                        .frame(width: 20, height: 20)
+                                        .offset(x: currentMuted ? 12 : -12)
+                                )
+                                .overlay(
+                                    Rectangle()
+                                        .strokeBorder(TEColors.black, lineWidth: 2)
+                                )
                         }
                     }
-                ))
-                .labelsHidden()
+                    .buttonStyle(.plain)
+                    
+                    // Effect bypasses
+                    if !channel.effects.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("EFFECTS")
+                                .font(TEFonts.mono(9, weight: .bold))
+                                .foregroundColor(TEColors.midGray)
+                            
+                            ForEach(Array(channel.effects.enumerated()), id: \.element.id) { index, effect in
+                                let isBypassed = index < currentEffectBypasses.count ? currentEffectBypasses[index] : false
+                                
+                                Button {
+                                    var newBypasses = currentEffectBypasses
+                                    while newBypasses.count <= index {
+                                        newBypasses.append(false)
+                                    }
+                                    newBypasses[index] = !isBypassed
+                                    updateState(volume: currentVolume, muted: currentMuted, effectBypasses: newBypasses)
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Rectangle()
+                                            .fill(!isBypassed ? TEColors.green : TEColors.lightGray)
+                                            .frame(width: 8, height: 8)
+                                        
+                                        Text(effect.name.uppercased())
+                                            .font(TEFonts.mono(10, weight: .medium))
+                                            .foregroundColor(isBypassed ? TEColors.midGray : TEColors.black)
+                                        
+                                        Spacer()
+                                        
+                                        Text(isBypassed ? "OFF" : "ON")
+                                            .font(TEFonts.mono(9, weight: .bold))
+                                            .foregroundColor(isBypassed ? TEColors.midGray : TEColors.green)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                .padding(16)
             }
         }
+        .background(
+            Rectangle()
+                .strokeBorder(TEColors.black, lineWidth: 2)
+                .background(TEColors.warmWhite)
+        )
     }
     
     private func updateState(volume: Float, muted: Bool, effectBypasses: [Bool]) {

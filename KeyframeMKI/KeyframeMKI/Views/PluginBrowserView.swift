@@ -2,7 +2,7 @@ import SwiftUI
 import AVFoundation
 import AudioToolbox
 
-/// Browser for selecting AUv3 instruments and effects
+/// Browser for selecting AUv3 instruments and effects - TE Style
 struct PluginBrowserView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var pluginManager = AUv3HostManager.shared
@@ -30,12 +30,10 @@ struct PluginBrowserView: View {
     private var filteredComponents: [AVAudioUnitComponent] {
         var result = components
         
-        // Filter by manufacturer
         if let manufacturer = selectedManufacturer {
             result = result.filter { $0.manufacturerName == manufacturer }
         }
         
-        // Filter by search text
         if !searchText.isEmpty {
             result = result.filter {
                 $0.name.localizedCaseInsensitiveContains(searchText) ||
@@ -56,63 +54,150 @@ struct PluginBrowserView: View {
     }
     
     var body: some View {
-        NavigationStack {
+        ZStack {
+            TEColors.cream.ignoresSafeArea()
+            
             VStack(spacing: 0) {
+                // Header
+                header
+                
+                Rectangle()
+                    .fill(TEColors.black)
+                    .frame(height: 2)
+                
+                // Search bar
+                searchBar
+                
                 // Manufacturer filter
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        FilterChip(title: "All", isSelected: selectedManufacturer == nil) {
-                            selectedManufacturer = nil
-                        }
-                        
-                        ForEach(manufacturers, id: \.self) { manufacturer in
-                            FilterChip(title: manufacturer, isSelected: selectedManufacturer == manufacturer) {
-                                selectedManufacturer = manufacturer
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                }
-                .background(Color(UIColor.secondarySystemGroupedBackground))
+                manufacturerFilter
+                
+                Rectangle()
+                    .fill(TEColors.black)
+                    .frame(height: 2)
                 
                 // Plugin list
-                List {
-                    if pluginManager.isScanning {
-                        HStack {
-                            ProgressView()
-                            Text("Scanning for plugins...")
-                                .foregroundColor(.secondary)
-                        }
-                    } else if filteredComponents.isEmpty {
-                        Text("No plugins found")
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(filteredComponents, id: \.name) { component in
-                            PluginRowView(component: component) {
-                                onSelect(component)
-                                dismiss()
-                            }
-                        }
-                    }
-                }
-                .listStyle(.plain)
+                pluginList
             }
-            .navigationTitle(mode == .instrument ? "Instruments" : "Effects")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, prompt: "Search plugins")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+        }
+        .preferredColorScheme(.light)
+    }
+    
+    // MARK: - Header
+    
+    private var header: some View {
+        HStack {
+            Button {
+                dismiss()
+            } label: {
+                Text("CANCEL")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(TEColors.darkGray)
+            }
+            
+            Spacer()
+            
+            Text(mode == .instrument ? "INSTRUMENTS" : "EFFECTS")
+                .font(TEFonts.display(16, weight: .black))
+                .foregroundColor(TEColors.black)
+                .tracking(2)
+            
+            Spacer()
+            
+            Button {
+                pluginManager.scanForPlugins()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(TEColors.orange)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(TEColors.warmWhite)
+    }
+    
+    // MARK: - Search Bar
+    
+    private var searchBar: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+            
+            TextField("SEARCH", text: $searchText)
+                .font(TEFonts.mono(12, weight: .medium))
+                .foregroundColor(TEColors.black)
+                .textInputAutocapitalization(.characters)
+            
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(TEColors.darkGray)
+                }
+            }
+        }
+        .padding(16)
+        .background(TEColors.warmWhite)
+    }
+    
+    // MARK: - Manufacturer Filter
+    
+    private var manufacturerFilter: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                FilterChip(title: "ALL", isSelected: selectedManufacturer == nil) {
+                    selectedManufacturer = nil
                 }
                 
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        pluginManager.scanForPlugins()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+                ForEach(manufacturers, id: \.self) { manufacturer in
+                    FilterChip(
+                        title: manufacturer.uppercased(),
+                        isSelected: selectedManufacturer == manufacturer
+                    ) {
+                        selectedManufacturer = manufacturer
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+        .background(TEColors.lightGray.opacity(0.5))
+    }
+    
+    // MARK: - Plugin List
+    
+    private var pluginList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                if pluginManager.isScanning {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                            .tint(TEColors.orange)
+                        Text("SCANNING...")
+                            .font(TEFonts.mono(12, weight: .medium))
+                            .foregroundColor(TEColors.midGray)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(40)
+                } else if filteredComponents.isEmpty {
+                    Text("NO PLUGINS FOUND")
+                        .font(TEFonts.mono(12, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                        .frame(maxWidth: .infinity)
+                        .padding(40)
+                } else {
+                    ForEach(Array(filteredComponents.enumerated()), id: \.element.name) { index, component in
+                        PluginRowView(
+                            component: component,
+                            index: index,
+                            isInstrument: mode == .instrument
+                        ) {
+                            onSelect(component)
+                            dismiss()
+                        }
                     }
                 }
             }
@@ -130,14 +215,17 @@ struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.caption)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .foregroundColor(isSelected ? .white : .primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(isSelected ? .white : TEColors.black)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
                 .background(
-                    Capsule()
-                        .fill(isSelected ? Color.cyan : Color(UIColor.tertiarySystemGroupedBackground))
+                    Rectangle()
+                        .fill(isSelected ? TEColors.black : TEColors.warmWhite)
+                )
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(TEColors.black, lineWidth: 2)
                 )
         }
         .buttonStyle(.plain)
@@ -148,42 +236,61 @@ struct FilterChip: View {
 
 struct PluginRowView: View {
     let component: AVAudioUnitComponent
+    let index: Int
+    let isInstrument: Bool
     let onSelect: () -> Void
     
+    @State private var isPressed = false
+    
     var body: some View {
-        HStack(spacing: 12) {
-            // Icon (placeholder since iOS doesn't support AU icons)
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.cyan.opacity(0.2))
-                Image(systemName: component.audioComponentDescription.componentType == kAudioUnitType_MusicDevice ? "pianokeys" : "waveform")
-                    .foregroundColor(.cyan)
-            }
-            .frame(width: 44, height: 44)
-            
-            // Info
-            VStack(alignment: .leading, spacing: 4) {
-                Text(component.name)
-                    .font(.headline)
-                    .foregroundColor(.primary)
+        Button(action: onSelect) {
+            HStack(spacing: 16) {
+                // Index number
+                Text(String(format: "%02d", index + 1))
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
+                    .frame(width: 24)
                 
-                Text(component.manufacturerName)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                // Icon
+                ZStack {
+                    Rectangle()
+                        .fill(TEColors.orange.opacity(0.15))
+                        .frame(width: 44, height: 44)
+                    
+                    Image(systemName: isInstrument ? "pianokeys" : "waveform")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(TEColors.orange)
+                }
+                
+                // Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(component.name.uppercased())
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                        .lineLimit(1)
+                    
+                    Text(component.manufacturerName.uppercased())
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                }
+                
+                Spacer()
+                
+                // Arrow
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(TEColors.darkGray)
             }
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(isPressed ? TEColors.lightGray : (index % 2 == 0 ? TEColors.cream : TEColors.warmWhite))
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 4)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onSelect()
-        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
     }
 }
 

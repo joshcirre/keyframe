@@ -84,8 +84,9 @@ final class MIDIEngine: ObservableObject {
         ) { [weak self] eventList, srcConnRefCon in
             // srcConnRefCon is the endpoint ref we passed when connecting
             var sourceName: String? = nil
-            if srcConnRefCon != nil {
-                let endpoint = MIDIEndpointRef(bitPattern: Int(bitPattern: srcConnRefCon))
+            if let refCon = srcConnRefCon {
+                // Convert pointer back to MIDIEndpointRef (UInt32)
+                let endpoint = MIDIEndpointRef(truncatingIfNeeded: UInt(bitPattern: refCon))
                 sourceName = self?.sourceNameMap[endpoint]
             }
             self?.handleMIDIEventList(eventList, sourceName: sourceName)

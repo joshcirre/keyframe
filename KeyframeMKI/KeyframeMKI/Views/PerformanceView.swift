@@ -1,6 +1,32 @@
 import SwiftUI
 
-/// Main performance view - the heart of the Keyframe Performance Engine
+// MARK: - Design System (Teenage Engineering Inspired)
+
+enum TEColors {
+    static let cream = Color(red: 0.98, green: 0.96, blue: 0.92)
+    static let warmWhite = Color(red: 0.99, green: 0.98, blue: 0.96)
+    static let orange = Color(red: 1.0, green: 0.45, blue: 0.0)
+    static let black = Color(red: 0.08, green: 0.08, blue: 0.08)
+    static let darkGray = Color(red: 0.3, green: 0.3, blue: 0.3)
+    static let midGray = Color(red: 0.6, green: 0.6, blue: 0.6)
+    static let lightGray = Color(red: 0.85, green: 0.83, blue: 0.80)
+    static let red = Color(red: 0.9, green: 0.2, blue: 0.15)
+    static let green = Color(red: 0.2, green: 0.75, blue: 0.3)
+    static let yellow = Color(red: 0.95, green: 0.8, blue: 0.0)
+}
+
+enum TEFonts {
+    static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+    
+    static func display(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
+        .system(size: size, weight: weight, design: .default)
+    }
+}
+
+// MARK: - Main Performance View
+
 struct PerformanceView: View {
     @StateObject private var audioEngine = AudioEngine.shared
     @StateObject private var midiEngine = MIDIEngine.shared
@@ -15,107 +41,50 @@ struct PerformanceView: View {
     @State private var editingSong: PerformanceSong?
     
     var body: some View {
-        NavigationStack {
-            ZStack {
-                // Background
-                backgroundGradient
+        ZStack {
+            TEColors.cream.ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Header
+                header
                 
-                VStack(spacing: 0) {
-                    // Active Song Header
-                    if let activeSong = sessionStore.currentSession.activeSong {
-                        ActiveSongBanner(song: activeSong)
-                            .padding(.horizontal)
-                            .padding(.top, 8)
-                    }
-                    
-                    // Channel Strips
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
-                                ChannelStripView(
-                                    channel: channel,
-                                    config: sessionStore.currentSession.channels[safe: index],
-                                    isSelected: selectedChannelIndex == index
-                                ) {
-                                    selectedChannelIndex = index
-                                    showingChannelDetail = true
-                                }
-                            }
-                            
-                            // Add Channel Button
-                            AddChannelButton {
-                                if let _ = audioEngine.addChannel() {
-                                    var newConfig = ChannelConfiguration(name: "Channel \(audioEngine.channelStrips.count)")
-                                    sessionStore.currentSession.channels.append(newConfig)
-                                    sessionStore.saveCurrentSession()
-                                }
-                            }
-                        }
-                        .padding()
-                    }
-                    .frame(height: 200)
-                    
-                    Divider()
-                        .background(Color.white.opacity(0.1))
-                    
-                    // Song Grid
-                    SongGridView(
-                        songs: sessionStore.currentSession.songs,
-                        activeSongId: sessionStore.currentSession.activeSongId,
-                        onSelectSong: { song in
-                            selectSong(song)
-                        },
-                        onEditSong: { song in
-                            editingSong = song
-                            showingSongEditor = true
-                        },
-                        onAddSong: {
-                            editingSong = nil
-                            showingSongEditor = true
-                        }
-                    )
-                    
-                    // Status Bar
-                    PerformanceStatusBar(
-                        audioEngine: audioEngine,
-                        midiEngine: midiEngine
-                    )
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-                }
-            }
-            .navigationTitle("KEYFRAME")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        if audioEngine.isRunning {
-                            audioEngine.stop()
-                        } else {
-                            audioEngine.start()
-                        }
-                    } label: {
-                        Image(systemName: audioEngine.isRunning ? "stop.circle.fill" : "play.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(audioEngine.isRunning ? .red : .green)
-                    }
+                // Active Song Display
+                if let activeSong = sessionStore.currentSession.activeSong {
+                    ActiveSongBanner(song: activeSong)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                            .foregroundColor(.cyan)
+                // Channel Strips
+                channelStripSection
+                
+                // Divider
+                Rectangle()
+                    .fill(TEColors.black)
+                    .frame(height: 2)
+                    .padding(.horizontal, 20)
+                
+                // Song Grid
+                SongGridView(
+                    songs: sessionStore.currentSession.songs,
+                    activeSongId: sessionStore.currentSession.activeSongId,
+                    onSelectSong: { song in selectSong(song) },
+                    onEditSong: { song in
+                        editingSong = song
+                        showingSongEditor = true
+                    },
+                    onAddSong: {
+                        editingSong = nil
+                        showingSongEditor = true
                     }
-                }
+                )
+                
+                // Status Bar
+                PerformanceStatusBar(audioEngine: audioEngine, midiEngine: midiEngine)
             }
-            .toolbarBackground(Color(red: 0.05, green: 0.05, blue: 0.12), for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
-        .onAppear {
-            setupEngines()
-        }
+        .preferredColorScheme(.light)
+        .onAppear { setupEngines() }
         .sheet(isPresented: $showingChannelDetail) {
             if let index = selectedChannelIndex {
                 ChannelDetailView(
@@ -136,38 +105,108 @@ struct PerformanceView: View {
         }
     }
     
-    // MARK: - Background
+    // MARK: - Header
     
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.05, green: 0.05, blue: 0.12),
-                Color(red: 0.02, green: 0.02, blue: 0.08)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+    private var header: some View {
+        HStack(spacing: 16) {
+            // Logo/Title
+            Text("KEYFRAME")
+                .font(TEFonts.display(20, weight: .black))
+                .foregroundColor(TEColors.black)
+                .tracking(4)
+            
+            Text("MK I")
+                .font(TEFonts.mono(12, weight: .medium))
+                .foregroundColor(TEColors.midGray)
+            
+            Spacer()
+            
+            // Power button
+            Button {
+                if audioEngine.isRunning {
+                    audioEngine.stop()
+                } else {
+                    audioEngine.start()
+                }
+            } label: {
+                ZStack {
+                    Circle()
+                        .strokeBorder(TEColors.black, lineWidth: 2)
+                        .frame(width: 44, height: 44)
+                    
+                    Circle()
+                        .fill(audioEngine.isRunning ? TEColors.orange : TEColors.lightGray)
+                        .frame(width: 32, height: 32)
+                    
+                    Image(systemName: "power")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(audioEngine.isRunning ? .white : TEColors.darkGray)
+                }
+            }
+            
+            // Settings
+            Button {
+                showingSettings = true
+            } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(TEColors.black, lineWidth: 2)
+                        .frame(width: 44, height: 44)
+                    
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(TEColors.warmWhite)
+    }
+    
+    // MARK: - Channel Strips
+    
+    private var channelStripSection: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
+                    ChannelStripView(
+                        channel: channel,
+                        config: sessionStore.currentSession.channels[safe: index],
+                        isSelected: selectedChannelIndex == index
+                    ) {
+                        selectedChannelIndex = index
+                        showingChannelDetail = true
+                    }
+                }
+                
+                AddChannelButton {
+                    if let _ = audioEngine.addChannel() {
+                        let newConfig = ChannelConfiguration(name: "CH \(audioEngine.channelStrips.count)")
+                        sessionStore.currentSession.channels.append(newConfig)
+                        sessionStore.saveCurrentSession()
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+        }
+        .frame(height: 220)
     }
     
     // MARK: - Setup
     
     private func setupEngines() {
         midiEngine.setAudioEngine(audioEngine)
-        
-        // Sync channel configs to channel strips
         syncChannelConfigs()
         
-        // Apply current song settings if any
         if let activeSong = sessionStore.currentSession.activeSong {
             midiEngine.applySongSettings(convertToLegacySong(activeSong))
         }
         
-        // Start audio engine
         audioEngine.start()
     }
     
-    /// Sync ChannelConfiguration settings to ChannelStrip objects
     private func syncChannelConfigs() {
         for (index, config) in sessionStore.currentSession.channels.enumerated() {
             if index < audioEngine.channelStrips.count {
@@ -189,16 +228,9 @@ struct PerformanceView: View {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         
-        // Update session
         sessionStore.setActiveSong(song)
-        
-        // Apply to MIDI engine
         midiEngine.applySongSettings(convertToLegacySong(song))
-        
-        // Apply channel states directly, passing configs to match by index
         audioEngine.applyChannelStates(song.channelStates, configs: sessionStore.currentSession.channels)
-        
-        print("Selected song: \(song.name) with \(song.channelStates.count) channel presets")
     }
     
     private func convertToLegacySong(_ song: PerformanceSong) -> Song {
@@ -207,22 +239,19 @@ struct PerformanceView: View {
             rootNote: song.rootNote,
             scaleType: song.scaleType,
             filterMode: song.filterMode,
-            preset: MIDIPreset.empty,  // Performance engine doesn't use MIDI presets
+            preset: MIDIPreset.empty,
             bpm: song.bpm
         )
     }
     
     private func binding(for index: Int) -> Binding<ChannelConfiguration> {
         Binding(
-            get: {
-                sessionStore.currentSession.channels[safe: index] ?? ChannelConfiguration()
-            },
+            get: { sessionStore.currentSession.channels[safe: index] ?? ChannelConfiguration() },
             set: { newValue in
                 if index < sessionStore.currentSession.channels.count {
                     sessionStore.currentSession.channels[index] = newValue
                     sessionStore.saveCurrentSession()
                     
-                    // Sync to channel strip
                     if index < audioEngine.channelStrips.count {
                         let strip = audioEngine.channelStrips[index]
                         strip.midiChannel = newValue.midiChannel
@@ -242,66 +271,61 @@ struct ActiveSongBanner: View {
     let song: PerformanceSong
     
     var body: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("NOW PLAYING")
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.cyan.opacity(0.7))
-                    .tracking(2)
+        HStack(spacing: 0) {
+            // Song name
+            VStack(alignment: .leading, spacing: 2) {
+                Text("NOW")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
                 
-                Text(song.name)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
+                Text(song.name.uppercased())
+                    .font(TEFonts.display(24, weight: .black))
+                    .foregroundColor(TEColors.black)
+                    .lineLimit(1)
             }
             
             Spacer()
             
-            // Key
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("KEY")
-                    .font(.caption2)
-                    .foregroundColor(.cyan.opacity(0.7))
-                Text(song.keyDisplayName)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.cyan)
-            }
-            
-            // BPM
-            if let bpm = song.bpm {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("BPM")
-                        .font(.caption2)
-                        .foregroundColor(.purple.opacity(0.7))
-                    Text("\(bpm)")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.purple)
+            // Data blocks
+            HStack(spacing: 16) {
+                DataBlock(label: "KEY", value: song.keyShortName.uppercased())
+                
+                if let bpm = song.bpm {
+                    DataBlock(label: "BPM", value: "\(bpm)")
                 }
-            }
-            
-            // Mode
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("MODE")
-                    .font(.caption2)
-                    .foregroundColor(.cyan.opacity(0.7))
-                Text(song.filterMode.rawValue)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(song.filterMode == .block ? .orange : .green)
+                
+                DataBlock(
+                    label: "MODE",
+                    value: song.filterMode == .snap ? "SNAP" : "BLOCK",
+                    highlight: song.filterMode == .block
+                )
             }
         }
-        .padding()
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(Color.cyan.opacity(0.3), lineWidth: 1)
-                )
+            RoundedRectangle(cornerRadius: 0)
+                .strokeBorder(TEColors.black, lineWidth: 2)
+                .background(TEColors.warmWhite)
         )
+    }
+}
+
+struct DataBlock: View {
+    let label: String
+    let value: String
+    var highlight: Bool = false
+    
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(label)
+                .font(TEFonts.mono(9, weight: .medium))
+                .foregroundColor(TEColors.midGray)
+            
+            Text(value)
+                .font(TEFonts.mono(16, weight: .bold))
+                .foregroundColor(highlight ? TEColors.orange : TEColors.black)
+        }
+        .frame(minWidth: 50)
     }
 }
 
@@ -313,60 +337,47 @@ struct ChannelStripView: View {
     let isSelected: Bool
     let onTap: () -> Void
     
-    private var channelColor: Color {
-        Color(config?.color.uiColor ?? .systemCyan)
-    }
-    
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 8) {
-                // Channel name
-                Text(config?.name ?? channel.name)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
+                // Channel number
+                Text(config?.name.prefix(6).uppercased() ?? "CH")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(TEColors.black)
                     .lineLimit(1)
                 
                 // Meter
                 MeterView(level: channel.peakLevel)
-                    .frame(width: 8)
+                    .frame(width: 24)
                 
-                // Volume
-                Text("\(Int(channel.volume * 100))%")
-                    .font(.caption2)
-                    .foregroundColor(.gray)
-                    .monospacedDigit()
+                // Volume display
+                Text("\(Int(channel.volume * 100))")
+                    .font(TEFonts.mono(14, weight: .bold))
+                    .foregroundColor(TEColors.black)
                 
-                // Mute button
-                Button {
-                    channel.isMuted.toggle()
-                } label: {
+                // Mute indicator
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(channel.isMuted ? TEColors.red : TEColors.lightGray)
+                        .frame(width: 32, height: 20)
+                    
                     Text("M")
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundColor(channel.isMuted ? .black : .white.opacity(0.5))
-                        .frame(width: 24, height: 24)
-                        .background(
-                            Circle()
-                                .fill(channel.isMuted ? Color.red : Color.white.opacity(0.1))
-                        )
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(channel.isMuted ? .white : TEColors.darkGray)
                 }
-                .buttonStyle(.plain)
                 
-                // Instrument indicator
+                // Instrument loaded indicator
                 Circle()
-                    .fill(channel.isInstrumentLoaded ? channelColor : Color.gray.opacity(0.3))
+                    .fill(channel.isInstrumentLoaded ? TEColors.orange : TEColors.lightGray)
                     .frame(width: 8, height: 8)
             }
-            .frame(width: 60)
+            .frame(width: 64)
             .padding(.vertical, 12)
+            .padding(.horizontal, 8)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(isSelected ? 0.15 : 0.05))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(channelColor.opacity(isSelected ? 0.8 : 0.3), lineWidth: isSelected ? 2 : 1)
-                    )
+                RoundedRectangle(cornerRadius: 0)
+                    .strokeBorder(TEColors.black, lineWidth: isSelected ? 3 : 2)
+                    .background(isSelected ? TEColors.warmWhite : TEColors.cream)
             )
         }
         .buttonStyle(.plain)
@@ -376,33 +387,39 @@ struct ChannelStripView: View {
 // MARK: - Meter View
 
 struct MeterView: View {
-    let level: Float  // in dB
+    let level: Float
     
     private var normalizedLevel: CGFloat {
-        // Convert dB to 0-1 range
         let minDb: Float = -60
         let maxDb: Float = 0
         let clamped = min(max(level, minDb), maxDb)
         return CGFloat((clamped - minDb) / (maxDb - minDb))
     }
     
-    private var meterColor: Color {
-        if level > -3 { return .red }
-        if level > -12 { return .yellow }
-        return .green
-    }
-    
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
-                // Background
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white.opacity(0.1))
+                // Background segments
+                VStack(spacing: 2) {
+                    ForEach(0..<12, id: \.self) { i in
+                        Rectangle()
+                            .fill(TEColors.lightGray)
+                            .frame(height: (geometry.size.height - 22) / 12)
+                    }
+                }
                 
-                // Level
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(meterColor)
-                    .frame(height: geometry.size.height * normalizedLevel)
+                // Active segments
+                VStack(spacing: 2) {
+                    ForEach(0..<12, id: \.self) { i in
+                        let segmentLevel = CGFloat(12 - i) / 12.0
+                        let isActive = normalizedLevel >= segmentLevel
+                        let color: Color = i < 2 ? TEColors.red : (i < 4 ? TEColors.yellow : TEColors.green)
+                        
+                        Rectangle()
+                            .fill(isActive ? color : Color.clear)
+                            .frame(height: (geometry.size.height - 22) / 12)
+                    }
+                }
             }
         }
         .frame(height: 80)
@@ -417,19 +434,20 @@ struct AddChannelButton: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 8) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(.cyan.opacity(0.6))
+                Image(systemName: "plus")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(TEColors.darkGray)
                 
-                Text("Add")
-                    .font(.caption2)
-                    .foregroundColor(.cyan.opacity(0.6))
+                Text("ADD")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(TEColors.darkGray)
             }
-            .frame(width: 60)
+            .frame(width: 64)
             .padding(.vertical, 12)
+            .padding(.horizontal, 8)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color.cyan.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                RoundedRectangle(cornerRadius: 0)
+                    .strokeBorder(TEColors.darkGray, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
             )
         }
         .buttonStyle(.plain)
@@ -446,7 +464,7 @@ struct SongGridView: View {
     let onAddSong: () -> Void
     
     private let columns = [
-        GridItem(.adaptive(minimum: 100, maximum: 150), spacing: 12)
+        GridItem(.adaptive(minimum: 100, maximum: 140), spacing: 12)
     ]
     
     var body: some View {
@@ -461,25 +479,25 @@ struct SongGridView: View {
                     )
                 }
                 
-                // Add Song Button
+                // Add button
                 Button(action: onAddSong) {
-                    VStack(spacing: 8) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title2)
-                        Text("Add Song")
-                            .font(.caption)
+                    VStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .bold))
+                        Text("NEW")
+                            .font(TEFonts.mono(10, weight: .bold))
                     }
-                    .foregroundColor(.cyan.opacity(0.6))
+                    .foregroundColor(TEColors.darkGray)
                     .frame(maxWidth: .infinity)
                     .frame(height: 80)
                     .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(Color.cyan.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                        RoundedRectangle(cornerRadius: 0)
+                            .strokeBorder(TEColors.darkGray, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
                     )
                 }
                 .buttonStyle(.plain)
             }
-            .padding()
+            .padding(20)
         }
     }
 }
@@ -494,41 +512,36 @@ struct SongGridButton: View {
     
     @State private var isPressed = false
     
-    private var songColor: Color {
-        let colors: [Color] = [.red, .orange, .yellow, .green, .mint, .cyan, .blue, .indigo, .purple, .pink, .red, .orange]
-        return colors[song.rootNote % colors.count]
-    }
-    
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 4) {
-                Text(song.name)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(isActive ? .black : .white)
+                Text(song.name.uppercased())
+                    .font(TEFonts.mono(12, weight: .bold))
+                    .foregroundColor(isActive ? .white : TEColors.black)
                     .lineLimit(1)
                 
-                Text(song.keyShortName)
-                    .font(.caption)
-                    .foregroundColor(isActive ? .black.opacity(0.7) : songColor)
+                Text(song.keyShortName.uppercased())
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(isActive ? .white.opacity(0.8) : TEColors.midGray)
                 
                 if let bpm = song.bpm {
                     Text("\(bpm)")
-                        .font(.caption2)
-                        .foregroundColor(isActive ? .black.opacity(0.6) : .gray)
+                        .font(TEFonts.mono(10, weight: .regular))
+                        .foregroundColor(isActive ? .white.opacity(0.6) : TEColors.midGray)
                 }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 80)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(isActive ? songColor : Color.white.opacity(0.05))
+                RoundedRectangle(cornerRadius: 0)
+                    .fill(isActive ? TEColors.orange : TEColors.warmWhite)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(songColor.opacity(isActive ? 0 : 0.5), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 0)
+                    .strokeBorder(TEColors.black, lineWidth: isActive ? 3 : 2)
             )
-            .scaleEffect(isPressed ? 0.95 : 1.0)
+            .scaleEffect(isPressed ? 0.96 : 1.0)
+            .animation(.easeOut(duration: 0.1), value: isPressed)
         }
         .buttonStyle(.plain)
         .simultaneousGesture(
@@ -554,63 +567,48 @@ struct PerformanceStatusBar: View {
     @ObservedObject var midiEngine: MIDIEngine
     
     var body: some View {
-        HStack {
-            // Audio status
+        HStack(spacing: 20) {
+            // Engine status
             HStack(spacing: 6) {
                 Circle()
-                    .fill(audioEngine.isRunning ? Color.green : Color.red)
+                    .fill(audioEngine.isRunning ? TEColors.green : TEColors.red)
                     .frame(width: 8, height: 8)
                 
-                Text(audioEngine.isRunning ? "Running" : "Stopped")
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                Text(audioEngine.isRunning ? "RUN" : "OFF")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(TEColors.black)
             }
             
-            Spacer()
-            
-            // MIDI activity
+            // MIDI
             HStack(spacing: 6) {
-                Image(systemName: "pianokeys")
-                    .font(.caption)
-                    .foregroundColor(midiEngine.lastActivity != nil ? .cyan : .gray)
+                Rectangle()
+                    .fill(midiEngine.lastActivity != nil ? TEColors.orange : TEColors.lightGray)
+                    .frame(width: 8, height: 8)
                 
-                Text("\(midiEngine.connectedSources.count) MIDI")
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                Text("MIDI \(midiEngine.connectedSources.count)")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(TEColors.darkGray)
             }
             
             Spacer()
             
             // CPU
-            Text("CPU: \(Int(audioEngine.cpuUsage))%")
-                .font(.caption)
-                .foregroundColor(.gray)
-                .monospacedDigit()
+            Text("CPU \(Int(audioEngine.cpuUsage))%")
+                .font(TEFonts.mono(10, weight: .medium))
+                .foregroundColor(TEColors.darkGray)
             
-            Spacer()
-            
-            // Peak meter
-            HStack(spacing: 4) {
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.caption)
-                    .foregroundColor(audioEngine.peakLevel > -3 ? .red : .cyan)
-                
-                Text(String(format: "%.0f dB", audioEngine.peakLevel))
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .monospacedDigit()
-            }
+            // Peak
+            Text(String(format: "%.0fdB", audioEngine.peakLevel))
+                .font(TEFonts.mono(10, weight: .medium))
+                .foregroundColor(audioEngine.peakLevel > -3 ? TEColors.red : TEColors.darkGray)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white.opacity(0.03))
-        )
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(TEColors.lightGray)
     }
 }
 
-// MARK: - Array Safe Subscript
+// MARK: - Array Extension
 
 extension Array {
     subscript(safe index: Int) -> Element? {
