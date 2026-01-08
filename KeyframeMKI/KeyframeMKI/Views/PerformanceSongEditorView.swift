@@ -442,12 +442,9 @@ struct ChannelStateEditor: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header row
-            Button {
-                withAnimation(.easeOut(duration: 0.15)) {
-                    isExpanded.toggle()
-                }
-            } label: {
+            // Header row - separate expand and toggle tap areas
+            HStack(spacing: 0) {
+                // Left side: tappable for expand
                 HStack(spacing: 12) {
                     // Color indicator
                     Rectangle()
@@ -476,44 +473,54 @@ struct ChannelStateEditor: View {
                     
                     Spacer()
                     
-                    // Enable toggle
-                    Button {
-                        if isEnabled {
-                            state = nil
-                        } else {
-                            state = ChannelPresetState(
-                                channelId: channel.id,
-                                volume: channel.volume,
-                                pan: nil,
-                                muted: channel.isMuted,
-                                effectBypasses: channel.effects.map { $0.isBypassed }
-                            )
-                        }
-                    } label: {
-                        Rectangle()
-                            .fill(isEnabled ? TEColors.orange : TEColors.lightGray)
-                            .frame(width: 48, height: 24)
-                            .overlay(
-                                Rectangle()
-                                    .fill(TEColors.warmWhite)
-                                    .frame(width: 20, height: 20)
-                                    .offset(x: isEnabled ? 12 : -12)
-                            )
-                            .overlay(
-                                Rectangle()
-                                    .strokeBorder(TEColors.black, lineWidth: 2)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    
                     // Expand indicator
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundColor(TEColors.darkGray)
+                        .frame(width: 24, height: 24)
                 }
-                .padding(.trailing, 16)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // Only expand if enabled
+                    if isEnabled {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            isExpanded.toggle()
+                        }
+                    }
+                }
+                
+                // Right side: enable toggle (separate tap target)
+                Button {
+                    if isEnabled {
+                        state = nil
+                        isExpanded = false
+                    } else {
+                        state = ChannelPresetState(
+                            channelId: channel.id,
+                            volume: channel.volume,
+                            pan: nil,
+                            muted: channel.isMuted,
+                            effectBypasses: channel.effects.map { $0.isBypassed }
+                        )
+                    }
+                } label: {
+                    Rectangle()
+                        .fill(isEnabled ? TEColors.orange : TEColors.lightGray)
+                        .frame(width: 48, height: 24)
+                        .overlay(
+                            Rectangle()
+                                .fill(TEColors.warmWhite)
+                                .frame(width: 20, height: 20)
+                                .offset(x: isEnabled ? 12 : -12)
+                        )
+                        .overlay(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: 2)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
             }
-            .buttonStyle(.plain)
             
             // Expanded content
             if isExpanded && isEnabled {

@@ -592,7 +592,15 @@ struct TESlider: View {
 struct TEPicker<T: Hashable>: View {
     let label: String
     @Binding var selection: T
-    let options: [T: String]
+    let options: [(key: T, value: String)]
+    
+    init(label: String, selection: Binding<T>, options: [T: String]) {
+        self.label = label
+        self._selection = selection
+        // Convert to sorted array for stable ordering
+        self.options = options.map { (key: $0.key, value: $0.value) }
+            .sorted { $0.value < $1.value }
+    }
     
     var body: some View {
         HStack {
@@ -603,20 +611,20 @@ struct TEPicker<T: Hashable>: View {
             Spacer()
             
             Menu {
-                ForEach(Array(options.keys), id: \.self) { key in
+                ForEach(options, id: \.key) { option in
                     Button {
-                        selection = key
+                        selection = option.key
                     } label: {
-                        if selection == key {
-                            Label(options[key] ?? "", systemImage: "checkmark")
+                        if selection == option.key {
+                            Label(option.value, systemImage: "checkmark")
                         } else {
-                            Text(options[key] ?? "")
+                            Text(option.value)
                         }
                     }
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Text(options[selection] ?? "")
+                    Text(options.first { $0.key == selection }?.value ?? "")
                         .font(TEFonts.mono(12, weight: .bold))
                         .foregroundColor(TEColors.black)
                     
