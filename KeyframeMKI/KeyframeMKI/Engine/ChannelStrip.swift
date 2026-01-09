@@ -194,6 +194,10 @@ final class ChannelStrip: ObservableObject, Identifiable {
     func unloadInstrument() {
         guard let instrument = instrument, let engine = engine else { return }
 
+        // Clear blocks before detaching to avoid dangling references
+        instrument.auAudioUnit.musicalContextBlock = nil
+        instrument.auAudioUnit.transportStateBlock = nil
+
         engine.detach(instrument)
         self.instrument = nil
         self.instrumentInfo = nil
@@ -251,11 +255,16 @@ final class ChannelStrip: ObservableObject, Identifiable {
     /// Remove an effect at index
     func removeEffect(at index: Int) {
         guard index < effects.count, let engine = engine else { return }
-        
+
         let effect = effects.remove(at: index)
         effectInfos.remove(at: index)
+
+        // Clear blocks before detaching to avoid dangling references
+        effect.auAudioUnit.musicalContextBlock = nil
+        effect.auAudioUnit.transportStateBlock = nil
+
         engine.detach(effect)
-        
+
         rebuildAudioChain()
     }
     
@@ -311,16 +320,23 @@ final class ChannelStrip: ObservableObject, Identifiable {
     // MARK: - Host Musical Context (Tempo Sync)
 
     /// Update the musical context (tempo, transport) for all hosted plugins
+    /// Note: We only update the values here - the blocks read from these values
+    /// and were set once when the AU was loaded. Don't re-apply blocks while
+    /// audio is rendering as it causes race conditions.
     func updateMusicalContext(tempo: Double, isPlaying: Bool) {
         hostTempo = tempo
         hostIsPlaying = isPlaying
+        // Blocks already reference hostTempo and hostIsPlaying via weak self
+        // No need to re-apply them - that causes race conditions on the audio thread
+    }
 
-        // Apply to instrument
+    /// Apply musical context blocks to a newly loaded AU (called once at load time)
+    /// This should only be called when first loading an instrument/effect,
+    /// NOT when tempo changes (use updateMusicalContext for that)
+    func applyMusicalContextToAllAUs() {
         if let instrument = instrument {
             applyMusicalContext(to: instrument.auAudioUnit)
         }
-
-        // Apply to all effects
         for effect in effects {
             applyMusicalContext(to: effect.auAudioUnit)
         }
@@ -503,15 +519,24 @@ final class ChannelStrip: ObservableObject, Identifiable {
             mixer.removeTap(onBus: 0)
         }
 
+        // Clear musical context blocks before detaching to avoid dangling references
         if let instrument = instrument {
+            instrument.auAudioUnit.musicalContextBlock = nil
+            instrument.auAudioUnit.transportStateBlock = nil
             engine.detach(instrument)
         }
 
         for effect in effects {
+            effect.auAudioUnit.musicalContextBlock = nil
+            effect.auAudioUnit.transportStateBlock = nil
             engine.detach(effect)
         }
 
         engine.detach(mixer)
+
+        // Clear references
+        self.instrument = nil
+        self.effects.removeAll()
     }
 }
 
