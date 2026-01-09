@@ -12,6 +12,7 @@ struct PerformanceSettingsView: View {
     @State private var newSessionName = ""
     @State private var showingResetConfirmation = false
     @State private var showingChordMap = false
+    @State private var showingBluetoothMIDI = false
     
     var body: some View {
         ZStack {
@@ -30,6 +31,7 @@ struct PerformanceSettingsView: View {
                     VStack(spacing: 24) {
                         audioSection
                         midiSection
+                        midiOutputSection
                         scaleFilterSection
                         pluginsSection
                         sessionSection
@@ -62,6 +64,9 @@ struct PerformanceSettingsView: View {
         }
         .sheet(isPresented: $showingChordMap) {
             ChordMapView()
+        }
+        .sheet(isPresented: $showingBluetoothMIDI) {
+            BluetoothMIDIView()
         }
     }
     
@@ -172,7 +177,255 @@ struct PerformanceSettingsView: View {
             }
         }
     }
-    
+
+    // MARK: - MIDI Output Section
+
+    private var midiOutputSection: some View {
+        TESettingsSection(title: "MIDI OUTPUT") {
+            VStack(spacing: 16) {
+                // Network MIDI subsection
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("NETWORK SESSION")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundColor(TEColors.darkGray)
+
+                    Text("Creates a WiFi MIDI session using your device name. Other devices on your network can connect to send MIDI here.")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    TEToggle(label: "ENABLED", isOn: $midiEngine.isNetworkSessionEnabled)
+
+                    if midiEngine.isNetworkSessionEnabled {
+                        HStack {
+                            Text("SESSION")
+                                .font(TEFonts.mono(10, weight: .medium))
+                                .foregroundColor(TEColors.midGray)
+
+                            Spacer()
+
+                            Text(midiEngine.networkSessionName.uppercased())
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundColor(TEColors.orange)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(
+                    Rectangle()
+                        .fill(TEColors.cream)
+                )
+
+                // Bluetooth MIDI subsection
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("BLUETOOTH DEVICES")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundColor(TEColors.darkGray)
+
+                    Text("Pair with Bluetooth MIDI devices (like WIDI). They'll appear as destinations below.")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        showingBluetoothMIDI = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("PAIR DEVICE")
+                                .font(TEFonts.mono(11, weight: .bold))
+                        }
+                        .foregroundColor(TEColors.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: 2)
+                        )
+                    }
+                }
+                .padding(12)
+                .background(
+                    Rectangle()
+                        .fill(TEColors.cream)
+                )
+
+                // Divider
+                Rectangle()
+                    .fill(TEColors.lightGray)
+                    .frame(height: 1)
+
+                // Scan devices button
+                Button {
+                    midiEngine.refreshDestinations()
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("SCAN DESTINATIONS")
+                            .font(TEFonts.mono(11, weight: .bold))
+                    }
+                    .foregroundColor(TEColors.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 40)
+                    .background(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                    )
+                }
+
+                // Destination picker
+                HStack {
+                    Text("SEND TO")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+
+                    Spacer()
+
+                    Menu {
+                        Button("NONE") {
+                            midiEngine.selectedDestinationEndpoint = nil
+                        }
+                        ForEach(midiEngine.availableDestinations) { dest in
+                            Button(dest.name.uppercased()) {
+                                midiEngine.selectedDestinationEndpoint = dest.endpoint
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(selectedDestinationLabel)
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundColor(midiEngine.selectedDestinationEndpoint == nil ? TEColors.midGray : TEColors.black)
+                                .lineLimit(1)
+
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(TEColors.darkGray)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: 2)
+                        )
+                    }
+                }
+
+                if midiEngine.availableDestinations.isEmpty {
+                    Text("No destinations found. Enable Network Session or pair a Bluetooth device.")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Channel picker
+                HStack {
+                    Text("CHANNEL")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+
+                    Spacer()
+
+                    Menu {
+                        ForEach(1...16, id: \.self) { ch in
+                            Button("CH \(ch)") {
+                                midiEngine.externalMIDIChannel = ch
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("CH \(midiEngine.externalMIDIChannel)")
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundColor(TEColors.black)
+
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(TEColors.darkGray)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: 2)
+                        )
+                    }
+                }
+
+                // Divider
+                Rectangle()
+                    .fill(TEColors.lightGray)
+                    .frame(height: 1)
+
+                // Tempo sync subsection
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("TEMPO SYNC")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundColor(TEColors.darkGray)
+
+                    Text("Sends tap tempo to external devices when selecting songs with BPM. Helix uses CC 64 by default.")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    TEToggle(label: "ENABLED", isOn: $midiEngine.isExternalTempoSyncEnabled)
+
+                    if midiEngine.isExternalTempoSyncEnabled {
+                        HStack {
+                            Text("TAP TEMPO CC")
+                                .font(TEFonts.mono(10, weight: .medium))
+                                .foregroundColor(TEColors.midGray)
+
+                            Spacer()
+
+                            Menu {
+                                Button("CC 64 (HELIX DEFAULT)") {
+                                    midiEngine.tapTempoCC = 64
+                                }
+                                ForEach([1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120], id: \.self) { cc in
+                                    if cc != 64 {
+                                        Button("CC \(cc)") {
+                                            midiEngine.tapTempoCC = cc
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text("CC \(midiEngine.tapTempoCC)")
+                                        .font(TEFonts.mono(12, weight: .bold))
+                                        .foregroundColor(TEColors.black)
+
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(TEColors.darkGray)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Rectangle()
+                                        .strokeBorder(TEColors.black, lineWidth: 2)
+                                )
+                            }
+                        }
+                    }
+                }
+                .padding(12)
+                .background(
+                    Rectangle()
+                        .fill(TEColors.cream)
+                )
+            }
+        }
+    }
+
+    private var selectedDestinationLabel: String {
+        guard let endpoint = midiEngine.selectedDestinationEndpoint,
+              let dest = midiEngine.availableDestinations.first(where: { $0.endpoint == endpoint }) else {
+            return "NONE"
+        }
+        return dest.name.uppercased()
+    }
+
     // MARK: - Scale Filter Section
 
     private var scaleFilterSection: some View {

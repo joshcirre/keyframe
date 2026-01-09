@@ -26,6 +26,9 @@
 		8A1B2C3D4E5F6042 /* MIDIEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6042 /* MIDIEngine.swift */; };
 		8A1B2C3D4E5F6043 /* AUv3HostManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6043 /* AUv3HostManager.swift */; };
 		8A1B2C3D4E5F6050 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6050 /* Session.swift */; };
+		8A1B2C3D4E5F6035 /* BluetoothMIDIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */; };
+		8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */; };
+		8A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,6 +53,9 @@
 		9A1B2C3D4E5F6042 /* MIDIEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIEngine.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6043 /* AUv3HostManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AUv3HostManager.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6050 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothMIDIView.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessageEditorView.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessage.swift; sourceTree = "<group>"; };
 		CA1B2C3D4E5F6000 /* KeyframeMKI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeyframeMKI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -91,12 +97,14 @@
 		GA1B2C3D4E5F6002 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */,
 				9A1B2C3D4E5F6005 /* ChordMapView.swift */,
-				9A1B2C3D4E5F6030 /* PerformanceView.swift */,
 				9A1B2C3D4E5F6031 /* ChannelDetailView.swift */,
-				9A1B2C3D4E5F6032 /* PluginBrowserView.swift */,
-				9A1B2C3D4E5F6033 /* PerformanceSongEditorView.swift */,
+				9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */,
+				9A1B2C3D4E5F6030 /* PerformanceView.swift */,
 				9A1B2C3D4E5F6034 /* PerformanceSettingsView.swift */,
+				9A1B2C3D4E5F6033 /* PerformanceSongEditorView.swift */,
+				9A1B2C3D4E5F6032 /* PluginBrowserView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -104,6 +112,7 @@
 		GA1B2C3D4E5F6003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */,
 				9A1B2C3D4E5F6050 /* Session.swift */,
 			);
 			path = Models;
@@ -235,6 +244,9 @@
 				8A1B2C3D4E5F6024 /* Constants.swift in Sources */,
 				8A1B2C3D4E5F6025 /* Song.swift in Sources */,
 				8A1B2C3D4E5F6026 /* MIDIPreset.swift in Sources */,
+				8A1B2C3D4E5F6035 /* BluetoothMIDIView.swift in Sources */,
+				8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */,
+				8A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

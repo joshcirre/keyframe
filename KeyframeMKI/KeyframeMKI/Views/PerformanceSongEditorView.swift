@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Editor for creating and editing performance songs - TE Style
+/// Editor for creating and editing performance presets - TE Style
 struct PerformanceSongEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var sessionStore = SessionStore.shared
@@ -12,7 +12,9 @@ struct PerformanceSongEditorView: View {
 
     @State private var showingDeleteConfirmation = false
     @State private var isLearningTrigger = false
-    
+    @State private var editingMessage: ExternalMIDIMessage?
+    @State private var showingNewMessageEditor = false
+
     var body: some View {
         ZStack {
             TEColors.cream.ignoresSafeArea()
@@ -28,7 +30,7 @@ struct PerformanceSongEditorView: View {
                 // Content
                 ScrollView {
                     VStack(spacing: 24) {
-                        // Song name
+                        // Preset name
                         nameSection
                         
                         // Key settings
@@ -39,6 +41,9 @@ struct PerformanceSongEditorView: View {
 
                         // MIDI Trigger
                         midiTriggerSection
+
+                        // External MIDI Output
+                        externalMIDISection
 
                         // Channel presets
                         channelPresetsSection
@@ -53,13 +58,35 @@ struct PerformanceSongEditorView: View {
             }
         }
         .preferredColorScheme(.light)
-        .confirmationDialog("DELETE SONG", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+        .confirmationDialog("DELETE PRESET", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
             Button("DELETE", role: .destructive) {
                 sessionStore.deleteSong(song)
                 dismiss()
             }
         } message: {
-            Text("Are you sure you want to delete '\(song.name)'?")
+            Text("Are you sure you want to delete the preset '\(song.name)'?")
+        }
+        .sheet(item: $editingMessage) { message in
+            // Edit existing message - item binding ensures correct message is passed
+            ExternalMIDIMessageEditorView(
+                message: message,
+                isNew: false,
+                onSave: { updatedMessage in
+                    if let index = song.externalMIDIMessages.firstIndex(where: { $0.id == updatedMessage.id }) {
+                        song.externalMIDIMessages[index] = updatedMessage
+                    }
+                }
+            )
+        }
+        .sheet(isPresented: $showingNewMessageEditor) {
+            // Add new message
+            ExternalMIDIMessageEditorView(
+                message: ExternalMIDIMessage(),
+                isNew: true,
+                onSave: { newMessage in
+                    song.externalMIDIMessages.append(newMessage)
+                }
+            )
         }
     }
     
@@ -77,7 +104,7 @@ struct PerformanceSongEditorView: View {
             
             Spacer()
             
-            Text(isNew ? "NEW SONG" : "EDIT SONG")
+            Text(isNew ? "NEW PRESET" : "EDIT PRESET")
                 .font(TEFonts.display(16, weight: .black))
                 .foregroundColor(TEColors.black)
                 .tracking(2)
@@ -110,7 +137,7 @@ struct PerformanceSongEditorView: View {
                 .foregroundColor(TEColors.midGray)
                 .tracking(2)
             
-            TextField("SONG NAME", text: $song.name)
+            TextField("PRESET NAME", text: $song.name)
                 .font(TEFonts.display(24, weight: .black))
                 .foregroundColor(TEColors.black)
                 .textInputAutocapitalization(.characters)
@@ -518,8 +545,68 @@ struct PerformanceSongEditorView: View {
         }
     }
 
+    // MARK: - External MIDI Section
+
+    private var externalMIDISection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("EXTERNAL MIDI OUT")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(TEColors.midGray)
+                    .tracking(2)
+
+                Spacer()
+
+                Text("\(song.externalMIDIMessages.count)")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
+            }
+
+            VStack(spacing: 8) {
+                // List of configured messages
+                ForEach(song.externalMIDIMessages) { message in
+                    ExternalMIDIMessageRow(
+                        message: message,
+                        onEdit: {
+                            // Setting editingMessage triggers the sheet(item:) presentation
+                            editingMessage = message
+                        },
+                        onDelete: {
+                            song.externalMIDIMessages.removeAll { $0.id == message.id }
+                        }
+                    )
+                }
+
+                // Add message button
+                Button {
+                    showingNewMessageEditor = true
+                } label: {
+                    HStack {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .bold))
+                        Text("ADD MIDI MESSAGE")
+                            .font(TEFonts.mono(11, weight: .bold))
+                    }
+                    .foregroundColor(TEColors.darkGray)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(
+                        Rectangle()
+                            .strokeBorder(TEColors.darkGray, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    )
+                }
+            }
+            .padding(16)
+            .background(
+                Rectangle()
+                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .background(TEColors.warmWhite)
+            )
+        }
+    }
+
     // MARK: - Channel Presets Section
-    
+
     private var channelPresetsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("CHANNEL PRESETS")
@@ -547,7 +634,7 @@ struct PerformanceSongEditorView: View {
             HStack {
                 Image(systemName: "trash")
                     .font(.system(size: 14, weight: .bold))
-                Text("DELETE SONG")
+                Text("DELETE PRESET")
                     .font(TEFonts.mono(12, weight: .bold))
             }
             .foregroundColor(TEColors.red)
@@ -803,6 +890,69 @@ struct ChannelStateEditor: View {
             muted: muted,
             effectBypasses: effectBypasses.isEmpty ? nil : effectBypasses
         )
+    }
+}
+
+// MARK: - External MIDI Message Row
+
+struct ExternalMIDIMessageRow: View {
+    let message: ExternalMIDIMessage
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Type indicator
+            Text(message.type.rawValue.uppercased())
+                .font(TEFonts.mono(9, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(typeColor)
+
+            // Name and description
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message.name.uppercased())
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(TEColors.black)
+                    .lineLimit(1)
+
+                Text(message.displayDescription.uppercased())
+                    .font(TEFonts.mono(9, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
+            }
+
+            Spacer()
+
+            // Edit button
+            Button(action: onEdit) {
+                Image(systemName: "pencil")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(TEColors.darkGray)
+            }
+
+            // Delete button
+            Button(action: onDelete) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(TEColors.red)
+            }
+        }
+        .padding(12)
+        .background(
+            Rectangle()
+                .strokeBorder(TEColors.black, lineWidth: 2)
+                .background(TEColors.warmWhite)
+        )
+    }
+
+    private var typeColor: Color {
+        switch message.type {
+        case .noteOn: return TEColors.green
+        case .noteOff: return TEColors.red
+        case .controlChange: return TEColors.orange
+        case .programChange: return TEColors.black
+        }
     }
 }
 

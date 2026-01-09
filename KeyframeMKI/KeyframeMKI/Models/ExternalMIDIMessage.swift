@@ -1,0 +1,79 @@
+import Foundation
+
+// MARK: - MIDI Message Type
+
+/// Types of MIDI messages that can be sent to external devices
+enum MIDIMessageType: String, Codable, CaseIterable, Identifiable {
+    case programChange = "PC"
+    case controlChange = "CC"
+    case noteOn = "Note On"
+    case noteOff = "Note Off"
+
+    var id: String { rawValue }
+
+    /// Whether this message type uses data2 (velocity/value)
+    var requiresData2: Bool {
+        switch self {
+        case .programChange: return false
+        case .controlChange, .noteOn, .noteOff: return true
+        }
+    }
+
+    /// Label for the data1 field
+    var data1Label: String {
+        switch self {
+        case .programChange: return "PROGRAM"
+        case .controlChange: return "CC #"
+        case .noteOn, .noteOff: return "NOTE"
+        }
+    }
+
+    /// Label for the data2 field
+    var data2Label: String {
+        switch self {
+        case .programChange: return ""
+        case .controlChange: return "VALUE"
+        case .noteOn, .noteOff: return "VELOCITY"
+        }
+    }
+}
+
+// MARK: - External MIDI Message
+
+/// A MIDI message to send to external devices when a song preset is selected
+/// Channel is set globally in MIDIEngine.externalMIDIChannel
+struct ExternalMIDIMessage: Codable, Identifiable, Equatable {
+    var id: UUID
+    var type: MIDIMessageType
+    var data1: Int        // Note/CC/PC number (0-127)
+    var data2: Int        // Velocity/Value (0-127), ignored for PC
+    var name: String      // User label (e.g., "Clean Preset", "Lead Tone")
+
+    init(
+        id: UUID = UUID(),
+        type: MIDIMessageType = .programChange,
+        data1: Int = 0,
+        data2: Int = 127,
+        name: String = ""
+    ) {
+        self.id = id
+        self.type = type
+        self.data1 = min(max(data1, 0), 127)
+        self.data2 = min(max(data2, 0), 127)
+        self.name = name
+    }
+
+    /// Human-readable description of the message
+    var displayDescription: String {
+        switch type {
+        case .programChange:
+            return "PC \(data1)"
+        case .controlChange:
+            return "CC \(data1) = \(data2)"
+        case .noteOn:
+            return "Note \(data1) ON vel \(data2)"
+        case .noteOff:
+            return "Note \(data1) OFF"
+        }
+    }
+}

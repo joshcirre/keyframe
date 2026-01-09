@@ -283,14 +283,14 @@ struct ChannelDetailView: View {
     }
     
     // MARK: - Mixer Section
-    
+
     private var mixerSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("MIXER")
                 .font(TEFonts.mono(10, weight: .bold))
                 .foregroundColor(TEColors.midGray)
                 .tracking(2)
-            
+
             VStack(spacing: 20) {
                 // Volume
                 VStack(spacing: 8) {
@@ -303,69 +303,31 @@ struct ChannelDetailView: View {
                             .font(TEFonts.mono(16, weight: .bold))
                             .foregroundColor(TEColors.black)
                     }
-                    
+
                     TESlider(value: $channel.volume)
                         .onChange(of: channel.volume) { _, newValue in
                             config.volume = newValue
                         }
                 }
-                
-                // Pan
-                VStack(spacing: 8) {
-                    HStack {
-                        Text("PAN")
-                            .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
-                        Spacer()
-                        Text(panLabel)
-                            .font(TEFonts.mono(16, weight: .bold))
-                            .foregroundColor(TEColors.black)
-                    }
-                    
-                    TESlider(value: $channel.pan, range: -1...1, centered: true)
-                        .onChange(of: channel.pan) { _, newValue in
-                            config.pan = newValue
-                        }
-                }
-                
-                // Mute/Solo buttons
-                HStack(spacing: 12) {
-                    Button {
-                        channel.isMuted.toggle()
-                        config.isMuted = channel.isMuted
-                    } label: {
-                        Text("MUTE")
-                            .font(TEFonts.mono(12, weight: .bold))
-                            .foregroundColor(channel.isMuted ? .white : TEColors.red)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                            .background(
-                                Rectangle()
-                                    .fill(channel.isMuted ? TEColors.red : TEColors.cream)
-                            )
-                            .overlay(
-                                Rectangle()
-                                    .strokeBorder(TEColors.red, lineWidth: 2)
-                            )
-                    }
-                    
-                    Button {
-                        channel.isSoloed.toggle()
-                    } label: {
-                        Text("SOLO")
-                            .font(TEFonts.mono(12, weight: .bold))
-                            .foregroundColor(channel.isSoloed ? TEColors.black : TEColors.yellow)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                            .background(
-                                Rectangle()
-                                    .fill(channel.isSoloed ? TEColors.yellow : TEColors.cream)
-                            )
-                            .overlay(
-                                Rectangle()
-                                    .strokeBorder(TEColors.yellow, lineWidth: 2)
-                            )
-                    }
+
+                // Mute button
+                Button {
+                    channel.isMuted.toggle()
+                    config.isMuted = channel.isMuted
+                } label: {
+                    Text("MUTE")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(channel.isMuted ? .white : TEColors.red)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(
+                            Rectangle()
+                                .fill(channel.isMuted ? TEColors.red : TEColors.cream)
+                        )
+                        .overlay(
+                            Rectangle()
+                                .strokeBorder(TEColors.red, lineWidth: 2)
+                        )
                 }
             }
             .padding(16)
@@ -374,16 +336,6 @@ struct ChannelDetailView: View {
                     .strokeBorder(TEColors.black, lineWidth: 2)
                     .background(TEColors.warmWhite)
             )
-        }
-    }
-    
-    private var panLabel: String {
-        if channel.pan < -0.01 {
-            return "L\(Int(abs(channel.pan) * 100))"
-        } else if channel.pan > 0.01 {
-            return "R\(Int(channel.pan * 100))"
-        } else {
-            return "C"
         }
     }
     

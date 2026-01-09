@@ -160,6 +160,9 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
     var triggerChannel: Int?        // MIDI channel (1-16, nil = any channel)
     var triggerNote: Int?           // Note number that triggers this song (nil = not mapped)
 
+    // External MIDI output messages (sent when this song is selected)
+    var externalMIDIMessages: [ExternalMIDIMessage]
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -171,7 +174,8 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
         order: Int = 0,
         triggerSourceName: String? = nil,
         triggerChannel: Int? = nil,
-        triggerNote: Int? = nil
+        triggerNote: Int? = nil,
+        externalMIDIMessages: [ExternalMIDIMessage] = []
     ) {
         self.id = id
         self.name = name
@@ -184,6 +188,7 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
         self.triggerSourceName = triggerSourceName
         self.triggerChannel = triggerChannel
         self.triggerNote = triggerNote
+        self.externalMIDIMessages = externalMIDIMessages
     }
     
     var keyDisplayName: String {
@@ -316,7 +321,25 @@ final class SessionStore: ObservableObject {
         }
         saveCurrentSession()
     }
-    
+
+    func moveSong(from sourceIndex: Int, to destinationIndex: Int) {
+        guard sourceIndex != destinationIndex,
+              sourceIndex >= 0, sourceIndex < currentSession.songs.count,
+              destinationIndex >= 0, destinationIndex < currentSession.songs.count else {
+            return
+        }
+
+        let song = currentSession.songs.remove(at: sourceIndex)
+        currentSession.songs.insert(song, at: destinationIndex)
+
+        // Update order values to match array positions
+        for (index, _) in currentSession.songs.enumerated() {
+            currentSession.songs[index].order = index
+        }
+
+        saveCurrentSession()
+    }
+
     // MARK: - Channel Management
     
     func updateChannel(_ channel: ChannelConfiguration) {

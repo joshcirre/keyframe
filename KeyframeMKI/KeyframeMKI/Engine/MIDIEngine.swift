@@ -1,6 +1,7 @@
 import CoreMIDI
 import Foundation
 
+
 /// Integrated MIDI Engine with built-in scale filtering and chord generation
 /// Replaces the need for a separate Scale Filter AUv3
 final class MIDIEngine: ObservableObject {
@@ -54,9 +55,54 @@ final class MIDIEngine: ObservableObject {
     var onFaderControl: ((Int, Int, Int, String?) -> Void)? // (cc, value, channel, sourceName) - for fader control
     
     // MARK: - CoreMIDI
-    
+
     private var midiClient: MIDIClientRef = 0
     private var inputPort: MIDIPortRef = 0
+    private var outputPort: MIDIPortRef = 0
+
+    // MARK: - MIDI Output Settings
+
+    @Published private(set) var availableDestinations: [MIDIDestinationInfo] = []
+    @Published var selectedDestinationEndpoint: MIDIEndpointRef? = nil {
+        didSet {
+            // Only save if not currently restoring (to avoid erasing saved name when device not yet discovered)
+            if !isRestoringDestination {
+                saveOutputSettings()
+            }
+        }
+    }
+    private var isRestoringDestination = false
+    private var savedDestinationName: String?  // Keep saved name even if device not available yet
+    @Published var externalMIDIChannel: Int = 1 {  // 1-16
+        didSet { saveOutputSettings() }
+    }
+    @Published var isNetworkSessionEnabled: Bool = false {
+        didSet {
+            configureNetworkSession()
+            saveOutputSettings()
+        }
+    }
+
+    /// The network session name (read-only, set by iOS based on device name)
+    var networkSessionName: String {
+        MIDINetworkSession.default().localName
+    }
+
+    // MARK: - External Tempo Sync
+
+    @Published var isExternalTempoSyncEnabled: Bool = false {
+        didSet { saveOutputSettings() }
+    }
+    @Published var tapTempoCC: Int = 64 {  // Helix default tap tempo CC
+        didSet { saveOutputSettings() }
+    }
+
+    // Persistence keys for output settings
+    private let selectedDestinationKey = "midiOutputDestination"
+    private let externalMIDIChannelKey = "externalMIDIChannel"
+    private let networkSessionEnabledKey = "midiNetworkSessionEnabled"
+    private let externalTempoSyncEnabledKey = "externalTempoSyncEnabled"
+    private let tapTempoCCKey = "tapTempoCC"
     
     // Track active notes for proper note-off handling
     // Key: sourceHash ^ channel ^ note, Value: Dictionary of channelStripId -> processed notes sent
@@ -76,6 +122,7 @@ final class MIDIEngine: ObservableObject {
 
     private init() {
         loadChordPadSettings()
+        loadOutputSettings()
         setupMIDI()
     }
 
@@ -111,7 +158,75 @@ final class MIDIEngine: ObservableObject {
             defaults.set(data, forKey: chordMappingKey)
         }
     }
-    
+
+    // MARK: - Output Settings Persistence
+
+    private func loadOutputSettings() {
+        let defaults = UserDefaults.standard
+
+        // Load network session state (but don't trigger didSet yet)
+        let networkEnabled = defaults.bool(forKey: networkSessionEnabledKey)
+
+        // Load channel
+        if defaults.object(forKey: externalMIDIChannelKey) != nil {
+            externalMIDIChannel = defaults.integer(forKey: externalMIDIChannelKey)
+        }
+
+        // Load tempo sync settings
+        isExternalTempoSyncEnabled = defaults.bool(forKey: externalTempoSyncEnabledKey)
+        if defaults.object(forKey: tapTempoCCKey) != nil {
+            tapTempoCC = defaults.integer(forKey: tapTempoCCKey)
+        }
+
+        // Configure network session before refreshing destinations
+        if networkEnabled {
+            isNetworkSessionEnabled = networkEnabled
+        }
+
+        print("MIDIEngine: Loaded output settings - channel: \(externalMIDIChannel), network: \(isNetworkSessionEnabled), tempoSync: \(isExternalTempoSyncEnabled)")
+    }
+
+    private func saveOutputSettings() {
+        let defaults = UserDefaults.standard
+
+        defaults.set(externalMIDIChannel, forKey: externalMIDIChannelKey)
+        defaults.set(isNetworkSessionEnabled, forKey: networkSessionEnabledKey)
+        defaults.set(isExternalTempoSyncEnabled, forKey: externalTempoSyncEnabledKey)
+        defaults.set(tapTempoCC, forKey: tapTempoCCKey)
+
+        // Save selected destination by name (endpoints can change between launches)
+        if let endpoint = selectedDestinationEndpoint,
+           let dest = availableDestinations.first(where: { $0.endpoint == endpoint }) {
+            savedDestinationName = dest.name
+            defaults.set(dest.name, forKey: selectedDestinationKey)
+        } else if savedDestinationName == nil {
+            // Only clear if we don't have a saved name (device might just be offline)
+            defaults.removeObject(forKey: selectedDestinationKey)
+        }
+        // If savedDestinationName is set but endpoint is nil, keep the saved name for later
+    }
+
+    private func restoreSelectedDestination() {
+        let defaults = UserDefaults.standard
+
+        // Load saved name if we haven't already
+        if savedDestinationName == nil {
+            savedDestinationName = defaults.string(forKey: selectedDestinationKey)
+        }
+
+        guard let savedName = savedDestinationName else { return }
+
+        // Try to find the device - it might not be discovered yet (especially Bluetooth)
+        isRestoringDestination = true
+        if let dest = availableDestinations.first(where: { $0.name == savedName }) {
+            selectedDestinationEndpoint = dest.endpoint
+            print("MIDIEngine: Restored destination '\(savedName)'")
+        } else {
+            print("MIDIEngine: Saved destination '\(savedName)' not found yet (will retry on refresh)")
+        }
+        isRestoringDestination = false
+    }
+
     deinit {
         teardownMIDI()
     }
@@ -156,16 +271,32 @@ final class MIDIEngine: ObservableObject {
             print("MIDIEngine: Failed to create input port: \(status)")
             return
         }
-        
+
+        // Create output port for external MIDI
+        status = MIDIOutputPortCreate(
+            midiClient,
+            "Output" as CFString,
+            &outputPort
+        )
+
+        guard status == noErr else {
+            print("MIDIEngine: Failed to create output port: \(status)")
+            return
+        }
+
         isInitialized = true
         connectToAllSources()
-        
+        refreshDestinations()
+
         print("MIDIEngine: Initialized successfully")
     }
     
     private func teardownMIDI() {
         if inputPort != 0 {
             MIDIPortDispose(inputPort)
+        }
+        if outputPort != 0 {
+            MIDIPortDispose(outputPort)
         }
         if midiClient != 0 {
             MIDIClientDispose(midiClient)
@@ -228,13 +359,161 @@ final class MIDIEngine: ObservableObject {
     private func getEndpointName(_ endpoint: MIDIEndpointRef) -> String? {
         var name: Unmanaged<CFString>?
         let status = MIDIObjectGetStringProperty(endpoint, kMIDIPropertyName, &name)
-        
+
         if status == noErr, let name = name {
             return name.takeRetainedValue() as String
         }
         return nil
     }
-    
+
+    // MARK: - Destination Management
+
+    /// Scan for available MIDI output destinations
+    func refreshDestinations() {
+        var destinations: [MIDIDestinationInfo] = []
+        let destinationCount = MIDIGetNumberOfDestinations()
+
+        for i in 0..<destinationCount {
+            let destination = MIDIGetDestination(i)
+            let name = getEndpointName(destination) ?? "Unknown"
+
+            let info = MIDIDestinationInfo(
+                endpoint: destination,
+                name: name
+            )
+            destinations.append(info)
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.availableDestinations = destinations
+            self?.restoreSelectedDestination()
+            print("MIDIEngine: Found \(destinations.count) MIDI destinations")
+        }
+    }
+
+    /// Configure Network MIDI session
+    private func configureNetworkSession() {
+        let networkSession = MIDINetworkSession.default()
+
+        networkSession.isEnabled = isNetworkSessionEnabled
+        networkSession.connectionPolicy = isNetworkSessionEnabled ? .anyone : .noOne
+
+        if isNetworkSessionEnabled {
+            print("MIDIEngine: Network MIDI session '\(networkSession.localName)' enabled")
+        } else {
+            print("MIDIEngine: Network MIDI session disabled")
+        }
+
+        // Refresh destinations to include/exclude network endpoints
+        refreshDestinations()
+    }
+
+    // MARK: - External MIDI Output
+
+    /// Send external MIDI messages to the configured destination
+    /// These messages are output only and do not affect internal app state
+    func sendExternalMIDIMessages(_ messages: [ExternalMIDIMessage]) {
+        guard let destination = selectedDestinationEndpoint else {
+            print("MIDIEngine: No MIDI output destination configured")
+            return
+        }
+
+        guard outputPort != 0 else {
+            print("MIDIEngine: Output port not initialized")
+            return
+        }
+
+        for message in messages {
+            sendMIDIMessage(message, to: destination)
+        }
+
+        print("MIDIEngine: Sent \(messages.count) external MIDI message(s)")
+    }
+
+    private func sendMIDIMessage(_ message: ExternalMIDIMessage, to destination: MIDIEndpointRef) {
+        let channel = UInt8(externalMIDIChannel - 1)  // Convert to 0-indexed
+
+        let midiBytes: [UInt8]
+        switch message.type {
+        case .noteOn:
+            midiBytes = [
+                0x90 | channel,
+                UInt8(message.data1),
+                UInt8(message.data2)
+            ]
+        case .noteOff:
+            midiBytes = [
+                0x80 | channel,
+                UInt8(message.data1),
+                UInt8(message.data2)
+            ]
+        case .controlChange:
+            midiBytes = [
+                0xB0 | channel,
+                UInt8(message.data1),
+                UInt8(message.data2)
+            ]
+        case .programChange:
+            midiBytes = [
+                0xC0 | channel,
+                UInt8(message.data1)
+            ]
+        }
+
+        var packetList = MIDIPacketList()
+        var packet = MIDIPacketListInit(&packetList)
+        packet = MIDIPacketListAdd(&packetList, 1024, packet, 0, midiBytes.count, midiBytes)
+
+        let status = MIDISend(outputPort, destination, &packetList)
+        if status != noErr {
+            print("MIDIEngine: Failed to send MIDI message: \(status)")
+        }
+    }
+
+    /// Send tap tempo to external device (e.g., Helix) via CC messages
+    /// Sends multiple taps at the correct interval for Helix to average
+    func sendTapTempo(bpm: Int) {
+        guard isExternalTempoSyncEnabled else { return }
+        guard let destination = selectedDestinationEndpoint else { return }
+        guard outputPort != 0 else { return }
+
+        let channel = UInt8(externalMIDIChannel - 1)
+        let ccNumber = UInt8(tapTempoCC)
+        let midiBytes: [UInt8] = [0xB0 | channel, ccNumber, 127]
+
+        // Calculate interval in host time units for precise scheduling
+        let intervalSeconds = 60.0 / Double(bpm)
+        let intervalHostTime = secondsToHostTime(intervalSeconds)
+        let now = mach_absolute_time()
+
+        // Schedule 8 taps for better averaging on Helix
+        let numTaps = 8
+
+        // Use heap buffer for packets
+        let bufferSize = 1024
+        let packetListPtr = UnsafeMutableRawPointer.allocate(byteCount: bufferSize, alignment: 4)
+            .assumingMemoryBound(to: MIDIPacketList.self)
+        defer { packetListPtr.deallocate() }
+
+        var packet = MIDIPacketListInit(packetListPtr)
+
+        for i in 0..<numTaps {
+            let timestamp = now + intervalHostTime * UInt64(i)
+            packet = MIDIPacketListAdd(packetListPtr, bufferSize, packet, timestamp, midiBytes.count, midiBytes)
+        }
+
+        MIDISend(outputPort, destination, packetListPtr)
+        print("MIDIEngine: Sent tap tempo at \(bpm) BPM")
+    }
+
+    /// Convert seconds to host time units (mach_absolute_time)
+    private func secondsToHostTime(_ seconds: Double) -> UInt64 {
+        var timebaseInfo = mach_timebase_info_data_t()
+        mach_timebase_info(&timebaseInfo)
+        let nanoseconds = seconds * 1_000_000_000
+        return UInt64(nanoseconds * Double(timebaseInfo.denom) / Double(timebaseInfo.numer))
+    }
+
     // MARK: - MIDI Event Processing
     
     private func handleMIDIEventList(_ eventList: UnsafePointer<MIDIEventList>, sourceName: String?) {
@@ -512,4 +791,16 @@ struct MIDISourceInfo: Identifiable {
     let endpoint: MIDIEndpointRef
     let name: String
     var isConnected: Bool
+}
+
+// MARK: - MIDI Destination Info
+
+struct MIDIDestinationInfo: Identifiable, Equatable {
+    let id = UUID()
+    let endpoint: MIDIEndpointRef
+    let name: String
+
+    static func == (lhs: MIDIDestinationInfo, rhs: MIDIDestinationInfo) -> Bool {
+        lhs.endpoint == rhs.endpoint
+    }
 }

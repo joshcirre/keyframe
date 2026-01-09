@@ -31,6 +31,10 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Keyframe uses Bluetooth to connect to wireless MIDI devices like CME WIDI for sending MIDI to external gear.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Keyframe uses Bluetooth to connect to wireless MIDI devices like CME WIDI for sending MIDI to external gear.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIRequiredDeviceCapabilities</key>

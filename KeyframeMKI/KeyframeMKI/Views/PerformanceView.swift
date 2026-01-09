@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Design System (Teenage Engineering Inspired)
 
@@ -44,8 +45,8 @@ struct PerformanceView: View {
     @State private var selectedChannelIndex: Int?
     @State private var showingChannelDetail = false
     @State private var showingSettings = false
-    @State private var showingSongEditor = false
-    @State private var editingSong: PerformanceSong?
+    @State private var showingNewPresetEditor = false
+    @State private var editingPreset: PerformanceSong?
     @State private var isChannelsLocked = false
     @State private var isInitializing = true
     @AppStorage("performModeSplitRatio") private var splitRatio: Double = 0.6  // Presets take 60% by default
@@ -93,10 +94,19 @@ struct PerformanceView: View {
         .sheet(isPresented: $showingSettings) {
             PerformanceSettingsView()
         }
-        .sheet(isPresented: $showingSongEditor) {
+        .sheet(item: $editingPreset) { preset in
+            // Edit existing preset - item binding ensures correct preset is passed
             PerformanceSongEditorView(
-                song: editingSong ?? PerformanceSong(name: "New Song"),
-                isNew: editingSong == nil,
+                song: preset,
+                isNew: false,
+                channels: sessionStore.currentSession.channels
+            )
+        }
+        .sheet(isPresented: $showingNewPresetEditor) {
+            // New preset
+            PerformanceSongEditorView(
+                song: PerformanceSong(name: "New Preset"),
+                isNew: true,
                 channels: sessionStore.currentSession.channels
             )
         }
@@ -300,13 +310,15 @@ struct PerformanceView: View {
                 activeSongId: sessionStore.currentSession.activeSongId,
                 isEditMode: true,
                 onSelectSong: { song in selectSong(song) },
-                onEditSong: { song in
-                    editingSong = song
-                    showingSongEditor = true
+                onEditSong: { preset in
+                    // Setting editingPreset triggers the sheet(item:) presentation
+                    editingPreset = preset
                 },
                 onAddSong: {
-                    editingSong = nil
-                    showingSongEditor = true
+                    showingNewPresetEditor = true
+                },
+                onMoveSong: { fromIndex, toIndex in
+                    sessionStore.moveSong(from: fromIndex, to: toIndex)
                 }
             )
         }
@@ -388,6 +400,13 @@ struct PerformanceView: View {
                             // Set tempo for hosted plugins
                             if let bpm = song.bpm {
                                 audioEngine.setTempo(Double(bpm))
+                                // Send tap tempo to external devices (e.g., Helix)
+                                midiEngine.sendTapTempo(bpm: bpm)
+                            }
+
+                            // Send external MIDI messages
+                            if !song.externalMIDIMessages.isEmpty {
+                                midiEngine.sendExternalMIDIMessages(song.externalMIDIMessages)
                             }
                         }
                         break
@@ -452,9 +471,16 @@ struct PerformanceView: View {
         // Set tempo for hosted plugins (arpeggiators, tempo-synced effects, etc.)
         if let bpm = song.bpm {
             audioEngine.setTempo(Double(bpm))
+            // Send tap tempo to external devices (e.g., Helix)
+            midiEngine.sendTapTempo(bpm: bpm)
+        }
+
+        // Send external MIDI messages (does NOT affect internal app state)
+        if !song.externalMIDIMessages.isEmpty {
+            midiEngine.sendExternalMIDIMessages(song.externalMIDIMessages)
         }
     }
-    
+
     private func convertToLegacySong(_ song: PerformanceSong) -> Song {
         Song(
             name: song.name,
@@ -797,61 +823,116 @@ struct SongGridView: View {
     let onSelectSong: (PerformanceSong) -> Void
     let onEditSong: (PerformanceSong) -> Void
     let onAddSong: () -> Void
+    var onMoveSong: ((Int, Int) -> Void)?
+
+    @State private var draggingSongId: UUID?
+    @State private var isReorderMode: Bool = false
 
     var body: some View {
-        GeometryReader { geometry in
-            let itemCount = songs.count + (isEditMode ? 1 : 0)  // +1 for add button in edit mode only
-            let spacing: CGFloat = 8
-            let padding: CGFloat = 16
-            let availableWidth = geometry.size.width - (padding * 2)
-            let availableHeight = geometry.size.height - (padding * 2)
+        VStack(spacing: 0) {
+            // Reorder toolbar (edit mode only)
+            if isEditMode {
+                HStack {
+                    Spacer()
 
-            // Calculate optimal grid dimensions
-            let (columns, rows) = calculateGrid(itemCount: itemCount, availableWidth: availableWidth, availableHeight: availableHeight)
-
-            let itemWidth = (availableWidth - (spacing * CGFloat(columns - 1))) / CGFloat(columns)
-            let calculatedItemHeight = (availableHeight - (spacing * CGFloat(rows - 1))) / CGFloat(rows)
-
-            // Ensure minimum height for readability, especially in landscape
-            let minItemHeight: CGFloat = 70
-            let itemHeight = max(calculatedItemHeight, minItemHeight)
-
-            let gridColumns = Array(repeating: GridItem(.fixed(itemWidth), spacing: spacing), count: columns)
-
-            ScrollView {
-                LazyVGrid(columns: gridColumns, spacing: spacing) {
-                    ForEach(songs) { song in
-                        SongGridButton(
-                            song: song,
-                            isActive: song.id == activeSongId,
-                            onTap: { onSelectSong(song) },
-                            onLongPress: { onEditSong(song) }
-                        )
-                        .frame(height: itemHeight)
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            isReorderMode.toggle()
+                            if !isReorderMode {
+                                draggingSongId = nil
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: isReorderMode ? "checkmark" : "arrow.up.arrow.down")
+                                .font(.system(size: 11, weight: .bold))
+                            Text(isReorderMode ? "DONE" : "REORDER")
+                                .font(TEFonts.mono(10, weight: .bold))
+                        }
+                        .foregroundColor(isReorderMode ? .white : TEColors.darkGray)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(isReorderMode ? TEColors.orange : TEColors.lightGray)
+                        .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
                     }
 
-                    // Add button (edit mode only)
-                    if isEditMode {
-                        Button(action: onAddSong) {
-                            VStack(spacing: 4) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 24, weight: .bold))
-                                Text("NEW")
-                                    .font(TEFonts.mono(11, weight: .bold))
-                            }
-                            .foregroundColor(TEColors.darkGray)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 0)
-                                    .strokeBorder(TEColors.darkGray, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                            )
+                    Button(action: onAddSong) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("NEW")
+                                .font(TEFonts.mono(10, weight: .bold))
                         }
-                        .buttonStyle(.plain)
-                        .frame(height: itemHeight)
+                        .foregroundColor(TEColors.darkGray)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(TEColors.lightGray)
+                        .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
                     }
                 }
-                .padding(padding)
-                .padding(.bottom, 20) // Extra bottom padding for scroll room
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+
+            // Grid content
+            GeometryReader { geometry in
+                let itemCount = songs.count
+                let spacing: CGFloat = 8
+                let padding: CGFloat = 16
+                let availableWidth = geometry.size.width - (padding * 2)
+                let availableHeight = geometry.size.height - (padding * 2)
+
+                // Calculate optimal grid dimensions
+                let (columns, rows) = calculateGrid(itemCount: max(1, itemCount), availableWidth: availableWidth, availableHeight: availableHeight)
+
+                let itemWidth = (availableWidth - (spacing * CGFloat(columns - 1))) / CGFloat(columns)
+                let calculatedItemHeight = (availableHeight - (spacing * CGFloat(rows - 1))) / CGFloat(rows)
+
+                // Ensure minimum height for readability, especially in landscape
+                let minItemHeight: CGFloat = 70
+                let itemHeight = max(calculatedItemHeight, minItemHeight)
+
+                let gridColumns = Array(repeating: GridItem(.fixed(itemWidth), spacing: spacing), count: columns)
+
+                ScrollView {
+                    LazyVGrid(columns: gridColumns, spacing: spacing) {
+                        ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                            SongGridButton(
+                                song: song,
+                                isActive: song.id == activeSongId,
+                                isDragging: draggingSongId == song.id,
+                                isReorderMode: isReorderMode,
+                                onTap: {
+                                    if !isReorderMode {
+                                        onSelectSong(song)
+                                    }
+                                },
+                                onLongPress: {
+                                    if !isReorderMode {
+                                        onEditSong(song)
+                                    }
+                                }
+                            )
+                            .frame(height: itemHeight)
+                            .onDrag {
+                                if isReorderMode {
+                                    draggingSongId = song.id
+                                    return NSItemProvider(object: song.id.uuidString as NSString)
+                                }
+                                return NSItemProvider()
+                            }
+                            .onDrop(of: [.text], delegate: SongDropDelegate(
+                                song: song,
+                                songs: songs,
+                                draggingSongId: $draggingSongId,
+                                isReorderMode: isReorderMode,
+                                onMoveSong: onMoveSong
+                            ))
+                        }
+                    }
+                    .padding(padding)
+                    .padding(.bottom, 20) // Extra bottom padding for scroll room
+                }
             }
         }
     }
@@ -889,11 +970,50 @@ struct SongGridView: View {
     }
 }
 
+// MARK: - Song Drop Delegate
+
+struct SongDropDelegate: DropDelegate {
+    let song: PerformanceSong
+    let songs: [PerformanceSong]
+    @Binding var draggingSongId: UUID?
+    let isReorderMode: Bool
+
+    var onMoveSong: ((Int, Int) -> Void)?
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingSongId = nil
+        return true
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard isReorderMode,
+              let draggingId = draggingSongId,
+              draggingId != song.id,
+              let fromIndex = songs.firstIndex(where: { $0.id == draggingId }),
+              let toIndex = songs.firstIndex(where: { $0.id == song.id }) else {
+            return
+        }
+
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+
+        onMoveSong?(fromIndex, toIndex)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard isReorderMode else { return DropProposal(operation: .cancel) }
+        return DropProposal(operation: .move)
+    }
+}
+
 // MARK: - Song Grid Button
 
 struct SongGridButton: View {
     let song: PerformanceSong
     let isActive: Bool
+    var isDragging: Bool = false
+    var isReorderMode: Bool = false
     let onTap: () -> Void
     let onLongPress: () -> Void
 
@@ -901,26 +1021,42 @@ struct SongGridButton: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 4) {
-                Spacer(minLength: 4)
+            ZStack {
+                VStack(spacing: 4) {
+                    Spacer(minLength: 4)
 
-                Text(song.name.uppercased())
-                    .font(TEFonts.mono(14, weight: .bold))
-                    .foregroundColor(isActive ? .white : TEColors.black)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
+                    Text(song.name.uppercased())
+                        .font(TEFonts.mono(14, weight: .bold))
+                        .foregroundColor(isActive ? .white : TEColors.black)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
 
-                Text(song.keyShortName.uppercased())
-                    .font(TEFonts.mono(12, weight: .medium))
-                    .foregroundColor(isActive ? .white.opacity(0.8) : TEColors.midGray)
+                    Text(song.keyShortName.uppercased())
+                        .font(TEFonts.mono(12, weight: .medium))
+                        .foregroundColor(isActive ? .white.opacity(0.8) : TEColors.midGray)
 
-                if let bpm = song.bpm {
-                    Text("\(bpm) BPM")
-                        .font(TEFonts.mono(11, weight: .regular))
-                        .foregroundColor(isActive ? .white.opacity(0.6) : TEColors.midGray)
+                    if let bpm = song.bpm {
+                        Text("\(bpm) BPM")
+                            .font(TEFonts.mono(11, weight: .regular))
+                            .foregroundColor(isActive ? .white.opacity(0.6) : TEColors.midGray)
+                    }
+
+                    Spacer(minLength: 4)
                 }
 
-                Spacer(minLength: 4)
+                // Drag handle indicator in reorder mode
+                if isReorderMode {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "line.3.horizontal")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(isActive ? .white.opacity(0.7) : TEColors.midGray)
+                                .padding(6)
+                        }
+                        Spacer()
+                    }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
@@ -929,15 +1065,29 @@ struct SongGridButton: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 0)
-                    .strokeBorder(TEColors.black, lineWidth: isActive ? 3 : 2)
+                    .strokeBorder(
+                        isDragging ? TEColors.orange : (isReorderMode ? TEColors.darkGray : TEColors.black),
+                        lineWidth: isDragging ? 4 : (isActive ? 3 : 2)
+                    )
             )
-            .scaleEffect(isPressed ? 0.96 : 1.0)
+            .overlay(
+                // Dashed border in reorder mode
+                RoundedRectangle(cornerRadius: 0)
+                    .strokeBorder(TEColors.orange, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    .opacity(isReorderMode && !isDragging ? 1 : 0)
+            )
+            .scaleEffect(isPressed && !isReorderMode ? 0.96 : 1.0)
+            .opacity(isDragging ? 0.6 : 1.0)
             .animation(.easeOut(duration: 0.1), value: isPressed)
+            .animation(.easeOut(duration: 0.15), value: isDragging)
+            .animation(.easeOut(duration: 0.15), value: isReorderMode)
         }
         .buttonStyle(.plain)
+        .disabled(isReorderMode)
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5)
                 .onEnded { _ in
+                    guard !isReorderMode else { return }
                     let generator = UIImpactFeedbackGenerator(style: .heavy)
                     generator.impactOccurred()
                     onLongPress()
@@ -945,7 +1095,9 @@ struct SongGridButton: View {
         )
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
+                .onChanged { _ in
+                    if !isReorderMode { isPressed = true }
+                }
                 .onEnded { _ in isPressed = false }
         )
     }
