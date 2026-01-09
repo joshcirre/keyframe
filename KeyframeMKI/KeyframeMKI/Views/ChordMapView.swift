@@ -1,665 +1,364 @@
 import SwiftUI
 
+/// Simplified chord mapping view - just learn 7 buttons for 7 scale degrees
 struct ChordMapView: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject var songStore: SharedSongStore
-    @EnvironmentObject var midiService: MIDIService
-    
-    @StateObject private var viewModel: ChordMapViewModel
-    @State private var selectedButton: Int?
-    @State private var previewRootNote: Int = 0
-    @State private var previewScaleType: ScaleType = .major
-    
+    @StateObject private var midiEngine = MIDIEngine.shared
+
+    @State private var mappings: [Int: Int] = [:]  // degree (1-7) -> MIDI note
+    @State private var baseOctave: Int = 4
+    @State private var learningDegree: Int? = nil
+
     init() {
-        _viewModel = StateObject(wrappedValue: ChordMapViewModel(mapping: SharedSongStore.shared.chordMapping))
+        // Load existing mappings from MIDIEngine
+        let mapping = MIDIEngine.shared.chordMapping
+        var initial: [Int: Int] = [:]
+        // Reverse the buttonMap (note -> degree) to (degree -> note)
+        for (note, degree) in mapping.buttonMap {
+            initial[degree] = note
+        }
+        _mappings = State(initialValue: initial)
+        _baseOctave = State(initialValue: mapping.baseOctave)
     }
-    
+
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // MIDI Learn Section
-                    MIDILearnSection(viewModel: viewModel, midiService: midiService)
-                    
-                    // Preview key selector
-                    PreviewKeySection(
-                        rootNote: $previewRootNote,
-                        scaleType: $previewScaleType
-                    )
-                    
-                    // NM2 Grid
-                    NM2GridSection(
-                        viewModel: viewModel,
-                        selectedButton: $selectedButton,
-                        rootNote: previewRootNote,
-                        scaleType: previewScaleType
-                    )
-                    
-                    // Degree selector (when button selected)
-                    if selectedButton != nil {
-                        DegreeSelector(
-                            viewModel: viewModel,
-                            selectedButton: $selectedButton,
-                            rootNote: previewRootNote,
-                            scaleType: previewScaleType
-                        )
+        ZStack {
+            TEColors.cream.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                header
+
+                Rectangle()
+                    .fill(TEColors.black)
+                    .frame(height: 2)
+
+                ScrollView {
+                    VStack(spacing: 24) {
+                        instructionsSection
+                        degreeButtonsSection
+                        settingsSection
                     }
-                    
-                    // Settings section
-                    SettingsSection(viewModel: viewModel)
-                    
-                    // Quick presets
-                    QuickPresetsSection(viewModel: viewModel)
+                    .padding(20)
                 }
-                .padding()
-            }
-            .background(Color(UIColor.systemGroupedBackground))
-            .navigationTitle("NM2 Chord Map")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        midiService.isLearningMode = false
-                        dismiss()
-                    }
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        midiService.isLearningMode = false
-                        songStore.updateChordMapping(viewModel.mapping)
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
-                }
-            }
-            .onAppear {
-                // Use active song's key for preview if available
-                if let song = songStore.activeSong {
-                    previewRootNote = song.rootNote
-                    previewScaleType = song.scaleType
-                }
-                
-                // Setup MIDI learn callback
-                midiService.onNoteLearn = { note, channel, velocity in
-                    if viewModel.isLearning {
-                        viewModel.noteWasLearned(note: note, channel: channel)
-                        midiService.isLearningMode = false
-                    }
-                }
-            }
-            .onDisappear {
-                midiService.isLearningMode = false
-                midiService.onNoteLearn = nil
             }
         }
-    }
-}
-
-// MARK: - MIDI Learn Section
-
-struct MIDILearnSection: View {
-    @ObservedObject var viewModel: ChordMapViewModel
-    @ObservedObject var midiService: MIDIService
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("MIDI LEARN")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .tracking(1)
-                
-                Spacer()
-                
-                // Status indicator
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(midiService.isListeningForInput ? Color.green : Color.red)
-                        .frame(width: 8, height: 8)
-                    Text(midiService.isListeningForInput ? "Ready" : "No Input")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+        .preferredColorScheme(.light)
+        .onAppear {
+            midiEngine.onNoteLearn = { note, channel, source in
+                if let degree = learningDegree {
+                    // Remove this note from any other degree first
+                    for (d, n) in mappings where n == note && d != degree {
+                        mappings.removeValue(forKey: d)
+                    }
+                    mappings[degree] = note
+                    learningDegree = nil
+                    midiEngine.isLearningMode = false
                 }
             }
-            
-            Text("Press a degree button below, then press a button on your NM2 to assign it.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            
-            // Learning indicator
-            if viewModel.isLearning, let degree = viewModel.learningForDegree {
-                HStack {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    
-                    Text("Waiting for MIDI... Press button for Degree \(degree)")
-                        .font(.subheadline)
-                        .foregroundColor(.orange)
-                    
-                    Spacer()
-                    
-                    Button("Cancel") {
-                        viewModel.stopLearning()
-                        midiService.isLearningMode = false
-                    }
-                    .font(.caption)
-                    .foregroundColor(.red)
+        }
+        .onDisappear {
+            midiEngine.isLearningMode = false
+            midiEngine.onNoteLearn = nil
+        }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack {
+            Button {
+                midiEngine.isLearningMode = false
+                dismiss()
+            } label: {
+                Text("CANCEL")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(TEColors.black)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                    )
+            }
+
+            Spacer()
+
+            Text("CHORD MAP")
+                .font(TEFonts.display(16, weight: .black))
+                .foregroundColor(TEColors.black)
+                .tracking(2)
+
+            Spacer()
+
+            Button {
+                saveAndDismiss()
+            } label: {
+                Text("SAVE")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(TEColors.orange)
+                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(TEColors.warmWhite)
+    }
+
+    // MARK: - Instructions
+
+    private var instructionsSection: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "pianokeys")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(TEColors.orange)
+
+                Text("MAP YOUR CHORDPAD BUTTONS")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(TEColors.black)
+
+                Spacer()
+
+                // MIDI status
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(!midiEngine.connectedSources.isEmpty ? TEColors.green : TEColors.red)
+                        .frame(width: 8, height: 8)
+                    Text(!midiEngine.connectedSources.isEmpty ? "MIDI OK" : "NO MIDI")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
                 }
-                .padding()
+            }
+
+            Text("Tap a chord degree below, then press a button on your controller to assign it.")
+                .font(TEFonts.mono(10, weight: .medium))
+                .foregroundColor(TEColors.midGray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if learningDegree != nil {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .tint(TEColors.orange)
+
+                    Text("LISTENING FOR MIDI INPUT...")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(TEColors.orange)
+
+                    Spacer()
+
+                    Button {
+                        learningDegree = nil
+                        midiEngine.isLearningMode = false
+                    } label: {
+                        Text("CANCEL")
+                            .font(TEFonts.mono(9, weight: .bold))
+                            .foregroundColor(TEColors.red)
+                    }
+                }
+                .padding(12)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.orange.opacity(0.1))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(Color.orange.opacity(0.5), lineWidth: 1)
-                        )
+                    Rectangle()
+                        .strokeBorder(TEColors.orange, lineWidth: 2)
+                        .background(TEColors.warmWhite)
                 )
             }
-            
-            // Last learned note display
-            if let lastNote = viewModel.lastLearnedNote, let lastChannel = viewModel.lastLearnedChannel {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    
-                    Text("Last: Note \(lastNote) (\(viewModel.noteNameFor(lastNote))) on Ch \(lastChannel + 1)")
-                        .font(.caption)
-                        .foregroundColor(.green)
-                }
-            }
-            
-            // Learn buttons for each degree
-            VStack(spacing: 8) {
-                Text("Tap to learn button for each chord degree:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                HStack(spacing: 8) {
-                    ForEach(1...7, id: \.self) { degree in
-                        LearnDegreeButton(
-                            degree: degree,
-                            learnedNote: viewModel.learnedNotes[degree],
-                            isLearning: viewModel.isLearning && viewModel.learningForDegree == degree,
-                            viewModel: viewModel,
-                            midiService: midiService
-                        )
-                    }
-                }
-            }
-            
-            // Clear learned notes
-            if !viewModel.learnedNotes.isEmpty {
-                Button {
-                    viewModel.clearLearnedNotes()
-                } label: {
-                    HStack {
-                        Image(systemName: "arrow.counterclockwise")
-                        Text("Clear Learned Notes")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.red)
-                }
-            }
         }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
     }
-}
 
-// MARK: - Learn Degree Button
+    // MARK: - Degree Buttons
 
-struct LearnDegreeButton: View {
-    let degree: Int
-    let learnedNote: Int?
-    let isLearning: Bool
-    @ObservedObject var viewModel: ChordMapViewModel
-    @ObservedObject var midiService: MIDIService
-    
-    private var buttonColor: Color {
-        let colors: [Color] = [.red, .orange, .yellow, .green, .cyan, .blue, .purple]
-        return colors[(degree - 1) % colors.count]
-    }
-    
-    var body: some View {
-        Button {
-            if isLearning {
-                viewModel.stopLearning()
-                midiService.isLearningMode = false
-            } else {
-                viewModel.startLearning(forDegree: degree)
-                midiService.isLearningMode = true
-            }
-        } label: {
-            VStack(spacing: 2) {
-                Text(romanNumeral)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                
-                if let note = learnedNote {
-                    Text("\(note)")
-                        .font(.system(size: 9))
-                } else {
-                    Text("—")
-                        .font(.system(size: 9))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 44)
-            .foregroundColor(learnedNote != nil ? .white : .white.opacity(0.7))
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(learnedNote != nil ? buttonColor : buttonColor.opacity(0.4))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(isLearning ? Color.white : Color.clear, lineWidth: 2)
-            )
-            .scaleEffect(isLearning ? 1.1 : 1.0)
-            .animation(.easeInOut(duration: 0.15), value: isLearning)
-        }
-        .buttonStyle(.plain)
-    }
-    
-    private var romanNumeral: String {
-        let numerals = ["I", "ii", "iii", "IV", "V", "vi", "vii°"]
-        return numerals[degree - 1]
-    }
-}
-
-// MARK: - Preview Key Section
-
-struct PreviewKeySection: View {
-    @Binding var rootNote: Int
-    @Binding var scaleType: ScaleType
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("PREVIEW KEY")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-                .tracking(1)
-            
-            HStack(spacing: 12) {
-                Picker("Root", selection: $rootNote) {
-                    ForEach(NoteName.allCases) { note in
-                        Text(note.displayName).tag(note.rawValue)
+    private var degreeButtonsSection: some View {
+        VStack(spacing: 12) {
+            // Row of 7 degree buttons
+            HStack(spacing: 8) {
+                ForEach(1...7, id: \.self) { degree in
+                    ChordDegreeLearnButton(
+                        degree: degree,
+                        mappedNote: mappings[degree],
+                        isLearning: learningDegree == degree
+                    ) {
+                        if learningDegree == degree {
+                            // Cancel learning
+                            learningDegree = nil
+                            midiEngine.isLearningMode = false
+                        } else {
+                            // Start learning for this degree
+                            learningDegree = degree
+                            midiEngine.isLearningMode = true
+                        }
+                    } onClear: {
+                        mappings.removeValue(forKey: degree)
                     }
                 }
-                .pickerStyle(.menu)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(UIColor.secondarySystemGroupedBackground))
-                .cornerRadius(8)
-                
-                Picker("Scale", selection: $scaleType) {
-                    ForEach(ScaleType.allCases) { scale in
-                        Text(scale.rawValue).tag(scale)
-                    }
-                }
-                .pickerStyle(.segmented)
             }
-        }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
-    }
-}
 
-// MARK: - NM2 Grid Section
-
-struct NM2GridSection: View {
-    @ObservedObject var viewModel: ChordMapViewModel
-    @Binding var selectedButton: Int?
-    let rootNote: Int
-    let scaleType: ScaleType
-    
-    @State private var showNoteNumbers = true
-    
-    let gridStates: [[NM2ButtonState]]
-    
-    init(viewModel: ChordMapViewModel, selectedButton: Binding<Int?>, rootNote: Int, scaleType: ScaleType) {
-        self.viewModel = viewModel
-        self._selectedButton = selectedButton
-        self.rootNote = rootNote
-        self.scaleType = scaleType
-        self.gridStates = viewModel.generateGridStates()
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+            // Summary
+            let mappedCount = mappings.count
             HStack {
-                Text("NM2 BUTTON GRID")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .tracking(1)
-                
+                Text("\(mappedCount)/7 MAPPED")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(mappedCount == 7 ? TEColors.green : TEColors.midGray)
+
                 Spacer()
-                
-                // Toggle note numbers
-                Button {
-                    showNoteNumbers.toggle()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: showNoteNumbers ? "number.circle.fill" : "number.circle")
-                            .font(.caption)
-                        Text("Notes")
-                            .font(.caption2)
+
+                if !mappings.isEmpty {
+                    Button {
+                        mappings.removeAll()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("CLEAR ALL")
+                                .font(TEFonts.mono(9, weight: .bold))
+                        }
+                        .foregroundColor(TEColors.red)
                     }
-                    .foregroundColor(showNoteNumbers ? .cyan : .gray)
                 }
             }
-            
-            VStack(spacing: 8) {
-                ForEach(0..<3, id: \.self) { row in
-                    HStack(spacing: 8) {
-                        ForEach(0..<6, id: \.self) { col in
-                            let note = ChordMapping.NM2Grid.noteAt(row: row, col: col)
-                            let degree = viewModel.mapping.buttonMap[note]
-                            
-                            NM2GridButton(
-                                note: note,
-                                degree: degree,
-                                isSelected: selectedButton == note,
-                                rootNote: rootNote,
-                                scaleType: scaleType,
-                                showNoteNumber: showNoteNumbers
-                            ) {
-                                if selectedButton == note {
-                                    selectedButton = nil
-                                } else {
-                                    selectedButton = note
-                                }
+        }
+        .padding(16)
+        .background(
+            Rectangle()
+                .strokeBorder(TEColors.black, lineWidth: 2)
+                .background(TEColors.warmWhite)
+        )
+    }
+
+    // MARK: - Settings
+
+    private var settingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("OUTPUT")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+
+            VStack(spacing: 16) {
+                HStack {
+                    Text("BASE OCTAVE")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+
+                    Spacer()
+
+                    HStack(spacing: 0) {
+                        ForEach(2...5, id: \.self) { octave in
+                            Button {
+                                baseOctave = octave
+                            } label: {
+                                Text("\(octave)")
+                                    .font(TEFonts.mono(12, weight: .bold))
+                                    .foregroundColor(baseOctave == octave ? .white : TEColors.black)
+                                    .frame(width: 44, height: 36)
+                                    .background(baseOctave == octave ? TEColors.orange : TEColors.cream)
                             }
                         }
                     }
+                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
                 }
-            }
-            
-            HStack {
-                Text("Tap a button to assign a chord degree")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                Spacer()
-                
-                if showNoteNumbers {
-                    Text("Expected: 36-53")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
-        }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
-    }
-}
 
-// MARK: - NM2 Grid Button
-
-struct NM2GridButton: View {
-    let note: Int
-    let degree: Int?
-    let isSelected: Bool
-    let rootNote: Int
-    let scaleType: ScaleType
-    let action: () -> Void
-    var showNoteNumber: Bool = true
-    
-    private var buttonColor: Color {
-        guard let degree = degree else { return .gray.opacity(0.3) }
-        let colors: [Color] = [.red, .orange, .yellow, .green, .cyan, .blue, .purple]
-        return colors[(degree - 1) % colors.count]
-    }
-    
-    private var noteNameDisplay: String {
-        let noteNames = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
-        let octave = (note / 12) - 1
-        let noteName = noteNames[note % 12]
-        return "\(noteName)\(octave)"
-    }
-    
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 1) {
-                if let degree = degree {
-                    Text(ChordEngine.romanNumeral(degree: degree, scaleType: scaleType))
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                    Text(ChordEngine.chordName(degree: degree, rootNote: rootNote, scaleType: scaleType))
-                        .font(.system(size: 8))
-                    if showNoteNumber {
-                        Text("\(note)")
-                            .font(.system(size: 7, weight: .medium, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.6))
-                    }
-                } else {
-                    Text("—")
-                        .font(.system(size: 12, weight: .medium))
-                    if showNoteNumber {
-                        Text("\(note)")
-                            .font(.system(size: 8, weight: .medium, design: .monospaced))
-                            .foregroundColor(.gray.opacity(0.6))
-                    }
-                }
+                Text("The octave where chord notes will be played (4 = middle C octave)")
+                    .font(TEFonts.mono(9, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 54)
-            .foregroundColor(degree != nil ? .white : .gray)
+            .padding(16)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(buttonColor)
+                Rectangle()
+                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .background(TEColors.warmWhite)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(isSelected ? Color.white : Color.clear, lineWidth: 3)
-            )
-            .scaleEffect(isSelected ? 1.05 : 1.0)
-            .animation(.easeInOut(duration: 0.15), value: isSelected)
         }
-        .buttonStyle(.plain)
+    }
+
+    // MARK: - Save
+
+    private func saveAndDismiss() {
+        midiEngine.isLearningMode = false
+
+        // Convert degree -> note mapping back to note -> degree for ChordMapping
+        var buttonMap: [Int: Int] = [:]
+        for (degree, note) in mappings {
+            buttonMap[note] = degree
+        }
+
+        midiEngine.chordMapping = ChordMapping(
+            chordPadChannel: midiEngine.chordMapping.chordPadChannel,
+            buttonMap: buttonMap,
+            baseOctave: baseOctave
+        )
+
+        dismiss()
     }
 }
 
-// MARK: - Degree Selector
+// MARK: - Chord Degree Learn Button
 
-struct DegreeSelector: View {
-    @ObservedObject var viewModel: ChordMapViewModel
-    @Binding var selectedButton: Int?
-    let rootNote: Int
-    let scaleType: ScaleType
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("ASSIGN CHORD")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .tracking(1)
-                
-                Spacer()
-                
-                Button("Clear") {
-                    if let button = selectedButton {
-                        viewModel.mapping.setMapping(note: button, degree: nil)
-                    }
-                }
-                .font(.caption)
-                .foregroundColor(.red)
-            }
-            
-            HStack(spacing: 8) {
-                ForEach(1...7, id: \.self) { degree in
-                    DegreeButton(
-                        degree: degree,
-                        rootNote: rootNote,
-                        scaleType: scaleType,
-                        isCurrentlyAssigned: selectedButton.flatMap { viewModel.mapping.buttonMap[$0] } == degree
-                    ) {
-                        if let button = selectedButton {
-                            viewModel.mapping.setMapping(note: button, degree: degree)
-                            selectedButton = nil
-                        }
-                    }
-                }
-            }
-        }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
-    }
-}
-
-// MARK: - Degree Button
-
-struct DegreeButton: View {
+struct ChordDegreeLearnButton: View {
     let degree: Int
-    let rootNote: Int
-    let scaleType: ScaleType
-    let isCurrentlyAssigned: Bool
-    let action: () -> Void
-    
-    private var buttonColor: Color {
-        let colors: [Color] = [.red, .orange, .yellow, .green, .cyan, .blue, .purple]
-        return colors[(degree - 1) % colors.count]
-    }
-    
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 2) {
-                Text(ChordEngine.romanNumeral(degree: degree, scaleType: scaleType))
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                Text(ChordEngine.chordName(degree: degree, rootNote: rootNote, scaleType: scaleType))
-                    .font(.system(size: 10))
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 56)
-            .foregroundColor(.white)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(buttonColor)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isCurrentlyAssigned ? Color.white : Color.clear, lineWidth: 2)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
+    let mappedNote: Int?
+    let isLearning: Bool
+    let onTap: () -> Void
+    let onClear: () -> Void
 
-// MARK: - Settings Section
+    private var romanNumeral: String {
+        ["I", "II", "III", "IV", "V", "VI", "VII"][degree - 1]
+    }
 
-struct SettingsSection: View {
-    @ObservedObject var viewModel: ChordMapViewModel
-    
+    private var noteName: String {
+        guard let note = mappedNote else { return "—" }
+        let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        let octave = (note / 12) - 1
+        return "\(noteNames[note % 12])\(octave)"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("SETTINGS")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-                .tracking(1)
-            
-            HStack {
-                Text("NM2 MIDI Channel")
-                Spacer()
-                Picker("", selection: Binding(
-                    get: { viewModel.mapping.nm2Channel },
-                    set: { viewModel.mapping.nm2Channel = $0 }
-                )) {
-                    ForEach(1...16, id: \.self) { channel in
-                        Text("Ch \(channel)").tag(channel)
+        VStack(spacing: 4) {
+            // Main button
+            Button(action: onTap) {
+                VStack(spacing: 4) {
+                    Text(romanNumeral)
+                        .font(TEFonts.mono(16, weight: .black))
+
+                    if let note = mappedNote {
+                        Text(noteName)
+                            .font(TEFonts.mono(9, weight: .medium))
+                            .foregroundColor(isLearning ? .white.opacity(0.7) : .white.opacity(0.8))
+                    } else {
+                        Text("TAP")
+                            .font(TEFonts.mono(8, weight: .medium))
+                            .foregroundColor(TEColors.midGray)
                     }
                 }
-                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity)
+                .frame(height: 64)
+                .foregroundColor(mappedNote != nil || isLearning ? .white : TEColors.darkGray)
+                .background(
+                    isLearning ? TEColors.orange :
+                    (mappedNote != nil ? TEColors.black : TEColors.lightGray)
+                )
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(isLearning ? TEColors.orange : TEColors.black, lineWidth: 2)
+                )
             }
-            
-            HStack {
-                Text("Base Octave")
-                Spacer()
-                Picker("", selection: Binding(
-                    get: { viewModel.mapping.baseOctave },
-                    set: { viewModel.mapping.baseOctave = $0 }
-                )) {
-                    ForEach(1...6, id: \.self) { octave in
-                        Text("\(octave)").tag(octave)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-        }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
-    }
-}
+            .buttonStyle(.plain)
 
-// MARK: - Quick Presets Section
-
-struct QuickPresetsSection: View {
-    @ObservedObject var viewModel: ChordMapViewModel
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("QUICK PRESETS")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-                .tracking(1)
-            
-            HStack(spacing: 12) {
-                QuickPresetButton(title: "Default", icon: "arrow.counterclockwise") {
-                    viewModel.resetToDefault()
+            // Clear button (only show if mapped)
+            if mappedNote != nil && !isLearning {
+                Button(action: onClear) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(TEColors.red)
                 }
-                
-                QuickPresetButton(title: "Simple", icon: "1.circle") {
-                    viewModel.setupSimpleLayout()
-                }
-                
-                QuickPresetButton(title: "Pop", icon: "music.note.list") {
-                    viewModel.setupPopLayout()
-                }
-                
-                QuickPresetButton(title: "Clear", icon: "trash") {
-                    viewModel.clearAllMappings()
-                }
+                .frame(height: 16)
+            } else {
+                Spacer().frame(height: 16)
             }
         }
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(12)
-    }
-}
-
-// MARK: - Quick Preset Button
-
-struct QuickPresetButton: View {
-    let title: String
-    let icon: String
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.title3)
-                Text(title)
-                    .font(.caption2)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .foregroundColor(.cyan)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.cyan.opacity(0.1))
-            )
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -667,5 +366,4 @@ struct QuickPresetButton: View {
 
 #Preview {
     ChordMapView()
-        .environmentObject(SharedSongStore.shared)
 }

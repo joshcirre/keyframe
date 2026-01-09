@@ -127,8 +127,8 @@ enum MIDIConstants {
     static let defaultChannelVolumeCCs: [UInt8] = [70, 71, 72, 73] // For 4 channels
     static let defaultPluginBypassCCs: [UInt8] = [80, 81, 82, 83, 84, 85, 86, 87]
     
-    // NM2 default channel
-    static let defaultNM2Channel: UInt8 = 10
+    // ChordPad default channel
+    static let defaultChordPadChannel: UInt8 = 10
     
     // BPM CC (commonly used for tempo sync)
     static let defaultBPMCC: UInt8 = 20

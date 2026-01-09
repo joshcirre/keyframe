@@ -1,38 +1,57 @@
 import AVFoundation
 import AudioToolbox
+import QuartzCore
 
 /// Core audio engine that manages the entire audio graph
 /// This is the heart of the Keyframe Performance Engine
 final class AudioEngine: ObservableObject {
-    
+
     // MARK: - Singleton
-    
+
     static let shared = AudioEngine()
-    
+
     // MARK: - Published Properties
-    
+
     @Published private(set) var isRunning = false
-    @Published private(set) var cpuUsage: Float = 0.0
+    @Published private(set) var cpuUsage: Float = 0.0      // DSP load (0-100%)
     @Published private(set) var peakLevel: Float = -60.0
+    @Published private(set) var isRestoringPlugins = false
+    @Published private(set) var restorationProgress: String = ""
+
+    // Track pending plugin loads
+    private var pendingPluginLoads = 0
+    private let pluginLoadQueue = DispatchQueue(label: "com.keyframe.pluginLoad")
     @Published var masterVolume: Float = 1.0 {
         didSet {
             masterMixer.outputVolume = masterVolume
         }
     }
-    
+
+    // MARK: - Host Transport / Tempo
+
+    /// Current tempo in BPM (used by hosted plugins for sync)
+    @Published private(set) var currentTempo: Double = 120.0
+
+    /// Whether transport is "playing" (for plugin sync)
+    @Published private(set) var isTransportPlaying: Bool = true
+
+    /// Current beat position (advances with audio callback)
+    private var currentBeatPosition: Double = 0.0
+    private var lastRenderTime: Double = 0
+
     // MARK: - Audio Engine
-    
+
     private let engine = AVAudioEngine()
     private let masterMixer = AVAudioMixerNode()
-    
+
     // MARK: - Channel Strips
-    
+
     private(set) var channelStrips: [ChannelStrip] = []
-    let maxChannels = 8
     
     // MARK: - Metering
-    
+
     private var meteringTimer: Timer?
+    private var pendingPeakLevel: Float = -60.0  // Updated from audio thread, read by timer
     
     // MARK: - Initialization
     
@@ -51,23 +70,25 @@ final class AudioEngine: ObservableObject {
     
     private func setupAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        
+
         do {
-            // Configure for low-latency playback
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            
+            // Configure for background audio playback
+            // Using .playback category without .mixWithOthers ensures iOS keeps
+            // the app running in background as the primary audio source
+            try session.setCategory(.playback, mode: .default, options: [])
+
             // Request low latency buffer
             try session.setPreferredIOBufferDuration(0.005) // 5ms
-            
+
             // Set preferred sample rate
             try session.setPreferredSampleRate(44100)
-            
-            try session.setActive(true)
-            
-            print("AudioEngine: Audio session configured")
+
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+
+            print("AudioEngine: Audio session configured for background audio")
             print("  Sample Rate: \(session.sampleRate)")
             print("  Buffer Duration: \(session.ioBufferDuration * 1000)ms")
-            
+
         } catch {
             print("AudioEngine: Failed to configure audio session: \(error)")
         }
@@ -168,9 +189,10 @@ final class AudioEngine: ObservableObject {
     
     func start() {
         guard !isRunning else { return }
-        
+
         do {
-            try AVAudioSession.sharedInstance().setActive(true)
+            // Ensure audio session is active for background audio
+            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
             try engine.start()
             isRunning = true
             startMetering()
@@ -200,11 +222,6 @@ final class AudioEngine: ObservableObject {
     // MARK: - Channel Management
     
     func addChannel() -> ChannelStrip? {
-        guard channelStrips.count < maxChannels else {
-            print("AudioEngine: Maximum channels reached")
-            return nil
-        }
-        
         let wasRunning = isRunning
         if wasRunning { stop() }
         
@@ -238,12 +255,156 @@ final class AudioEngine: ObservableObject {
         guard index < channelStrips.count else { return nil }
         return channelStrips[index]
     }
-    
+
+    /// Restore instruments and effects from saved channel configurations
+    func restorePlugins(from configs: [ChannelConfiguration], completion: (() -> Void)? = nil) {
+        print("AudioEngine: Restoring plugins from \(configs.count) channel configs")
+
+        // Count total plugins to load
+        var totalPlugins = 0
+        for config in configs {
+            if config.instrument != nil { totalPlugins += 1 }
+            totalPlugins += config.effects.count
+        }
+
+        // If no plugins to restore, we're done
+        if totalPlugins == 0 {
+            print("AudioEngine: No plugins to restore")
+            completion?()
+            return
+        }
+
+        // Set loading state
+        DispatchQueue.main.async {
+            self.isRestoringPlugins = true
+            self.restorationProgress = "Loading plugins..."
+        }
+
+        pluginLoadQueue.sync {
+            pendingPluginLoads = totalPlugins
+        }
+
+        var loadedCount = 0
+
+        let markPluginLoaded: (String, Bool) -> Void = { [weak self] name, success in
+            guard let self = self else { return }
+
+            self.pluginLoadQueue.sync {
+                self.pendingPluginLoads -= 1
+                loadedCount += 1
+            }
+
+            let remaining = self.pluginLoadQueue.sync { self.pendingPluginLoads }
+
+            DispatchQueue.main.async {
+                self.restorationProgress = "Loaded \(loadedCount)/\(totalPlugins): \(name)"
+            }
+
+            if remaining == 0 {
+                DispatchQueue.main.async {
+                    self.isRestoringPlugins = false
+                    self.restorationProgress = ""
+                    print("AudioEngine: All plugins restored")
+                    completion?()
+                }
+            }
+        }
+
+        for (index, config) in configs.enumerated() {
+            guard index < channelStrips.count else { continue }
+            let strip = channelStrips[index]
+
+            // Restore instrument if configured
+            if let instrumentConfig = config.instrument {
+                DispatchQueue.main.async {
+                    self.restorationProgress = "Loading \(instrumentConfig.name)..."
+                }
+                print("AudioEngine: Restoring instrument '\(instrumentConfig.name)' on channel \(index)")
+                strip.loadInstrument(instrumentConfig.audioComponentDescription) { success, error in
+                    if success {
+                        print("AudioEngine: Successfully loaded '\(instrumentConfig.name)' on channel \(index)")
+                    } else {
+                        print("AudioEngine: Failed to load '\(instrumentConfig.name)': \(error?.localizedDescription ?? "unknown")")
+                    }
+                    markPluginLoaded(instrumentConfig.name, success)
+                }
+            }
+
+            // Restore effects if configured
+            for effectConfig in config.effects {
+                print("AudioEngine: Restoring effect '\(effectConfig.name)' on channel \(index)")
+                strip.addEffect(effectConfig.audioComponentDescription) { success, error in
+                    if success {
+                        print("AudioEngine: Successfully loaded effect '\(effectConfig.name)' on channel \(index)")
+                    } else {
+                        print("AudioEngine: Failed to load effect '\(effectConfig.name)': \(error?.localizedDescription ?? "unknown")")
+                    }
+                    markPluginLoaded(effectConfig.name, success)
+                }
+            }
+        }
+    }
+
+    // MARK: - Tempo / Host Transport
+
+    /// Set the host tempo (BPM) for all hosted plugins
+    func setTempo(_ bpm: Double) {
+        currentTempo = bpm
+        print("AudioEngine: Tempo set to \(bpm) BPM")
+
+        // Update musical context on all channel strips
+        for strip in channelStrips {
+            strip.updateMusicalContext(tempo: bpm, isPlaying: isTransportPlaying)
+        }
+    }
+
+    /// Set transport state (playing/stopped)
+    func setTransportPlaying(_ playing: Bool) {
+        isTransportPlaying = playing
+        if playing {
+            currentBeatPosition = 0
+        }
+
+        for strip in channelStrips {
+            strip.updateMusicalContext(tempo: currentTempo, isPlaying: playing)
+        }
+    }
+
+    /// Create a musical context block for hosted AUs
+    func createMusicalContextBlock() -> AUHostMusicalContextBlock {
+        return { [weak self] (
+            currentTempo: UnsafeMutablePointer<Double>?,
+            timeSignatureNumerator: UnsafeMutablePointer<Double>?,
+            timeSignatureDenominator: UnsafeMutablePointer<Int>?,
+            currentBeatPosition: UnsafeMutablePointer<Double>?,
+            sampleOffsetToNextBeat: UnsafeMutablePointer<Int>?,
+            currentMeasureDownbeatPosition: UnsafeMutablePointer<Double>?
+        ) -> Bool in
+            guard let self = self else { return false }
+
+            currentTempo?.pointee = self.currentTempo
+            timeSignatureNumerator?.pointee = 4.0
+            timeSignatureDenominator?.pointee = 4
+            currentBeatPosition?.pointee = self.currentBeatPosition
+            sampleOffsetToNextBeat?.pointee = 0
+            currentMeasureDownbeatPosition?.pointee = floor(self.currentBeatPosition / 4.0) * 4.0
+
+            return true
+        }
+    }
+
     // MARK: - Metering
-    
+
     private func startMetering() {
-        meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            self?.updateCPUUsage()
+        // Update every 250ms for stability and lower overhead
+        meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.updateDSPLoad()
+
+            // Read the pending peak level (written by audio thread)
+            // and apply smoothing/decay (faster decay for longer interval)
+            let pending = self.pendingPeakLevel
+            self.peakLevel = max(pending, self.peakLevel - 6.0)
         }
     }
     
@@ -254,48 +415,75 @@ final class AudioEngine: ObservableObject {
     
     private func processMeterData(buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
-        
+
         let channelCount = Int(buffer.format.channelCount)
         let frameCount = Int(buffer.frameLength)
-        
+
         var maxSample: Float = 0
-        
+
+        // Use stride for better performance with large buffers
+        let stride = max(1, frameCount / 64)  // Sample ~64 points per buffer
+
         for channel in 0..<channelCount {
-            for frame in 0..<frameCount {
+            var frame = 0
+            while frame < frameCount {
                 let sample = abs(channelData[channel][frame])
                 if sample > maxSample {
                     maxSample = sample
                 }
+                frame += stride
             }
         }
-        
-        // Convert to dB
+
+        // Convert to dB and store for timer to read (no main thread dispatch!)
         let db = maxSample > 0 ? 20 * log10(maxSample) : -60
-        
-        DispatchQueue.main.async { [weak self] in
-            // Smooth the meter
-            self?.peakLevel = max(db, (self?.peakLevel ?? -60) - 1.5)
-        }
+        pendingPeakLevel = db
     }
-    
-    private func updateCPUUsage() {
-        // Approximate CPU usage based on render time
-        // This is a simplified approach
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
-        
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
-                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+
+    private func updateDSPLoad() {
+        // Get actual CPU usage for this process (reflects audio rendering work)
+        let load = getProcessCPUUsage()
+
+        // Smoothing for stable readings
+        let smoothed = self.cpuUsage * 0.7 + load * 0.3
+
+        self.cpuUsage = min(100, max(0, smoothed))
+    }
+
+    /// Get CPU usage for the current process
+    private func getProcessCPUUsage() -> Float {
+        var threadsList: thread_act_array_t?
+        var threadsCount = mach_msg_type_number_t()
+
+        let task = mach_task_self_
+
+        guard task_threads(task, &threadsList, &threadsCount) == KERN_SUCCESS,
+              let threads = threadsList else {
+            return 0
+        }
+
+        var totalCPU: Float = 0
+
+        for i in 0..<Int(threadsCount) {
+            var threadInfo = thread_basic_info()
+            var threadInfoCount = mach_msg_type_number_t(THREAD_INFO_MAX)
+
+            let result = withUnsafeMutablePointer(to: &threadInfo) { ptr in
+                ptr.withMemoryRebound(to: integer_t.self, capacity: Int(threadInfoCount)) { intPtr in
+                    thread_info(threads[i], thread_flavor_t(THREAD_BASIC_INFO), intPtr, &threadInfoCount)
+                }
+            }
+
+            if result == KERN_SUCCESS && threadInfo.flags != TH_FLAGS_IDLE {
+                totalCPU += Float(threadInfo.cpu_usage) / Float(TH_USAGE_SCALE) * 100.0
             }
         }
-        
-        if result == KERN_SUCCESS {
-            // This is a rough approximation
-            DispatchQueue.main.async { [weak self] in
-                self?.cpuUsage = min(100, Float(info.resident_size) / Float(1024 * 1024 * 100))
-            }
-        }
+
+        // Deallocate the thread list
+        let size = vm_size_t(Int(threadsCount) * MemoryLayout<thread_t>.stride)
+        vm_deallocate(task, vm_address_t(bitPattern: threads), size)
+
+        return totalCPU
     }
     
     // MARK: - Preset Application

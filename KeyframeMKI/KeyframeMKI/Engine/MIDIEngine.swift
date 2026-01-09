@@ -17,16 +17,41 @@ final class MIDIEngine: ObservableObject {
     @Published private(set) var lastActivity: Date?
     
     // MARK: - Scale/Chord Settings
-    
+
     @Published var currentRootNote: Int = 0  // C
     @Published var currentScaleType: ScaleType = .major
     @Published var filterMode: FilterMode = .snap
-    @Published var nm2Channel: Int = 10  // 1-16
     @Published var isScaleFilterEnabled = true
-    
-    // MARK: - NM2 Chord Mapping
-    
-    var chordMapping: ChordMapping = .defaultMapping
+
+    // MARK: - ChordPad Settings (persisted)
+
+    @Published var chordPadChannel: Int = 10 {  // 1-16
+        didSet { saveChordPadSettings() }
+    }
+    @Published var chordPadSourceName: String? = nil {  // nil = disabled
+        didSet { saveChordPadSettings() }
+    }
+    var chordMapping: ChordMapping = .defaultMapping {
+        didSet { saveChordPadSettings() }
+    }
+
+    // MARK: - Persistence Keys
+
+    private let chordPadChannelKey = "chordPadChannel"
+    private let chordPadSourceNameKey = "chordPadSourceName"
+    private let chordMappingKey = "chordMapping"
+
+    // MARK: - MIDI Learn Mode
+
+    @Published var isLearningMode = false
+    @Published var isCCLearningMode = false
+    var onNoteLearn: ((Int, Int, String?) -> Void)?  // (note, channel, sourceName)
+    var onCCLearn: ((Int, Int, String?) -> Void)?    // (cc, channel, sourceName)
+
+    // MARK: - Control Callbacks
+
+    var onSongTrigger: ((Int, Int, String?) -> Void)?       // (note, channel, sourceName) - for triggering songs
+    var onFaderControl: ((Int, Int, Int, String?) -> Void)? // (cc, value, channel, sourceName) - for fader control
     
     // MARK: - CoreMIDI
     
@@ -34,7 +59,8 @@ final class MIDIEngine: ObservableObject {
     private var inputPort: MIDIPortRef = 0
     
     // Track active notes for proper note-off handling
-    private var activeNotes: [Int: [(channel: UInt8, notes: [UInt8])]] = [:]  // Source -> active note mappings
+    // Key: sourceHash ^ channel ^ note, Value: Dictionary of channelStripId -> processed notes sent
+    private var activeNotes: [Int: [UUID: [UInt8]]] = [:]
     
     // Source endpoint to name mapping
     private var sourceNameMap: [MIDIEndpointRef: String] = [:]
@@ -47,9 +73,43 @@ final class MIDIEngine: ObservableObject {
     private weak var audioEngine: AudioEngine?
     
     // MARK: - Initialization
-    
+
     private init() {
+        loadChordPadSettings()
         setupMIDI()
+    }
+
+    // MARK: - ChordPad Persistence
+
+    private func loadChordPadSettings() {
+        let defaults = UserDefaults.standard
+
+        // Load channel
+        if defaults.object(forKey: chordPadChannelKey) != nil {
+            chordPadChannel = defaults.integer(forKey: chordPadChannelKey)
+        }
+
+        // Load source name
+        chordPadSourceName = defaults.string(forKey: chordPadSourceNameKey)
+
+        // Load chord mapping
+        if let data = defaults.data(forKey: chordMappingKey),
+           let mapping = try? JSONDecoder().decode(ChordMapping.self, from: data) {
+            chordMapping = mapping
+        }
+
+        print("MIDIEngine: Loaded ChordPad settings - source: \(chordPadSourceName ?? "none"), channel: \(chordPadChannel), mappings: \(chordMapping.buttonMap.count)")
+    }
+
+    private func saveChordPadSettings() {
+        let defaults = UserDefaults.standard
+
+        defaults.set(chordPadChannel, forKey: chordPadChannelKey)
+        defaults.set(chordPadSourceName, forKey: chordPadSourceNameKey)
+
+        if let data = try? JSONEncoder().encode(chordMapping) {
+            defaults.set(data, forKey: chordMappingKey)
+        }
     }
     
     deinit {
@@ -178,15 +238,18 @@ final class MIDIEngine: ObservableObject {
     // MARK: - MIDI Event Processing
     
     private func handleMIDIEventList(_ eventList: UnsafePointer<MIDIEventList>, sourceName: String?) {
-        var list = eventList.pointee
-        
-        withUnsafeMutablePointer(to: &list.packet) { firstPacket in
-            var packet = firstPacket
-            
-            for _ in 0..<list.numPackets {
-                handleMIDIEventPacket(packet.pointee, sourceName: sourceName)
-                packet = MIDIEventPacketNext(packet)
-            }
+        let numPackets = Int(eventList.pointee.numPackets)
+        guard numPackets > 0 else { return }
+
+        // Use unsafeBitCast to get a pointer to the first packet in the original memory
+        // This avoids copying the variable-length packet data
+        var packet = UnsafeRawPointer(eventList)
+            .advanced(by: MemoryLayout<MIDIEventList>.offset(of: \.packet)!)
+            .assumingMemoryBound(to: MIDIEventPacket.self)
+
+        for _ in 0..<numPackets {
+            handleMIDIEventPacket(packet.pointee, sourceName: sourceName)
+            packet = UnsafePointer(MIDIEventPacketNext(packet))
         }
     }
     
@@ -245,60 +308,85 @@ final class MIDIEngine: ObservableObject {
     }
     
     private func processNoteOn(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?) {
-        guard let audioEngine = audioEngine else { return }
-        
         let midiChannel = Int(channel) + 1  // Convert to 1-based
-        
-        // Check if this is from the NM2 (chord trigger)
-        if midiChannel == nm2Channel && chordMapping.buttonMap[Int(note)] != nil {
-            processChordTrigger(note: note, velocity: velocity, channel: channel, sourceName: sourceName)
+
+        // MIDI Learn mode - intercept note and call callback
+        if isLearningMode {
+            DispatchQueue.main.async { [weak self] in
+                self?.onNoteLearn?(Int(note), midiChannel, sourceName)
+            }
             return
         }
-        
+
+        // Song trigger callback (checked before instrument routing)
+        DispatchQueue.main.async { [weak self] in
+            self?.onSongTrigger?(Int(note), midiChannel, sourceName)
+        }
+
+        guard let audioEngine = audioEngine else { return }
+
+        // Check if this is from the ChordPad (chord trigger controller)
+        // Requires BOTH a specific source AND matching channel (no "any" source allowed)
+        // ALL notes from ChordPad are captured - mapped ones trigger chords, unmapped ones are ignored
+        if let chordPadSource = chordPadSourceName,
+           chordPadSource == sourceName,
+           midiChannel == chordPadChannel {
+            // Only process if this note is mapped to a chord degree
+            if chordMapping.buttonMap[Int(note)] != nil {
+                processChordTrigger(note: note, velocity: velocity, channel: channel, sourceName: sourceName)
+            }
+            // Always return - don't let ChordPad notes fall through to instruments
+            return
+        }
+
         // Find target channel(s) that accept this source + channel
         let targetChannels = audioEngine.channelStrips.filter { strip in
             channelAcceptsMIDI(strip, sourceName: sourceName, midiChannel: midiChannel)
         }
-        
+
+        // Create key for tracking this note
+        let sourceHash = sourceName?.hashValue ?? 0
+        let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
+
+        // Initialize mapping for this note if needed
+        if activeNotes[sourceKey] == nil {
+            activeNotes[sourceKey] = [:]
+        }
+
         for targetChannel in targetChannels {
             let processedNotes: [UInt8]
-            
+
             if targetChannel.scaleFilterEnabled && isScaleFilterEnabled {
                 processedNotes = applyScaleFilter(note: note)
             } else {
                 processedNotes = [note]
             }
-            
-            // Store mapping for note-off (include source in key)
-            let sourceHash = sourceName?.hashValue ?? 0
-            let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
-            activeNotes[sourceKey] = [(channel: channel, notes: processedNotes)]
-            
+
+            // Store which notes were actually sent to this specific channel
+            activeNotes[sourceKey]?[targetChannel.id] = processedNotes
+
             // Send to instrument
             for processedNote in processedNotes {
                 targetChannel.sendMIDI(noteOn: processedNote, velocity: velocity)
             }
         }
-        
+
         let src = sourceName ?? "?"
         updateLastMessage("\(src): Note \(note) vel \(velocity) ch \(channel + 1)")
     }
     
     private func processNoteOff(note: UInt8, channel: UInt8, sourceName: String?) {
         guard let audioEngine = audioEngine else { return }
-        
+
         let sourceHash = sourceName?.hashValue ?? 0
         let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
-        let midiChannel = Int(channel) + 1
-        
-        if let mappings = activeNotes[sourceKey] {
-            let targetChannels = audioEngine.channelStrips.filter { strip in
-                channelAcceptsMIDI(strip, sourceName: sourceName, midiChannel: midiChannel)
-            }
-            
-            for mapping in mappings {
-                for targetChannel in targetChannels {
-                    for processedNote in mapping.notes {
+
+        // Look up which notes were actually sent to each channel for this input note
+        if let channelMappings = activeNotes[sourceKey] {
+            for (channelId, processedNotes) in channelMappings {
+                // Find the channel strip by ID
+                if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
+                    for processedNote in processedNotes {
                         targetChannel.sendMIDI(noteOff: processedNote)
                     }
                 }
@@ -308,18 +396,31 @@ final class MIDIEngine: ObservableObject {
     }
     
     private func processCC(cc: UInt8, value: UInt8, channel: UInt8, sourceName: String?) {
-        guard let audioEngine = audioEngine else { return }
-        
         let midiChannel = Int(channel) + 1
-        
+
+        // CC Learn mode - intercept CC and call callback
+        if isCCLearningMode {
+            DispatchQueue.main.async { [weak self] in
+                self?.onCCLearn?(Int(cc), midiChannel, sourceName)
+            }
+            return
+        }
+
+        // Fader control callback (for mapped CC controls)
+        DispatchQueue.main.async { [weak self] in
+            self?.onFaderControl?(Int(cc), Int(value), midiChannel, sourceName)
+        }
+
+        guard let audioEngine = audioEngine else { return }
+
         let targetChannels = audioEngine.channelStrips.filter { strip in
             channelAcceptsMIDI(strip, sourceName: sourceName, midiChannel: midiChannel)
         }
-        
+
         for targetChannel in targetChannels {
             targetChannel.sendMIDI(controlChange: cc, value: value)
         }
-        
+
         let src = sourceName ?? "?"
         updateLastMessage("\(src): CC \(cc) = \(value) ch \(channel + 1)")
     }
@@ -348,7 +449,7 @@ final class MIDIEngine: ObservableObject {
     
     private func processChordTrigger(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?) {
         guard let audioEngine = audioEngine else { return }
-        
+
         // Get chord notes from engine
         guard let chordNotes = ChordEngine.processChordTrigger(
             inputNote: note,
@@ -359,21 +460,28 @@ final class MIDIEngine: ObservableObject {
         ) else {
             return
         }
-        
-        // Find the NM2 chord channel
-        let targetChannels = audioEngine.channelStrips.filter { $0.isNM2ChordChannel }
-        
+
+        // Find the ChordPad target channels
+        let targetChannels = audioEngine.channelStrips.filter { $0.isChordPadTarget }
+
+        // Create key for tracking this note
+        let sourceHash = sourceName?.hashValue ?? 0
+        let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
+
+        // Initialize mapping for this note if needed
+        if activeNotes[sourceKey] == nil {
+            activeNotes[sourceKey] = [:]
+        }
+
         for targetChannel in targetChannels {
-            // Store mapping for note-off
-            let sourceHash = sourceName?.hashValue ?? 0
-            let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
-            activeNotes[sourceKey] = [(channel: channel, notes: chordNotes)]
-            
+            // Store which chord notes were sent to this channel
+            activeNotes[sourceKey]?[targetChannel.id] = chordNotes
+
             for chordNote in chordNotes {
                 targetChannel.sendMIDI(noteOn: chordNote, velocity: velocity)
             }
         }
-        
+
         updateLastMessage("Chord: \(chordNotes.map { String($0) }.joined(separator: ","))")
     }
     

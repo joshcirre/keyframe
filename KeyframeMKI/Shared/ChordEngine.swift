@@ -96,7 +96,7 @@ struct ChordEngine {
     
     /// Process an incoming MIDI note as a chord trigger
     /// - Parameters:
-    ///   - inputNote: The MIDI note received from the NM2
+    ///   - inputNote: The MIDI note received from the ChordPad
     ///   - mapping: The chord mapping configuration
     ///   - rootNote: Current song's root note (0-11)
     ///   - scaleType: Current song's scale type

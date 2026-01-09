@@ -4,12 +4,14 @@ import SwiftUI
 struct PerformanceSongEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var sessionStore = SessionStore.shared
-    
+    @StateObject private var midiEngine = MIDIEngine.shared
+
     @State var song: PerformanceSong
     let isNew: Bool
     let channels: [ChannelConfiguration]
-    
+
     @State private var showingDeleteConfirmation = false
+    @State private var isLearningTrigger = false
     
     var body: some View {
         ZStack {
@@ -34,7 +36,10 @@ struct PerformanceSongEditorView: View {
                         
                         // BPM
                         bpmSection
-                        
+
+                        // MIDI Trigger
+                        midiTriggerSection
+
                         // Channel presets
                         channelPresetsSection
                         
@@ -353,7 +358,166 @@ struct PerformanceSongEditorView: View {
             )
         }
     }
-    
+
+    // MARK: - MIDI Trigger Section
+
+    private var midiTriggerSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("MIDI TRIGGER")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+
+            VStack(spacing: 16) {
+                // Source picker
+                HStack {
+                    Text("CONTROLLER")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+
+                    Spacer()
+
+                    let connectedNames = Set(midiEngine.connectedSources.map { $0.name })
+                    let isOffline = song.triggerSourceName != nil && !connectedNames.contains(song.triggerSourceName!)
+
+                    Menu {
+                        Button("ANY") {
+                            song.triggerSourceName = nil
+                        }
+                        ForEach(midiEngine.connectedSources) { source in
+                            Button(source.name.uppercased()) {
+                                song.triggerSourceName = source.name
+                            }
+                        }
+                        // Show saved offline source
+                        if let savedSource = song.triggerSourceName, isOffline {
+                            Button("\(savedSource.uppercased()) (OFFLINE)") {
+                                // Keep same selection
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(triggerSourceLabel(isOffline: isOffline))
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundColor(isOffline ? TEColors.orange : TEColors.black)
+                                .lineLimit(1)
+
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(TEColors.darkGray)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: 2)
+                        )
+                    }
+                }
+
+                // Channel picker
+                HStack {
+                    Text("CHANNEL")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+
+                    Spacer()
+
+                    Menu {
+                        Button("ANY") {
+                            song.triggerChannel = nil
+                        }
+                        ForEach(1...16, id: \.self) { ch in
+                            Button("CH \(ch)") {
+                                song.triggerChannel = ch
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(song.triggerChannel.map { "CH \($0)" } ?? "ANY")
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundColor(TEColors.black)
+
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(TEColors.darkGray)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: 2)
+                        )
+                    }
+                }
+
+                // Note Learn button
+                HStack {
+                    Text("NOTE")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+
+                    Spacer()
+
+                    if let note = song.triggerNote {
+                        Text("NOTE \(note)")
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundColor(TEColors.black)
+
+                        Button {
+                            song.triggerNote = nil
+                            song.triggerChannel = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(TEColors.red)
+                        }
+                    }
+
+                    Button {
+                        isLearningTrigger.toggle()
+                        midiEngine.isLearningMode = isLearningTrigger
+                        if isLearningTrigger {
+                            // Capture current filter settings
+                            let filterSource = song.triggerSourceName
+                            let filterChannel = song.triggerChannel
+
+                            midiEngine.onNoteLearn = { note, channel, source in
+                                // Only accept if it matches pre-selected filters
+                                let sourceMatches = filterSource == nil || filterSource == source
+                                let channelMatches = filterChannel == nil || filterChannel == channel
+
+                                guard sourceMatches && channelMatches else { return }
+
+                                song.triggerNote = note
+                                song.triggerChannel = channel
+                                if song.triggerSourceName == nil {
+                                    song.triggerSourceName = source
+                                }
+                                isLearningTrigger = false
+                                midiEngine.isLearningMode = false
+                            }
+                        }
+                    } label: {
+                        Text(isLearningTrigger ? "LISTENING..." : "LEARN")
+                            .font(TEFonts.mono(11, weight: .bold))
+                            .foregroundColor(isLearningTrigger ? .white : TEColors.black)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(isLearningTrigger ? TEColors.orange : TEColors.lightGray)
+                            .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                    }
+                }
+            }
+            .padding(16)
+            .background(
+                Rectangle()
+                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .background(TEColors.warmWhite)
+            )
+        }
+    }
+
     // MARK: - Channel Presets Section
     
     private var channelPresetsSection: some View {
@@ -425,6 +589,16 @@ struct PerformanceSongEditorView: View {
             }
         )
     }
+
+    private func triggerSourceLabel(isOffline: Bool) -> String {
+        guard let sourceName = song.triggerSourceName else {
+            return "ANY"
+        }
+        if isOffline {
+            return "\(sourceName.uppercased()) (OFFLINE)"
+        }
+        return sourceName.uppercased()
+    }
 }
 
 // MARK: - Channel State Editor
@@ -446,22 +620,17 @@ struct ChannelStateEditor: View {
             HStack(spacing: 0) {
                 // Left side: tappable for expand
                 HStack(spacing: 12) {
-                    // Color indicator
-                    Rectangle()
-                        .fill(Color(channel.color.uiColor))
-                        .frame(width: 4, height: 44)
-                    
                     // Channel name
                     Text(channel.name.uppercased())
                         .font(TEFonts.mono(12, weight: .bold))
                         .foregroundColor(TEColors.black)
-                    
+
                     // Status
                     if isEnabled {
                         Text("\(Int(currentVolume * 100))%")
                             .font(TEFonts.mono(10, weight: .medium))
                             .foregroundColor(TEColors.orange)
-                        
+
                         if currentMuted {
                             Text("M")
                                 .font(TEFonts.mono(10, weight: .bold))
@@ -470,15 +639,16 @@ struct ChannelStateEditor: View {
                                 .background(TEColors.red)
                         }
                     }
-                    
+
                     Spacer()
-                    
+
                     // Expand indicator
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(TEColors.darkGray)
                         .frame(width: 24, height: 24)
                 }
+                .padding(.leading, 16)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     // Only expand if enabled
@@ -488,7 +658,7 @@ struct ChannelStateEditor: View {
                         }
                     }
                 }
-                
+
                 // Right side: enable toggle (separate tap target)
                 Button {
                     if isEnabled {
@@ -519,8 +689,9 @@ struct ChannelStateEditor: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 16)
+                .padding(.trailing, 16)
             }
+            .padding(.vertical, 12)
             
             // Expanded content
             if isExpanded && isEnabled {

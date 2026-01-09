@@ -1,12 +1,12 @@
 import Foundation
 
-/// Configuration for mapping NM2 buttons to chord degrees
+/// Configuration for mapping ChordPad buttons to chord degrees
 struct ChordMapping: Codable, Equatable {
-    /// MIDI channel the NM2 sends on (1-16, stored as 1-based)
-    var nm2Channel: Int
-    
+    /// MIDI channel the ChordPad sends on (1-16, stored as 1-based)
+    var chordPadChannel: Int
+
     /// Map of MIDI note number to scale degree (1-7)
-    /// Key: MIDI note from NM2 button, Value: Scale degree to play
+    /// Key: MIDI note from ChordPad button, Value: Scale degree to play
     var buttonMap: [Int: Int]
     
     /// Base octave for chord output (MIDI octave, 4 = middle C octave)
@@ -14,10 +14,10 @@ struct ChordMapping: Codable, Equatable {
     
     // MARK: - Default Configuration
     
-    /// Default chord mapping for NM2 (3x6 grid)
-    /// Assumes NM2 sends notes 36-53 for the 18 buttons
+    /// Default chord mapping for ChordPad (3x6 grid)
+    /// Assumes ChordPad sends notes 36-53 for the 18 buttons
     static let defaultMapping = ChordMapping(
-        nm2Channel: 10,
+        chordPadChannel: 10,
         buttonMap: [
             // Row 1: Chords I, II, III, IV, V, VI
             36: 1,  // Button 1 → I chord
@@ -48,21 +48,21 @@ struct ChordMapping: Codable, Equatable {
     
     // MARK: - Initialization
     
-    init(nm2Channel: Int = 10, buttonMap: [Int: Int] = [:], baseOctave: Int = 4) {
-        self.nm2Channel = nm2Channel
+    init(chordPadChannel: Int = 10, buttonMap: [Int: Int] = [:], baseOctave: Int = 4) {
+        self.chordPadChannel = chordPadChannel
         self.buttonMap = buttonMap
         self.baseOctave = baseOctave
     }
-    
+
     // MARK: - Helpers
-    
-    /// Check if a MIDI channel matches the NM2 channel
+
+    /// Check if a MIDI channel matches the ChordPad channel
     /// - Parameter channel: MIDI channel (0-15, 0-based as used in MIDI messages)
-    /// - Returns: True if this is the NM2 channel
-    func isNM2Channel(_ channel: UInt8) -> Bool {
+    /// - Returns: True if this is the ChordPad channel
+    func isChordPadChannel(_ channel: UInt8) -> Bool {
         // MIDI channels in messages are 0-based (0-15)
         // We store as 1-based (1-16) for user-friendliness
-        return Int(channel) + 1 == nm2Channel
+        return Int(channel) + 1 == chordPadChannel
     }
     
     /// Get the scale degree for a MIDI note, if mapped
@@ -93,11 +93,11 @@ struct ChordMapping: Codable, Equatable {
     }
 }
 
-// MARK: - NM2 Grid Helper
+// MARK: - ChordPad Grid Helper
 
 extension ChordMapping {
-    /// NM2 grid layout helper (3 rows x 6 columns)
-    struct NM2Grid {
+    /// ChordPad grid layout helper (3 rows x 6 columns)
+    struct ChordPadGrid {
         /// Get the note number for a grid position
         /// - Parameters:
         ///   - row: Row index (0-2)

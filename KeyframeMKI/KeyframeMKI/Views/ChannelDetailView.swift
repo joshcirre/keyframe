@@ -7,13 +7,15 @@ struct ChannelDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var channel: ChannelStrip
     @Binding var config: ChannelConfiguration
-    
+
     @StateObject private var pluginManager = AUv3HostManager.shared
-    
+    @StateObject private var midiEngine = MIDIEngine.shared
+
     @State private var showingInstrumentPicker = false
     @State private var showingEffectPicker = false
     @State private var showingPluginUI = false
     @State private var pluginViewController: UIViewController?
+    @State private var isLearningFaderCC = false
     
     var body: some View {
         ZStack {
@@ -81,23 +83,6 @@ struct ChannelDetailView: View {
                 .foregroundColor(TEColors.black)
                 .multilineTextAlignment(.center)
                 .textInputAutocapitalization(.characters)
-            
-            // Color picker
-            HStack(spacing: 8) {
-                ForEach(ChannelColor.allCases) { color in
-                    Button {
-                        config.color = color
-                    } label: {
-                        RoundedRectangle(cornerRadius: 0)
-                            .fill(Color(color.uiColor))
-                            .frame(width: 28, height: 28)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 0)
-                                    .strokeBorder(TEColors.black, lineWidth: config.color == color ? 3 : 0)
-                            )
-                    }
-                }
-            }
         }
         .padding(20)
         .background(
@@ -406,9 +391,23 @@ struct ChannelDetailView: View {
     
     private var midiSourceOptions: [String: String] {
         var options: [String: String] = ["": "ALL"]
+        let connectedNames = Set(MIDIEngine.shared.connectedSources.map { $0.name })
+
+        // Add connected sources
         for source in MIDIEngine.shared.connectedSources {
             options[source.name] = source.name.uppercased()
         }
+
+        // Include saved source name even if disconnected (for MIDI input)
+        if let savedSource = config.midiSourceName, !connectedNames.contains(savedSource) {
+            options[savedSource] = "\(savedSource.uppercased()) (OFFLINE)"
+        }
+
+        // Include saved control source name even if disconnected (for fader control)
+        if let savedControl = config.controlSourceName, !connectedNames.contains(savedControl) {
+            options[savedControl] = "\(savedControl.uppercased()) (OFFLINE)"
+        }
+
         return options
     }
     
@@ -447,9 +446,99 @@ struct ChannelDetailView: View {
                 
                 // Scale filter toggle
                 TEToggle(label: "SCALE FILTER", isOn: $config.scaleFilterEnabled)
-                
-                // NM2 toggle
-                TEToggle(label: "NM2 CHORDS", isOn: $config.isNM2ChordChannel)
+
+                // ChordPad toggle
+                TEToggle(label: "CHORDPAD TARGET", isOn: $config.isChordPadTarget)
+
+                Rectangle()
+                    .fill(TEColors.lightGray)
+                    .frame(height: 1)
+
+                // Fader Control section
+                VStack(spacing: 12) {
+                    Text("FADER CONTROL")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundColor(TEColors.midGray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    // Control source picker
+                    TEPicker(
+                        label: "CONTROLLER",
+                        selection: Binding(
+                            get: { config.controlSourceName ?? "" },
+                            set: { config.controlSourceName = $0.isEmpty ? nil : $0 }
+                        ),
+                        options: midiSourceOptions
+                    )
+
+                    // Control channel picker
+                    TEPicker(
+                        label: "CHANNEL",
+                        selection: Binding(
+                            get: { config.controlChannel ?? 0 },
+                            set: { config.controlChannel = $0 == 0 ? nil : $0 }
+                        ),
+                        options: midiChannelOptions
+                    )
+
+                    // CC Learn button
+                    HStack {
+                        Text("CC")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundColor(TEColors.midGray)
+
+                        Spacer()
+
+                        if let cc = config.controlCC {
+                            Text("CC \(cc)")
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundColor(TEColors.black)
+
+                            Button {
+                                config.controlCC = nil
+                                config.controlChannel = nil
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(TEColors.red)
+                            }
+                        }
+
+                        Button {
+                            isLearningFaderCC.toggle()
+                            midiEngine.isCCLearningMode = isLearningFaderCC
+                            if isLearningFaderCC {
+                                // Capture current filter settings
+                                let filterSource = config.controlSourceName
+                                let filterChannel = config.controlChannel
+
+                                midiEngine.onCCLearn = { cc, channel, source in
+                                    // Only accept if it matches pre-selected filters
+                                    let sourceMatches = filterSource == nil || filterSource == source
+                                    let channelMatches = filterChannel == nil || filterChannel == channel
+
+                                    guard sourceMatches && channelMatches else { return }
+
+                                    config.controlCC = cc
+                                    config.controlChannel = channel
+                                    if config.controlSourceName == nil {
+                                        config.controlSourceName = source
+                                    }
+                                    isLearningFaderCC = false
+                                    midiEngine.isCCLearningMode = false
+                                }
+                            }
+                        } label: {
+                            Text(isLearningFaderCC ? "LISTENING..." : "LEARN")
+                                .font(TEFonts.mono(11, weight: .bold))
+                                .foregroundColor(isLearningFaderCC ? .white : TEColors.black)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(isLearningFaderCC ? TEColors.orange : TEColors.lightGray)
+                                .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                        }
+                    }
+                }
             }
             .padding(16)
             .background(
@@ -598,8 +687,14 @@ struct TEPicker<T: Hashable>: View {
         self.label = label
         self._selection = selection
         // Convert to sorted array for stable ordering
+        // Sort numerically for Int keys, alphabetically otherwise
         self.options = options.map { (key: $0.key, value: $0.value) }
-            .sorted { $0.value < $1.value }
+            .sorted { a, b in
+                if let aInt = a.key as? Int, let bInt = b.key as? Int {
+                    return aInt < bInt
+                }
+                return a.value < b.value
+            }
     }
     
     var body: some View {

@@ -17,11 +17,15 @@ final class ChannelStrip: ObservableObject, Identifiable {
     private let mixer = AVAudioMixerNode()
     
     /// The instrument AUv3 (synthesizer/sampler)
-    private(set) var instrument: AVAudioUnit?
+    private(set) var instrument: AVAudioUnit? {
+        didSet { objectWillChange.send() }
+    }
     var instrumentInfo: AUv3Info?
     
     /// Insert effects chain (up to 4)
-    private(set) var effects: [AVAudioUnit] = []
+    private(set) var effects: [AVAudioUnit] = [] {
+        didSet { objectWillChange.send() }
+    }
     var effectInfos: [AUv3Info] = []
     let maxEffects = 4
     
@@ -63,19 +67,27 @@ final class ChannelStrip: ObservableObject, Identifiable {
     /// Whether scale filtering is applied to incoming MIDI
     @Published var scaleFilterEnabled: Bool = true
     
-    /// Whether this channel handles NM2 chord triggers
-    @Published var isNM2ChordChannel: Bool = false
+    /// Whether this channel handles ChordPad chord triggers
+    @Published var isChordPadTarget: Bool = false
     
     // MARK: - Metering
-    
+
     @Published var peakLevel: Float = -60.0
     private var meterTap: Bool = false
+    private var pendingPeakLevel: Float = -60.0  // Written by audio thread
+    private var meterUpdateTimer: Timer?
     
     // MARK: - State
-    
-    @Published private(set) var isInstrumentLoaded: Bool = false
+
+    var isInstrumentLoaded: Bool { instrument != nil }
     @Published private(set) var isLoading: Bool = false
-    
+
+    // MARK: - Host Musical Context
+
+    /// Current tempo for this channel's plugins
+    private var hostTempo: Double = 120.0
+    private var hostIsPlaying: Bool = true
+
     // MARK: - Initialization
     
     init(engine: AVAudioEngine, index: Int) {
@@ -88,11 +100,11 @@ final class ChannelStrip: ObservableObject, Identifiable {
     
     private func setupMixer() {
         guard let engine = engine else { return }
-        
+
         engine.attach(mixer)
         mixer.outputVolume = volume
         mixer.pan = pan
-        
+
         // Install metering tap
         let format = mixer.outputFormat(forBus: 0)
         if format.sampleRate > 0 {
@@ -101,26 +113,35 @@ final class ChannelStrip: ObservableObject, Identifiable {
             }
             meterTap = true
         }
+
+        // Timer to read pending meter value (avoids main thread dispatch from audio thread)
+        meterUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            let pending = self.pendingPeakLevel
+            self.peakLevel = max(pending, self.peakLevel - 2.0)
+        }
     }
     
     private func processMeterData(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
-        
+
         let frameCount = Int(buffer.frameLength)
         var maxSample: Float = 0
-        
-        for frame in 0..<frameCount {
+
+        // Use stride for better performance
+        let stride = max(1, frameCount / 64)
+        var frame = 0
+        while frame < frameCount {
             let sample = abs(channelData[0][frame])
             if sample > maxSample {
                 maxSample = sample
             }
+            frame += stride
         }
-        
+
+        // Store for timer to read (no main thread dispatch from audio thread!)
         let db = maxSample > 0 ? 20 * log10(maxSample) : -60
-        
-        DispatchQueue.main.async { [weak self] in
-            self?.peakLevel = max(db, (self?.peakLevel ?? -60) - 2.0)
-        }
+        pendingPeakLevel = db
     }
     
     // MARK: - Instrument Loading
@@ -156,11 +177,13 @@ final class ChannelStrip: ObservableObject, Identifiable {
                 
                 self.instrument = audioUnit
                 engine.attach(audioUnit)
-                
+
+                // Apply musical context for tempo sync
+                self.applyMusicalContext(to: audioUnit.auAudioUnit)
+
                 // Connect instrument to first effect or directly to mixer
                 self.rebuildAudioChain()
-                
-                self.isInstrumentLoaded = true
+
                 print("ChannelStrip \(self.index): Loaded instrument")
                 completion(true, nil)
             }
@@ -170,12 +193,11 @@ final class ChannelStrip: ObservableObject, Identifiable {
     /// Unload the current instrument
     func unloadInstrument() {
         guard let instrument = instrument, let engine = engine else { return }
-        
+
         engine.detach(instrument)
         self.instrument = nil
         self.instrumentInfo = nil
-        isInstrumentLoaded = false
-        
+
         rebuildAudioChain()
     }
     
@@ -214,9 +236,12 @@ final class ChannelStrip: ObservableObject, Identifiable {
                 
                 self.effects.append(audioUnit)
                 engine.attach(audioUnit)
-                
+
+                // Apply musical context for tempo sync
+                self.applyMusicalContext(to: audioUnit.auAudioUnit)
+
                 self.rebuildAudioChain()
-                
+
                 print("ChannelStrip \(self.index): Added effect (\(self.effects.count) total)")
                 completion(true, nil)
             }
@@ -282,7 +307,81 @@ final class ChannelStrip: ObservableObject, Identifiable {
             engine.connect(finalNode, to: mixer, format: format)
         }
     }
-    
+
+    // MARK: - Host Musical Context (Tempo Sync)
+
+    /// Update the musical context (tempo, transport) for all hosted plugins
+    func updateMusicalContext(tempo: Double, isPlaying: Bool) {
+        hostTempo = tempo
+        hostIsPlaying = isPlaying
+
+        // Apply to instrument
+        if let instrument = instrument {
+            applyMusicalContext(to: instrument.auAudioUnit)
+        }
+
+        // Apply to all effects
+        for effect in effects {
+            applyMusicalContext(to: effect.auAudioUnit)
+        }
+    }
+
+    /// Apply musical context block to a single AU
+    private func applyMusicalContext(to au: AUAudioUnit) {
+        // Create the musical context block that plugins will query
+        au.musicalContextBlock = { [weak self] (
+            currentTempo: UnsafeMutablePointer<Double>?,
+            timeSignatureNumerator: UnsafeMutablePointer<Double>?,
+            timeSignatureDenominator: UnsafeMutablePointer<Int>?,
+            currentBeatPosition: UnsafeMutablePointer<Double>?,
+            sampleOffsetToNextBeat: UnsafeMutablePointer<Int>?,
+            currentMeasureDownbeatPosition: UnsafeMutablePointer<Double>?
+        ) -> Bool in
+            guard let self = self else { return false }
+
+            // Provide tempo
+            currentTempo?.pointee = self.hostTempo
+
+            // 4/4 time signature
+            timeSignatureNumerator?.pointee = 4.0
+            timeSignatureDenominator?.pointee = 4
+
+            // Beat position (simplified - real implementation would track this precisely)
+            currentBeatPosition?.pointee = 0.0
+            sampleOffsetToNextBeat?.pointee = 0
+            currentMeasureDownbeatPosition?.pointee = 0.0
+
+            return true
+        }
+
+        // Also set the transport state block
+        au.transportStateBlock = { [weak self] (
+            transportStateFlags: UnsafeMutablePointer<AUHostTransportStateFlags>?,
+            currentSamplePosition: UnsafeMutablePointer<Double>?,
+            cycleStartBeatPosition: UnsafeMutablePointer<Double>?,
+            cycleEndBeatPosition: UnsafeMutablePointer<Double>?
+        ) -> Bool in
+            guard let self = self else { return false }
+
+            // AUHostTransportStateFlags raw values:
+            // Changed = 1, Moving = 2, Recording = 4, Cycling = 8
+            var rawFlags: UInt = 1  // Changed
+            if self.hostIsPlaying {
+                rawFlags |= 2  // Moving (playing)
+            }
+
+            transportStateFlags?.pointee = AUHostTransportStateFlags(rawValue: rawFlags)
+            currentSamplePosition?.pointee = 0
+            cycleStartBeatPosition?.pointee = 0
+            cycleEndBeatPosition?.pointee = 0
+
+            return true
+        }
+
+        print("ChannelStrip \(index): Applied musical context (tempo: \(hostTempo) BPM)")
+    }
+
+
     // MARK: - MIDI Handling
     
     /// Send MIDI note to the instrument
@@ -388,7 +487,7 @@ final class ChannelStrip: ObservableObject, Identifiable {
             isMuted: isMuted,
             midiChannel: midiChannel,
             scaleFilterEnabled: scaleFilterEnabled,
-            isNM2ChordChannel: isNM2ChordChannel
+            isChordPadTarget: isChordPadTarget
         )
     }
     
@@ -396,19 +495,22 @@ final class ChannelStrip: ObservableObject, Identifiable {
     
     func cleanup() {
         guard let engine = engine else { return }
-        
+
+        meterUpdateTimer?.invalidate()
+        meterUpdateTimer = nil
+
         if meterTap {
             mixer.removeTap(onBus: 0)
         }
-        
+
         if let instrument = instrument {
             engine.detach(instrument)
         }
-        
+
         for effect in effects {
             engine.detach(effect)
         }
-        
+
         engine.detach(mixer)
     }
 }
@@ -496,6 +598,6 @@ struct ChannelStripState: Codable, Equatable {
     var isMuted: Bool
     var midiChannel: Int
     var scaleFilterEnabled: Bool
-    var isNM2ChordChannel: Bool
+    var isChordPadTarget: Bool
 }
 

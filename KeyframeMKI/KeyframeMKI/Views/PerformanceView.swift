@@ -46,31 +46,38 @@ struct PerformanceView: View {
     @State private var showingSettings = false
     @State private var showingSongEditor = false
     @State private var editingSong: PerformanceSong?
+    @State private var isChannelsLocked = false
+    @State private var isInitializing = true
+    @AppStorage("performModeSplitRatio") private var splitRatio: Double = 0.6  // Presets take 60% by default
     
     var body: some View {
         ZStack {
             TEColors.cream.ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                // Header
-                header
-                
-                // Active Song Display
-                if let activeSong = sessionStore.currentSession.activeSong {
-                    ActiveSongBanner(song: activeSong)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 12)
-                }
-                
-                // Main content based on mode
-                if viewMode == .perform {
-                    performModeContent
-                } else {
+
+            if isInitializing || audioEngine.isRestoringPlugins {
+                // Loading screen
+                LoadingScreen(progress: audioEngine.restorationProgress)
+            } else if viewMode == .perform {
+                // Fullscreen perform mode - no header, no status bar
+                performModeContent
+            } else {
+                VStack(spacing: 0) {
+                    // Header (only in edit mode)
+                    header
+
+                    // Active Song Display (only in edit mode)
+                    if let activeSong = sessionStore.currentSession.activeSong {
+                        ActiveSongBanner(song: activeSong)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                    }
+
+                    // Edit mode content
                     editModeContent
+
+                    // Status Bar (only in edit mode)
+                    PerformanceStatusBar(audioEngine: audioEngine, midiEngine: midiEngine)
                 }
-                
-                // Status Bar
-                PerformanceStatusBar(audioEngine: audioEngine, midiEngine: midiEngine)
             }
         }
         .preferredColorScheme(.light)
@@ -167,70 +174,86 @@ struct PerformanceView: View {
         .background(TEColors.warmWhite)
     }
     
-    // MARK: - Perform Mode Content (Faders + Songs side by side)
-    
+    // MARK: - Perform Mode Content (Fullscreen: adjustable presets/faders split)
+
     private var performModeContent: some View {
-        HStack(spacing: 0) {
-            // Left: Channel Faders
-            VStack(spacing: 0) {
-                Text("CHANNELS")
-                    .font(TEFonts.mono(9, weight: .bold))
-                    .foregroundColor(TEColors.midGray)
-                    .tracking(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
-                            PerformChannelStrip(
-                                channel: channel,
-                                config: sessionStore.currentSession.channels[safe: index],
-                                onEdit: {
-                                    selectedChannelIndex = index
-                                    showingChannelDetail = true
+        GeometryReader { geometry in
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        // Left: Song Presets as squares (no long-press edit in perform mode)
+                        SongGridView(
+                            songs: sessionStore.currentSession.songs,
+                            activeSongId: sessionStore.currentSession.activeSongId,
+                            isEditMode: false,
+                            onSelectSong: { song in selectSong(song) },
+                            onEditSong: { _ in },
+                            onAddSong: { }
+                        )
+                        .frame(width: geometry.size.width * CGFloat(splitRatio))
+                        .background(TEColors.cream)
+
+                        // Draggable Divider
+                        DraggableDivider(splitRatio: $splitRatio, totalWidth: geometry.size.width)
+
+                        // Right: Channel Faders (aligned to bottom)
+                        VStack {
+                            Spacer()
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(alignment: .bottom, spacing: 8) {
+                                    ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
+                                        PerformChannelStrip(
+                                            channel: channel,
+                                            config: sessionStore.currentSession.channels[safe: index],
+                                            isLocked: isChannelsLocked,
+                                            onEdit: {
+                                                selectedChannelIndex = index
+                                                showingChannelDetail = true
+                                            }
+                                        )
+                                    }
                                 }
-                            )
+                                .padding(.horizontal, 12)
+                                .padding(.bottom, 8)
+                            }
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+
+                    // Minimal status bar
+                    MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine)
                 }
-            }
-            .frame(width: UIScreen.main.bounds.width * 0.5)
-            .background(TEColors.cream)
-            
-            // Divider
-            Rectangle()
-                .fill(TEColors.black)
-                .frame(width: 2)
-            
-            // Right: Songs
-            VStack(spacing: 0) {
-                Text("SONGS")
-                    .font(TEFonts.mono(9, weight: .bold))
-                    .foregroundColor(TEColors.midGray)
-                    .tracking(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                
-                SongGridView(
-                    songs: sessionStore.currentSession.songs,
-                    activeSongId: sessionStore.currentSession.activeSongId,
-                    onSelectSong: { song in selectSong(song) },
-                    onEditSong: { song in
-                        editingSong = song
-                        showingSongEditor = true
-                    },
-                    onAddSong: {
-                        editingSong = nil
-                        showingSongEditor = true
+
+                // Lock and Close buttons (top-right)
+                HStack(spacing: 6) {
+                    // Lock button
+                    Button {
+                        isChannelsLocked.toggle()
+                    } label: {
+                        Image(systemName: isChannelsLocked ? "lock.fill" : "lock.open")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(isChannelsLocked ? .white : TEColors.black)
+                            .frame(width: 28, height: 28)
+                            .background(isChannelsLocked ? TEColors.black : TEColors.cream.opacity(0.9))
+                            .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
                     }
-                )
+
+                    // Close button
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            viewMode = .edit
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(TEColors.black)
+                            .frame(width: 28, height: 28)
+                            .background(TEColors.cream.opacity(0.9))
+                            .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                    }
+                }
+                .padding(.top, 8)
+                .padding(.trailing, 8)
             }
-            .background(TEColors.warmWhite)
         }
     }
     
@@ -275,6 +298,7 @@ struct PerformanceView: View {
             SongGridView(
                 songs: sessionStore.currentSession.songs,
                 activeSongId: sessionStore.currentSession.activeSongId,
+                isEditMode: true,
                 onSelectSong: { song in selectSong(song) },
                 onEditSong: { song in
                     editingSong = song
@@ -289,18 +313,117 @@ struct PerformanceView: View {
     }
     
     // MARK: - Setup
-    
+
     private func setupEngines() {
         midiEngine.setAudioEngine(audioEngine)
         syncChannelConfigs()
-        
-        if let activeSong = sessionStore.currentSession.activeSong {
-            midiEngine.applySongSettings(convertToLegacySong(activeSong))
+
+        // Restore instruments and effects from saved session
+        audioEngine.restorePlugins(from: sessionStore.currentSession.channels) { [weak audioEngine, weak sessionStore, weak midiEngine] in
+            guard let audioEngine = audioEngine,
+                  let sessionStore = sessionStore,
+                  let midiEngine = midiEngine else { return }
+
+            DispatchQueue.main.async {
+                if let activeSong = sessionStore.currentSession.activeSong {
+                    midiEngine.applySongSettings(self.convertToLegacySong(activeSong))
+                    // Set initial tempo for hosted plugins
+                    if let bpm = activeSong.bpm {
+                        audioEngine.setTempo(Double(bpm))
+                    }
+                }
+
+                // Start the audio engine after plugins are loaded
+                audioEngine.start()
+                self.isInitializing = false
+            }
         }
-        
-        audioEngine.start()
+
+        // If no plugins to restore, the completion is called immediately
+        // but we also need to handle the case where there are no saved plugins
+        if sessionStore.currentSession.channels.allSatisfy({ $0.instrument == nil && $0.effects.isEmpty }) {
+            if let activeSong = sessionStore.currentSession.activeSong {
+                midiEngine.applySongSettings(convertToLegacySong(activeSong))
+                if let bpm = activeSong.bpm {
+                    audioEngine.setTempo(Double(bpm))
+                }
+            }
+            audioEngine.start()
+            isInitializing = false
+        }
+
+        // Set up MIDI song trigger callback
+        midiEngine.onSongTrigger = { [weak sessionStore, weak midiEngine, weak audioEngine] (note: Int, channel: Int, sourceName: String?) in
+            guard let sessionStore = sessionStore,
+                  let midiEngine = midiEngine,
+                  let audioEngine = audioEngine else { return }
+
+            // Find a song that matches this note trigger
+            for song in sessionStore.currentSession.songs {
+                if let triggerNote = song.triggerNote, triggerNote == note {
+                    // Check channel if specified (nil = any channel)
+                    let channelMatches = song.triggerChannel == nil || song.triggerChannel == channel
+                    // Check source if specified (nil = any source)
+                    let sourceMatches = song.triggerSourceName == nil || song.triggerSourceName == sourceName
+
+                    if channelMatches && sourceMatches {
+                        DispatchQueue.main.async {
+                            #if os(iOS)
+                            let generator = UIImpactFeedbackGenerator(style: .medium)
+                            generator.impactOccurred()
+                            #endif
+
+                            sessionStore.setActiveSong(song)
+                            let legacySong = Song(
+                                name: song.name,
+                                rootNote: song.rootNote,
+                                scaleType: song.scaleType,
+                                filterMode: song.filterMode,
+                                preset: .empty,
+                                bpm: song.bpm
+                            )
+                            midiEngine.applySongSettings(legacySong)
+                            audioEngine.applyChannelStates(song.channelStates, configs: sessionStore.currentSession.channels)
+
+                            // Set tempo for hosted plugins
+                            if let bpm = song.bpm {
+                                audioEngine.setTempo(Double(bpm))
+                            }
+                        }
+                        break
+                    }
+                }
+            }
+        }
+
+        // Set up MIDI fader control callback
+        midiEngine.onFaderControl = { [weak sessionStore, weak audioEngine] (cc: Int, value: Int, channel: Int, sourceName: String?) in
+            guard let sessionStore = sessionStore,
+                  let audioEngine = audioEngine else { return }
+
+            // Find channels that have this CC mapped for fader control
+            for (index, config) in sessionStore.currentSession.channels.enumerated() {
+                if let controlCC = config.controlCC, controlCC == cc {
+                    // Check channel if specified (nil = any channel)
+                    let channelMatches = config.controlChannel == nil || config.controlChannel == channel
+                    // Check source if specified (nil = any source)
+                    let sourceMatches = config.controlSourceName == nil || config.controlSourceName == sourceName
+
+                    if channelMatches && sourceMatches {
+                        // Convert CC value (0-127) to volume (0.0-1.0)
+                        let volume = Float(value) / 127.0
+
+                        DispatchQueue.main.async {
+                            if index < audioEngine.channelStrips.count {
+                                audioEngine.channelStrips[index].volume = volume
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
-    
+
     private func syncChannelConfigs() {
         for (index, config) in sessionStore.currentSession.channels.enumerated() {
             if index < audioEngine.channelStrips.count {
@@ -308,7 +431,7 @@ struct PerformanceView: View {
                 strip.midiChannel = config.midiChannel
                 strip.midiSourceName = config.midiSourceName
                 strip.scaleFilterEnabled = config.scaleFilterEnabled
-                strip.isNM2ChordChannel = config.isNM2ChordChannel
+                strip.isChordPadTarget = config.isChordPadTarget
                 strip.volume = config.volume
                 strip.pan = config.pan
                 strip.isMuted = config.isMuted
@@ -321,10 +444,15 @@ struct PerformanceView: View {
     private func selectSong(_ song: PerformanceSong) {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
-        
+
         sessionStore.setActiveSong(song)
         midiEngine.applySongSettings(convertToLegacySong(song))
         audioEngine.applyChannelStates(song.channelStates, configs: sessionStore.currentSession.channels)
+
+        // Set tempo for hosted plugins (arpeggiators, tempo-synced effects, etc.)
+        if let bpm = song.bpm {
+            audioEngine.setTempo(Double(bpm))
+        }
     }
     
     private func convertToLegacySong(_ song: PerformanceSong) -> Song {
@@ -351,7 +479,7 @@ struct PerformanceView: View {
                         strip.midiChannel = newValue.midiChannel
                         strip.midiSourceName = newValue.midiSourceName
                         strip.scaleFilterEnabled = newValue.scaleFilterEnabled
-                        strip.isNM2ChordChannel = newValue.isNM2ChordChannel
+                        strip.isChordPadTarget = newValue.isChordPadTarget
                     }
                 }
             }
@@ -364,57 +492,63 @@ struct PerformanceView: View {
 struct PerformChannelStrip: View {
     @ObservedObject var channel: ChannelStrip
     let config: ChannelConfiguration?
+    var isLocked: Bool = false
     let onEdit: () -> Void
-    
+
     var body: some View {
         VStack(spacing: 6) {
             // Channel name + edit button
             HStack {
                 Text(config?.name.prefix(4).uppercased() ?? "CH")
-                    .font(TEFonts.mono(9, weight: .bold))
+                    .font(TEFonts.mono(10, weight: .bold))
                     .foregroundColor(TEColors.black)
-                
+
                 Spacer()
-                
-                Button(action: onEdit) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(TEColors.midGray)
+
+                if !isLocked {
+                    Button(action: onEdit) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(TEColors.midGray)
+                    }
                 }
             }
-            .frame(width: 56)
-            
+            .frame(width: 60)
+
             // Vertical Fader
-            VerticalFader(value: $channel.volume)
-                .frame(width: 40, height: 120)
-            
+            VerticalFader(value: $channel.volume, isLocked: isLocked)
+                .frame(width: 44, height: 160)
+
             // Volume value
             Text("\(Int(channel.volume * 100))")
                 .font(TEFonts.mono(12, weight: .bold))
                 .foregroundColor(TEColors.black)
-            
+
             // Mute button
             Button {
-                channel.isMuted.toggle()
+                if !isLocked {
+                    channel.isMuted.toggle()
+                }
             } label: {
                 Text("M")
                     .font(TEFonts.mono(11, weight: .bold))
                     .foregroundColor(channel.isMuted ? .white : TEColors.red)
-                    .frame(width: 32, height: 28)
+                    .frame(width: 36, height: 28)
                     .background(channel.isMuted ? TEColors.red : TEColors.cream)
                     .overlay(Rectangle().strokeBorder(TEColors.red, lineWidth: 2))
             }
-            
-            // Meter
+            .opacity(isLocked ? 0.5 : 1.0)
+
+            // Level meter
             MeterView(level: channel.peakLevel)
-                .frame(width: 12, height: 40)
+                .frame(width: 36, height: 32)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 6)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
         .background(
             Rectangle()
                 .strokeBorder(TEColors.black, lineWidth: 2)
-                .background(TEColors.warmWhite)
+                .background(TEColors.cream)
         )
     }
 }
@@ -423,23 +557,24 @@ struct PerformChannelStrip: View {
 
 struct VerticalFader: View {
     @Binding var value: Float
-    
+    var isLocked: Bool = false
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
                 // Track
                 Rectangle()
                     .fill(TEColors.lightGray)
-                
+
                 // Fill
                 Rectangle()
                     .fill(TEColors.orange)
                     .frame(height: geometry.size.height * CGFloat(value))
-                
+
                 // Border
                 Rectangle()
                     .strokeBorder(TEColors.black, lineWidth: 2)
-                
+
                 // Handle line
                 Rectangle()
                     .fill(TEColors.black)
@@ -450,10 +585,12 @@ struct VerticalFader: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
+                        guard !isLocked else { return }
                         let percent = 1.0 - Float(gesture.location.y / geometry.size.height)
                         value = min(max(percent, 0), 1)
                     }
             )
+            .opacity(isLocked ? 0.6 : 1.0)
         }
     }
 }
@@ -476,9 +613,9 @@ struct EditChannelStripView: View {
                     .lineLimit(1)
                 
                 // Meter
-                MeterView(level: channel.peakLevel)
-                    .frame(width: 24)
-                
+                MeterView(level: channel.peakLevel, segments: 10)
+                    .frame(width: 24, height: 50)
+
                 // Volume display
                 Text("\(Int(channel.volume * 100))")
                     .font(TEFonts.mono(14, weight: .bold))
@@ -495,9 +632,9 @@ struct EditChannelStripView: View {
                         .foregroundColor(channel.isMuted ? .white : TEColors.darkGray)
                 }
                 
-                // Instrument loaded indicator
+                // Effects loaded indicator
                 Circle()
-                    .fill(channel.isInstrumentLoaded ? TEColors.orange : TEColors.lightGray)
+                    .fill(!channel.effects.isEmpty ? TEColors.orange : TEColors.lightGray)
                     .frame(width: 8, height: 8)
             }
             .frame(width: 64)
@@ -581,41 +718,45 @@ struct DataBlock: View {
 
 struct MeterView: View {
     let level: Float
-    
+    var segments: Int = 8
+
     private var normalizedLevel: CGFloat {
         let minDb: Float = -60
         let maxDb: Float = 0
         let clamped = min(max(level, minDb), maxDb)
         return CGFloat((clamped - minDb) / (maxDb - minDb))
     }
-    
+
     var body: some View {
         GeometryReader { geometry in
+            let spacing: CGFloat = 1
+            let totalSpacing = spacing * CGFloat(segments - 1)
+            let segmentHeight = (geometry.size.height - totalSpacing) / CGFloat(segments)
+
             ZStack(alignment: .bottom) {
-                // Background segments
-                VStack(spacing: 2) {
-                    ForEach(0..<12, id: \.self) { i in
+                // Background
+                VStack(spacing: spacing) {
+                    ForEach(0..<segments, id: \.self) { _ in
                         Rectangle()
                             .fill(TEColors.lightGray)
-                            .frame(height: (geometry.size.height - 22) / 12)
+                            .frame(height: segmentHeight)
                     }
                 }
-                
+
                 // Active segments
-                VStack(spacing: 2) {
-                    ForEach(0..<12, id: \.self) { i in
-                        let segmentLevel = CGFloat(12 - i) / 12.0
+                VStack(spacing: spacing) {
+                    ForEach(0..<segments, id: \.self) { i in
+                        let segmentLevel = CGFloat(segments - i) / CGFloat(segments)
                         let isActive = normalizedLevel >= segmentLevel
-                        let color: Color = i < 2 ? TEColors.red : (i < 4 ? TEColors.yellow : TEColors.green)
-                        
+                        let color: Color = i < 1 ? TEColors.red : (i < 2 ? TEColors.yellow : TEColors.green)
+
                         Rectangle()
                             .fill(isActive ? color : Color.clear)
-                            .frame(height: (geometry.size.height - 22) / 12)
+                            .frame(height: segmentHeight)
                     }
                 }
             }
         }
-        .frame(height: 80)
     }
 }
 
@@ -652,46 +793,99 @@ struct AddChannelButton: View {
 struct SongGridView: View {
     let songs: [PerformanceSong]
     let activeSongId: UUID?
+    let isEditMode: Bool
     let onSelectSong: (PerformanceSong) -> Void
     let onEditSong: (PerformanceSong) -> Void
     let onAddSong: () -> Void
-    
-    private let columns = [
-        GridItem(.adaptive(minimum: 90, maximum: 120), spacing: 8)
-    ]
-    
+
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(songs) { song in
-                    SongGridButton(
-                        song: song,
-                        isActive: song.id == activeSongId,
-                        onTap: { onSelectSong(song) },
-                        onLongPress: { onEditSong(song) }
-                    )
-                }
-                
-                // Add button
-                Button(action: onAddSong) {
-                    VStack(spacing: 4) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 18, weight: .bold))
-                        Text("NEW")
-                            .font(TEFonts.mono(9, weight: .bold))
+        GeometryReader { geometry in
+            let itemCount = songs.count + (isEditMode ? 1 : 0)  // +1 for add button in edit mode only
+            let spacing: CGFloat = 8
+            let padding: CGFloat = 16
+            let availableWidth = geometry.size.width - (padding * 2)
+            let availableHeight = geometry.size.height - (padding * 2)
+
+            // Calculate optimal grid dimensions
+            let (columns, rows) = calculateGrid(itemCount: itemCount, availableWidth: availableWidth, availableHeight: availableHeight)
+
+            let itemWidth = (availableWidth - (spacing * CGFloat(columns - 1))) / CGFloat(columns)
+            let calculatedItemHeight = (availableHeight - (spacing * CGFloat(rows - 1))) / CGFloat(rows)
+
+            // Ensure minimum height for readability, especially in landscape
+            let minItemHeight: CGFloat = 70
+            let itemHeight = max(calculatedItemHeight, minItemHeight)
+
+            let gridColumns = Array(repeating: GridItem(.fixed(itemWidth), spacing: spacing), count: columns)
+
+            ScrollView {
+                LazyVGrid(columns: gridColumns, spacing: spacing) {
+                    ForEach(songs) { song in
+                        SongGridButton(
+                            song: song,
+                            isActive: song.id == activeSongId,
+                            onTap: { onSelectSong(song) },
+                            onLongPress: { onEditSong(song) }
+                        )
+                        .frame(height: itemHeight)
                     }
-                    .foregroundColor(TEColors.darkGray)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 70)
-                    .background(
-                        RoundedRectangle(cornerRadius: 0)
-                            .strokeBorder(TEColors.darkGray, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                    )
+
+                    // Add button (edit mode only)
+                    if isEditMode {
+                        Button(action: onAddSong) {
+                            VStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 24, weight: .bold))
+                                Text("NEW")
+                                    .font(TEFonts.mono(11, weight: .bold))
+                            }
+                            .foregroundColor(TEColors.darkGray)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: 0)
+                                    .strokeBorder(TEColors.darkGray, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .frame(height: itemHeight)
+                    }
                 }
-                .buttonStyle(.plain)
+                .padding(padding)
+                .padding(.bottom, 20) // Extra bottom padding for scroll room
             }
-            .padding(16)
         }
+    }
+
+    /// Calculate optimal grid layout to fill available space
+    private func calculateGrid(itemCount: Int, availableWidth: CGFloat, availableHeight: CGFloat) -> (columns: Int, rows: Int) {
+        guard itemCount > 0 else { return (1, 1) }
+
+        let aspectRatio = availableWidth / availableHeight
+
+        // Try different column counts and find the one that fills space best
+        var bestColumns = 1
+        var bestScore: CGFloat = 0
+
+        for cols in 1...max(1, itemCount) {
+            let rows = Int(ceil(Double(itemCount) / Double(cols)))
+            let cellWidth = availableWidth / CGFloat(cols)
+            let cellHeight = availableHeight / CGFloat(rows)
+
+            // Score based on how square the cells are and how well they fill space
+            let cellAspect = cellWidth / cellHeight
+            let aspectScore = 1.0 / (abs(cellAspect - 1.5) + 0.1)  // Prefer slightly wide cells (1.5:1)
+            let fillScore = CGFloat(itemCount) / CGFloat(cols * rows)  // How much of grid is used
+
+            let score = aspectScore * fillScore
+
+            if score > bestScore {
+                bestScore = score
+                bestColumns = cols
+            }
+        }
+
+        let bestRows = Int(ceil(Double(itemCount) / Double(bestColumns)))
+        return (bestColumns, bestRows)
     }
 }
 
@@ -702,29 +896,33 @@ struct SongGridButton: View {
     let isActive: Bool
     let onTap: () -> Void
     let onLongPress: () -> Void
-    
+
     @State private var isPressed = false
-    
+
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 3) {
+            VStack(spacing: 4) {
+                Spacer(minLength: 4)
+
                 Text(song.name.uppercased())
-                    .font(TEFonts.mono(11, weight: .bold))
+                    .font(TEFonts.mono(14, weight: .bold))
                     .foregroundColor(isActive ? .white : TEColors.black)
-                    .lineLimit(1)
-                
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+
                 Text(song.keyShortName.uppercased())
-                    .font(TEFonts.mono(9, weight: .medium))
+                    .font(TEFonts.mono(12, weight: .medium))
                     .foregroundColor(isActive ? .white.opacity(0.8) : TEColors.midGray)
-                
+
                 if let bpm = song.bpm {
-                    Text("\(bpm)")
-                        .font(TEFonts.mono(9, weight: .regular))
+                    Text("\(bpm) BPM")
+                        .font(TEFonts.mono(11, weight: .regular))
                         .foregroundColor(isActive ? .white.opacity(0.6) : TEColors.midGray)
                 }
+
+                Spacer(minLength: 4)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 70)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 0)
                     .fill(isActive ? TEColors.orange : TEColors.warmWhite)
@@ -785,19 +983,150 @@ struct PerformanceStatusBar: View {
             
             Spacer()
             
-            // CPU
-            Text("CPU \(Int(audioEngine.cpuUsage))%")
+            // DSP Load
+            Text("DSP \(Int(audioEngine.cpuUsage))%")
                 .font(TEFonts.mono(10, weight: .medium))
-                .foregroundColor(TEColors.darkGray)
-            
-            // Peak
-            Text(String(format: "%.0fdB", audioEngine.peakLevel))
-                .font(TEFonts.mono(10, weight: .medium))
-                .foregroundColor(audioEngine.peakLevel > -3 ? TEColors.red : TEColors.darkGray)
+                .foregroundColor(audioEngine.cpuUsage > 80 ? TEColors.red : TEColors.darkGray)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
         .background(TEColors.lightGray)
+    }
+}
+
+// MARK: - Minimal Status Bar (for perform mode)
+
+struct MinimalStatusBar: View {
+    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var midiEngine: MIDIEngine
+
+    var body: some View {
+        HStack(spacing: 16) {
+            // MIDI count
+            HStack(spacing: 4) {
+                Rectangle()
+                    .fill(midiEngine.lastActivity != nil ? TEColors.orange : TEColors.midGray)
+                    .frame(width: 6, height: 6)
+
+                Text("MIDI \(midiEngine.connectedSources.count)")
+                    .font(TEFonts.mono(9, weight: .medium))
+                    .foregroundColor(TEColors.darkGray)
+            }
+
+            Spacer()
+
+            // DSP Load
+            Text("DSP \(Int(audioEngine.cpuUsage))%")
+                .font(TEFonts.mono(9, weight: .medium))
+                .foregroundColor(audioEngine.cpuUsage > 80 ? TEColors.red : TEColors.darkGray)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(TEColors.lightGray.opacity(0.6))
+    }
+}
+
+// MARK: - Draggable Divider
+
+struct DraggableDivider: View {
+    @Binding var splitRatio: Double
+    let totalWidth: CGFloat
+
+    @State private var isDragging = false
+    @State private var dragStartRatio: Double = 0
+
+    private let minRatio: Double = 0.3
+    private let maxRatio: Double = 0.8
+
+    var body: some View {
+        Rectangle()
+            .fill(isDragging ? TEColors.orange : TEColors.black)
+            .frame(width: isDragging ? 8 : 4)
+            .contentShape(Rectangle().inset(by: -30))  // Larger hit target for touch
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if !isDragging {
+                            // Capture the starting ratio when drag begins
+                            isDragging = true
+                            dragStartRatio = splitRatio
+                            let generator = UIImpactFeedbackGenerator(style: .light)
+                            generator.impactOccurred()
+                        }
+                        // Use translation from drag start, not absolute location
+                        let deltaRatio = Double(value.translation.width / totalWidth)
+                        let proposedRatio = dragStartRatio + deltaRatio
+                        splitRatio = min(max(proposedRatio, minRatio), maxRatio)
+                    }
+                    .onEnded { _ in
+                        isDragging = false
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                    }
+            )
+            .animation(.easeOut(duration: 0.1), value: isDragging)
+    }
+}
+
+// MARK: - Loading Screen
+
+struct LoadingScreen: View {
+    let progress: String
+
+    @State private var dotCount = 0
+    @State private var logoScale: CGFloat = 0.8
+
+    var body: some View {
+        ZStack {
+            TEColors.black.ignoresSafeArea()
+
+            VStack(spacing: 32) {
+                // Logo
+                VStack(spacing: 8) {
+                    Text("KEYFRAME")
+                        .font(TEFonts.display(32, weight: .black))
+                        .foregroundColor(TEColors.cream)
+                        .tracking(6)
+                        .scaleEffect(logoScale)
+
+                    Rectangle()
+                        .fill(TEColors.orange)
+                        .frame(width: 120, height: 4)
+                }
+
+                // Loading indicator
+                VStack(spacing: 16) {
+                    // Animated dots
+                    HStack(spacing: 8) {
+                        ForEach(0..<3, id: \.self) { index in
+                            Circle()
+                                .fill(index <= dotCount ? TEColors.orange : TEColors.darkGray)
+                                .frame(width: 10, height: 10)
+                        }
+                    }
+
+                    // Progress text
+                    Text(progress.isEmpty ? "INITIALIZING" : progress.uppercased())
+                        .font(TEFonts.mono(11, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                        .lineLimit(1)
+                        .frame(maxWidth: 280)
+                }
+            }
+        }
+        .onAppear {
+            // Animate logo scale
+            withAnimation(.easeOut(duration: 0.5)) {
+                logoScale = 1.0
+            }
+
+            // Animate loading dots
+            Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { timer in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    dotCount = (dotCount + 1) % 4
+                }
+            }
+        }
     }
 }
 

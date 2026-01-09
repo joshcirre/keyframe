@@ -8,17 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		8A1B2C3D4E5F6001 /* KeyframeMKIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6001 /* KeyframeMKIApp.swift */; };
-		8A1B2C3D4E5F6002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6002 /* ContentView.swift */; };
-		8A1B2C3D4E5F6003 /* SongButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6003 /* SongButton.swift */; };
-		8A1B2C3D4E5F6004 /* SongEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6004 /* SongEditorView.swift */; };
 		8A1B2C3D4E5F6005 /* ChordMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6005 /* ChordMapView.swift */; };
-		8A1B2C3D4E5F6006 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6006 /* SettingsView.swift */; };
-		8A1B2C3D4E5F6009 /* ChordMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6009 /* ChordMap.swift */; };
-		8A1B2C3D4E5F600A /* MIDIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F600A /* MIDIService.swift */; };
 		8A1B2C3D4E5F600B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F600B /* Assets.xcassets */; };
 		8A1B2C3D4E5F6020 /* ScaleEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6020 /* ScaleEngine.swift */; };
 		8A1B2C3D4E5F6021 /* ChordEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6021 /* ChordEngine.swift */; };
-		8A1B2C3D4E5F6022 /* SharedSongStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6022 /* SharedSongStore.swift */; };
 		8A1B2C3D4E5F6023 /* ChordMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6023 /* ChordMapping.swift */; };
 		8A1B2C3D4E5F6024 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6024 /* Constants.swift */; };
 		8A1B2C3D4E5F6025 /* Song.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6025 /* Song.swift */; };
@@ -37,19 +30,12 @@
 
 /* Begin PBXFileReference section */
 		9A1B2C3D4E5F6001 /* KeyframeMKIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeMKIApp.swift; sourceTree = "<group>"; };
-		9A1B2C3D4E5F6002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		9A1B2C3D4E5F6003 /* SongButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongButton.swift; sourceTree = "<group>"; };
-		9A1B2C3D4E5F6004 /* SongEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongEditorView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6005 /* ChordMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordMapView.swift; sourceTree = "<group>"; };
-		9A1B2C3D4E5F6006 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		9A1B2C3D4E5F6009 /* ChordMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordMap.swift; sourceTree = "<group>"; };
-		9A1B2C3D4E5F600A /* MIDIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIService.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F600B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9A1B2C3D4E5F600C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9A1B2C3D4E5F600D /* KeyframeMKI.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KeyframeMKI.entitlements; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6020 /* ScaleEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScaleEngine.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6021 /* ChordEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordEngine.swift; sourceTree = "<group>"; };
-		9A1B2C3D4E5F6022 /* SharedSongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSongStore.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6023 /* ChordMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordMapping.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6024 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6025 /* Song.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Song.swift; sourceTree = "<group>"; };
@@ -105,11 +91,7 @@
 		GA1B2C3D4E5F6002 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				9A1B2C3D4E5F6002 /* ContentView.swift */,
-				9A1B2C3D4E5F6003 /* SongButton.swift */,
-				9A1B2C3D4E5F6004 /* SongEditorView.swift */,
 				9A1B2C3D4E5F6005 /* ChordMapView.swift */,
-				9A1B2C3D4E5F6006 /* SettingsView.swift */,
 				9A1B2C3D4E5F6030 /* PerformanceView.swift */,
 				9A1B2C3D4E5F6031 /* ChannelDetailView.swift */,
 				9A1B2C3D4E5F6032 /* PluginBrowserView.swift */,
@@ -122,7 +104,6 @@
 		GA1B2C3D4E5F6003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				9A1B2C3D4E5F6009 /* ChordMap.swift */,
 				9A1B2C3D4E5F6050 /* Session.swift */,
 			);
 			path = Models;
@@ -131,7 +112,6 @@
 		GA1B2C3D4E5F6004 /* Services */ = {
 			isa = PBXGroup;
 			children = (
-				9A1B2C3D4E5F600A /* MIDIService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -152,7 +132,6 @@
 			children = (
 				9A1B2C3D4E5F6020 /* ScaleEngine.swift */,
 				9A1B2C3D4E5F6021 /* ChordEngine.swift */,
-				9A1B2C3D4E5F6022 /* SharedSongStore.swift */,
 				9A1B2C3D4E5F6023 /* ChordMapping.swift */,
 				9A1B2C3D4E5F6024 /* Constants.swift */,
 				9A1B2C3D4E5F6025 /* Song.swift */,
@@ -239,26 +218,19 @@
 			buildActionMask = 2147483647;
 			files = (
 				8A1B2C3D4E5F6001 /* KeyframeMKIApp.swift in Sources */,
-				8A1B2C3D4E5F6002 /* ContentView.swift in Sources */,
-				8A1B2C3D4E5F6003 /* SongButton.swift in Sources */,
-				8A1B2C3D4E5F6004 /* SongEditorView.swift in Sources */,
 				8A1B2C3D4E5F6005 /* ChordMapView.swift in Sources */,
-				8A1B2C3D4E5F6006 /* SettingsView.swift in Sources */,
 				8A1B2C3D4E5F6030 /* PerformanceView.swift in Sources */,
 				8A1B2C3D4E5F6031 /* ChannelDetailView.swift in Sources */,
 				8A1B2C3D4E5F6032 /* PluginBrowserView.swift in Sources */,
 				8A1B2C3D4E5F6033 /* PerformanceSongEditorView.swift in Sources */,
 				8A1B2C3D4E5F6034 /* PerformanceSettingsView.swift in Sources */,
-				8A1B2C3D4E5F6009 /* ChordMap.swift in Sources */,
 				8A1B2C3D4E5F6050 /* Session.swift in Sources */,
-				8A1B2C3D4E5F600A /* MIDIService.swift in Sources */,
 				8A1B2C3D4E5F6040 /* AudioEngine.swift in Sources */,
 				8A1B2C3D4E5F6041 /* ChannelStrip.swift in Sources */,
 				8A1B2C3D4E5F6042 /* MIDIEngine.swift in Sources */,
 				8A1B2C3D4E5F6043 /* AUv3HostManager.swift in Sources */,
 				8A1B2C3D4E5F6020 /* ScaleEngine.swift in Sources */,
 				8A1B2C3D4E5F6021 /* ChordEngine.swift in Sources */,
-				8A1B2C3D4E5F6022 /* SharedSongStore.swift in Sources */,
 				8A1B2C3D4E5F6023 /* ChordMapping.swift in Sources */,
 				8A1B2C3D4E5F6024 /* Constants.swift in Sources */,
 				8A1B2C3D4E5F6025 /* Song.swift in Sources */,

@@ -11,6 +11,7 @@ struct PerformanceSettingsView: View {
     @State private var showingSaveAs = false
     @State private var newSessionName = ""
     @State private var showingResetConfirmation = false
+    @State private var showingChordMap = false
     
     var body: some View {
         ZStack {
@@ -59,6 +60,9 @@ struct PerformanceSettingsView: View {
         } message: {
             Text("This will reset to the default session. All changes will be lost.")
         }
+        .sheet(isPresented: $showingChordMap) {
+            ChordMapView()
+        }
     }
     
     // MARK: - Header
@@ -105,7 +109,7 @@ struct PerformanceSettingsView: View {
                 }
                 
                 TESettingsRow(label: "CHANNELS") {
-                    Text("\(audioEngine.channelStrips.count)/\(audioEngine.maxChannels)")
+                    Text("\(audioEngine.channelStrips.count)")
                         .font(TEFonts.mono(12, weight: .bold))
                         .foregroundColor(TEColors.black)
                 }
@@ -170,37 +174,51 @@ struct PerformanceSettingsView: View {
     }
     
     // MARK: - Scale Filter Section
-    
+
     private var scaleFilterSection: some View {
         TESettingsSection(title: "SCALE FILTER") {
             VStack(spacing: 16) {
                 TEToggle(label: "ENABLED", isOn: $midiEngine.isScaleFilterEnabled)
-                
+
                 TESettingsRow(label: "CURRENT KEY") {
                     Text("\(NoteName(rawValue: midiEngine.currentRootNote)?.displayName ?? "C") \(midiEngine.currentScaleType.rawValue.uppercased())")
                         .font(TEFonts.mono(12, weight: .bold))
                         .foregroundColor(TEColors.orange)
                 }
-                
+
+                // ChordPad Controller (required - no "ANY" option)
                 HStack {
-                    Text("NM2 CHANNEL")
+                    Text("CHORDPAD")
                         .font(TEFonts.mono(10, weight: .medium))
                         .foregroundColor(TEColors.midGray)
-                    
+
                     Spacer()
-                    
+
+                    let connectedNames = Set(midiEngine.connectedSources.map { $0.name })
+                    let isOffline = midiEngine.chordPadSourceName != nil && !connectedNames.contains(midiEngine.chordPadSourceName!)
+
                     Menu {
-                        ForEach(1...16, id: \.self) { ch in
-                            Button("CH \(ch)") {
-                                midiEngine.nm2Channel = ch
+                        Button("NONE (DISABLED)") {
+                            midiEngine.chordPadSourceName = nil
+                        }
+                        ForEach(midiEngine.connectedSources) { source in
+                            Button(source.name.uppercased()) {
+                                midiEngine.chordPadSourceName = source.name
+                            }
+                        }
+                        // Show saved offline source as an option to keep it selected
+                        if let savedSource = midiEngine.chordPadSourceName, isOffline {
+                            Button("\(savedSource.uppercased()) (OFFLINE)") {
+                                // Keep the same selection
                             }
                         }
                     } label: {
                         HStack(spacing: 8) {
-                            Text("CH \(midiEngine.nm2Channel)")
+                            Text(chordPadSourceLabel(isOffline: isOffline))
                                 .font(TEFonts.mono(12, weight: .bold))
-                                .foregroundColor(TEColors.black)
-                            
+                                .foregroundColor(midiEngine.chordPadSourceName == nil ? TEColors.midGray : (isOffline ? TEColors.orange : TEColors.black))
+                                .lineLimit(1)
+
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(TEColors.darkGray)
@@ -212,6 +230,56 @@ struct PerformanceSettingsView: View {
                                 .strokeBorder(TEColors.black, lineWidth: 2)
                         )
                     }
+                }
+
+                // ChordPad Channel
+                HStack {
+                    Text("CHANNEL")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+
+                    Spacer()
+
+                    Menu {
+                        ForEach(1...16, id: \.self) { ch in
+                            Button("CH \(ch)") {
+                                midiEngine.chordPadChannel = ch
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("CH \(midiEngine.chordPadChannel)")
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundColor(TEColors.black)
+
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(TEColors.darkGray)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: 2)
+                        )
+                    }
+                }
+
+                // ChordPad Map button
+                Button {
+                    showingChordMap = true
+                } label: {
+                    HStack {
+                        Image(systemName: "pianokeys")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("CHORD MAP")
+                            .font(TEFonts.mono(11, weight: .bold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(TEColors.orange)
+                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
                 }
             }
         }
@@ -306,7 +374,7 @@ struct PerformanceSettingsView: View {
     }
     
     // MARK: - About Section
-    
+
     private var aboutSection: some View {
         TESettingsSection(title: "ABOUT") {
             VStack(spacing: 8) {
@@ -315,13 +383,25 @@ struct PerformanceSettingsView: View {
                         .font(TEFonts.mono(12, weight: .bold))
                         .foregroundColor(TEColors.black)
                 }
-                
+
                 Text("KEYFRAME PERFORMANCE ENGINE")
                     .font(TEFonts.mono(9, weight: .medium))
                     .foregroundColor(TEColors.midGray)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    // MARK: - Helpers
+
+    private func chordPadSourceLabel(isOffline: Bool) -> String {
+        guard let sourceName = midiEngine.chordPadSourceName else {
+            return "NONE"
+        }
+        if isOffline {
+            return "\(sourceName.uppercased()) (OFFLINE)"
+        }
+        return sourceName.uppercased()
     }
 }
 

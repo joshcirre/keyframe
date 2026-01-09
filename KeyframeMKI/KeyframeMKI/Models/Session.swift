@@ -1,6 +1,5 @@
 import Foundation
 import AudioToolbox
-import UIKit
 
 /// Represents a complete performance session configuration
 /// Includes all channels, plugins, and song presets
@@ -59,9 +58,13 @@ struct ChannelConfiguration: Codable, Identifiable, Equatable {
     var midiChannel: Int  // 1-16, 0 = omni (any channel)
     var midiSourceName: String?  // nil = any source, or specific controller name
     var scaleFilterEnabled: Bool
-    var isNM2ChordChannel: Bool
-    var color: ChannelColor
-    
+    var isChordPadTarget: Bool
+
+    // MIDI Control mapping (for fader/volume control)
+    var controlSourceName: String?  // MIDI device that controls this channel's fader
+    var controlChannel: Int?        // MIDI channel (1-16, nil = any channel)
+    var controlCC: Int?             // CC number that controls volume (nil = not mapped)
+
     init(
         id: UUID = UUID(),
         name: String = "New Channel",
@@ -73,8 +76,10 @@ struct ChannelConfiguration: Codable, Identifiable, Equatable {
         midiChannel: Int = 0,
         midiSourceName: String? = nil,
         scaleFilterEnabled: Bool = true,
-        isNM2ChordChannel: Bool = false,
-        color: ChannelColor = .cyan
+        isChordPadTarget: Bool = false,
+        controlSourceName: String? = nil,
+        controlChannel: Int? = nil,
+        controlCC: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -86,8 +91,10 @@ struct ChannelConfiguration: Codable, Identifiable, Equatable {
         self.midiChannel = midiChannel
         self.midiSourceName = midiSourceName
         self.scaleFilterEnabled = scaleFilterEnabled
-        self.isNM2ChordChannel = isNM2ChordChannel
-        self.color = color
+        self.isChordPadTarget = isChordPadTarget
+        self.controlSourceName = controlSourceName
+        self.controlChannel = controlChannel
+        self.controlCC = controlCC
     }
 }
 
@@ -147,7 +154,12 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
     var bpm: Int?
     var channelStates: [ChannelPresetState]
     var order: Int  // For setlist ordering
-    
+
+    // MIDI trigger mapping (for selecting this song via MIDI)
+    var triggerSourceName: String?  // MIDI device that can trigger this song
+    var triggerChannel: Int?        // MIDI channel (1-16, nil = any channel)
+    var triggerNote: Int?           // Note number that triggers this song (nil = not mapped)
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -156,7 +168,10 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
         filterMode: FilterMode = .snap,
         bpm: Int? = nil,
         channelStates: [ChannelPresetState] = [],
-        order: Int = 0
+        order: Int = 0,
+        triggerSourceName: String? = nil,
+        triggerChannel: Int? = nil,
+        triggerNote: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -166,6 +181,9 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
         self.bpm = bpm
         self.channelStates = channelStates
         self.order = order
+        self.triggerSourceName = triggerSourceName
+        self.triggerChannel = triggerChannel
+        self.triggerNote = triggerNote
     }
     
     var keyDisplayName: String {
@@ -180,39 +198,16 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
     }
 }
 
-// MARK: - Channel Colors
-
-enum ChannelColor: String, Codable, CaseIterable, Identifiable {
-    case red, orange, yellow, green, mint, cyan, blue, indigo, purple, pink
-    
-    var id: String { rawValue }
-    
-    var uiColor: UIColor {
-        switch self {
-        case .red: return .systemRed
-        case .orange: return .systemOrange
-        case .yellow: return .systemYellow
-        case .green: return .systemGreen
-        case .mint: return .systemMint
-        case .cyan: return .systemCyan
-        case .blue: return .systemBlue
-        case .indigo: return .systemIndigo
-        case .purple: return .systemPurple
-        case .pink: return .systemPink
-        }
-    }
-}
-
 // MARK: - Default Session
 
 extension Session {
     /// Create a default session with 4 channels
     static func defaultSession() -> Session {
         let channels = [
-            ChannelConfiguration(name: "Synth Pad", midiChannel: 1, color: .cyan),
-            ChannelConfiguration(name: "Bass", midiChannel: 2, color: .purple),
-            ChannelConfiguration(name: "Keys", midiChannel: 3, color: .green),
-            ChannelConfiguration(name: "Lead", midiChannel: 4, isNM2ChordChannel: true, color: .orange)
+            ChannelConfiguration(name: "Synth Pad", midiChannel: 1),
+            ChannelConfiguration(name: "Bass", midiChannel: 2),
+            ChannelConfiguration(name: "Keys", midiChannel: 3),
+            ChannelConfiguration(name: "Lead", midiChannel: 4, isChordPadTarget: true)
         ]
         
         let songs = [
