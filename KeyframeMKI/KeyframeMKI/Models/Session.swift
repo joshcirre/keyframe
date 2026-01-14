@@ -147,7 +147,8 @@ struct PluginConfiguration: Codable, Identifiable, Equatable {
 /// A song with scale settings and channel state presets
 struct PerformanceSong: Codable, Identifiable, Equatable {
     let id: UUID
-    var name: String
+    var name: String              // Preset name (e.g., "Clean Chorus")
+    var songName: String?         // Optional song name (e.g., "The Joy")
     var rootNote: Int
     var scaleType: ScaleType
     var filterMode: FilterMode
@@ -166,6 +167,7 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
     init(
         id: UUID = UUID(),
         name: String,
+        songName: String? = nil,
         rootNote: Int = 0,
         scaleType: ScaleType = .major,
         filterMode: FilterMode = .snap,
@@ -179,6 +181,7 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
     ) {
         self.id = id
         self.name = name
+        self.songName = songName
         self.rootNote = rootNote
         self.scaleType = scaleType
         self.filterMode = filterMode
@@ -206,26 +209,15 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
 // MARK: - Default Session
 
 extension Session {
-    /// Create a default session with 4 channels
+    /// Create a default empty session
     static func defaultSession() -> Session {
-        let channels = [
-            ChannelConfiguration(name: "Synth Pad", midiChannel: 1),
-            ChannelConfiguration(name: "Bass", midiChannel: 2),
-            ChannelConfiguration(name: "Keys", midiChannel: 3),
-            ChannelConfiguration(name: "Lead", midiChannel: 4, isChordPadTarget: true)
-        ]
-        
         let songs = [
-            PerformanceSong(name: "Intro", rootNote: 0, scaleType: .major, bpm: 120, order: 0),
-            PerformanceSong(name: "Verse", rootNote: 9, scaleType: .minor, bpm: 120, order: 1),
-            PerformanceSong(name: "Chorus", rootNote: 7, scaleType: .major, bpm: 120, order: 2),
-            PerformanceSong(name: "Bridge", rootNote: 5, scaleType: .major, bpm: 100, order: 3),
-            PerformanceSong(name: "Outro", rootNote: 0, scaleType: .major, bpm: 90, order: 4)
+            PerformanceSong(name: "DEFAULT", rootNote: 0, scaleType: .major, bpm: 120, order: 0)
         ]
-        
+
         return Session(
-            name: "My Performance",
-            channels: channels,
+            name: "Untitled",
+            channels: [],
             songs: songs,
             activeSongId: songs.first?.id
         )
@@ -277,10 +269,47 @@ final class SessionStore: ObservableObject {
     }
     
     func saveSessionAs(_ name: String) {
-        var session = currentSession
-        session.name = name
-        savedSessions.append(session)
+        // Create a NEW session with a new ID (standard "Save As" behavior)
+        // This allows the original saved session to remain unchanged
+        let newSession = Session(
+            id: UUID(),  // New ID!
+            name: name,
+            channels: currentSession.channels,
+            masterVolume: currentSession.masterVolume,
+            songs: currentSession.songs,
+            activeSongId: currentSession.activeSongId
+        )
+
+        // Switch current session to the new one
+        currentSession = newSession
+        saveCurrentSession()
+
+        // Add to saved sessions list
+        savedSessions.append(newSession)
         saveSessions()
+
+        print("SessionStore: Created new session '\(name)' with ID \(newSession.id)")
+    }
+
+    /// Update the saved copy of the current session (if it exists in saved sessions)
+    /// Returns true if an existing saved session was updated, false if not found
+    @discardableResult
+    func updateSavedSession() -> Bool {
+        saveCurrentSession()
+
+        // Find and update the saved copy if it exists
+        if let index = savedSessions.firstIndex(where: { $0.id == currentSession.id }) {
+            savedSessions[index] = currentSession
+            saveSessions()
+            print("SessionStore: Updated saved session '\(currentSession.name)'")
+            return true
+        }
+        return false
+    }
+
+    /// Check if the current session has a saved copy
+    var isCurrentSessionSaved: Bool {
+        savedSessions.contains { $0.id == currentSession.id }
     }
     
     func loadSession(_ session: Session) {
@@ -292,7 +321,34 @@ final class SessionStore: ObservableObject {
         savedSessions.removeAll { $0.id == session.id }
         saveSessions()
     }
-    
+
+    /// Reset to a fresh default session
+    func resetToDefault() {
+        currentSession = Session.defaultSession()
+        saveCurrentSession()
+        print("SessionStore: Reset to default session")
+    }
+
+    // MARK: - Channel Management
+
+    func addChannel(_ channel: ChannelConfiguration) {
+        currentSession.channels.append(channel)
+        saveCurrentSession()
+    }
+
+    func deleteChannel(at index: Int) {
+        guard index < currentSession.channels.count else { return }
+        currentSession.channels.remove(at: index)
+        saveCurrentSession()
+    }
+
+    func resetChannel(at index: Int) {
+        guard index < currentSession.channels.count else { return }
+        let oldName = currentSession.channels[index].name
+        currentSession.channels[index] = ChannelConfiguration(name: oldName)
+        saveCurrentSession()
+    }
+
     // MARK: - Song Management
     
     func setActiveSong(_ song: PerformanceSong) {

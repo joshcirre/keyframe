@@ -7,6 +7,7 @@ struct ChannelDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var channel: ChannelStrip
     @Binding var config: ChannelConfiguration
+    var onDelete: (() -> Void)?
 
     @StateObject private var pluginManager = AUv3HostManager.shared
     @StateObject private var midiEngine = MIDIEngine.shared
@@ -16,27 +17,33 @@ struct ChannelDetailView: View {
     @State private var showingPluginUI = false
     @State private var pluginViewController: UIViewController?
     @State private var isLearningFaderCC = false
-    
+    @State private var showingDeleteConfirmation = false
+
     var body: some View {
         ZStack {
             TEColors.cream.ignoresSafeArea()
-            
+
             ScrollView {
                 VStack(spacing: 24) {
                     // Header with name
                     channelHeader
-                    
+
                     // Instrument section
                     instrumentSection
-                    
+
                     // Effects chain
                     effectsSection
-                    
+
                     // Mixer controls
                     mixerSection
-                    
+
                     // MIDI routing
                     midiSection
+
+                    // Delete channel button
+                    if onDelete != nil {
+                        deleteSection
+                    }
                 }
                 .padding(20)
             }
@@ -56,6 +63,38 @@ struct ChannelDetailView: View {
             if let vc = pluginViewController {
                 PluginUIHostView(viewController: vc)
             }
+        }
+        .confirmationDialog("Delete Channel", isPresented: $showingDeleteConfirmation) {
+            Button("Delete Channel", role: .destructive) {
+                onDelete?()
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will remove the channel and all its settings. This cannot be undone.")
+        }
+    }
+
+    // MARK: - Delete Section
+
+    private var deleteSection: some View {
+        Button {
+            showingDeleteConfirmation = true
+        } label: {
+            HStack {
+                Image(systemName: "trash")
+                    .font(.system(size: 14, weight: .bold))
+                Text("DELETE CHANNEL")
+                    .font(TEFonts.mono(12, weight: .bold))
+            }
+            .foregroundColor(TEColors.red)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(
+                Rectangle()
+                    .strokeBorder(TEColors.red, lineWidth: 2)
+                    .background(TEColors.cream)
+            )
         }
     }
     
@@ -284,6 +323,17 @@ struct ChannelDetailView: View {
     
     // MARK: - Mixer Section
 
+    /// Binding that syncs volume between ChannelStrip and config atomically
+    private var volumeBinding: Binding<Float> {
+        Binding(
+            get: { channel.volume },
+            set: { newValue in
+                channel.volume = newValue
+                config.volume = newValue
+            }
+        )
+    }
+
     private var mixerSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("MIXER")
@@ -304,10 +354,7 @@ struct ChannelDetailView: View {
                             .foregroundColor(TEColors.black)
                     }
 
-                    TESlider(value: $channel.volume)
-                        .onChange(of: channel.volume) { _, newValue in
-                            config.volume = newValue
-                        }
+                    TESlider(value: volumeBinding)
                 }
 
                 // Mute button

@@ -1,39 +1,41 @@
 import AVFoundation
 import AudioToolbox
-import UIKit
+import AppKit
+import CoreAudioKit
 
 /// Represents a single channel strip with instrument, effects, and mixing controls
-final class ChannelStrip: ObservableObject, Identifiable {
-    
+/// Adapted from iOS ChannelStrip, using AppKit for plugin UI hosting
+final class MacChannelStrip: ObservableObject, Identifiable {
+
     // MARK: - Properties
-    
+
     let id = UUID()
     var index: Int
     var name: String
-    
+
     // MARK: - Audio Nodes
-    
+
     private weak var engine: AVAudioEngine?
     private let mixer = AVAudioMixerNode()
-    
-    /// The instrument AUv3 (synthesizer/sampler)
+
+    /// The instrument AU (synthesizer/sampler)
     private(set) var instrument: AVAudioUnit? {
         didSet { objectWillChange.send() }
     }
-    var instrumentInfo: AUv3Info?
-    
+    var instrumentInfo: MacAUInfo?
+
     /// Insert effects chain (up to 4)
     private(set) var effects: [AVAudioUnit] = [] {
         didSet { objectWillChange.send() }
     }
-    var effectInfos: [AUv3Info] = []
+    var effectInfos: [MacAUInfo] = []
     let maxEffects = 4
-    
+
     /// Output node for connecting to master
     var outputNode: AVAudioMixerNode { mixer }
-    
+
     // MARK: - Channel Controls
-    
+
     @Published var volume: Float = 1.0 {
         didSet {
             if !isMuted {
@@ -41,42 +43,57 @@ final class ChannelStrip: ObservableObject, Identifiable {
             }
         }
     }
-    
+
     @Published var pan: Float = 0.0 {
         didSet {
             mixer.pan = pan
         }
     }
-    
+
     @Published var isMuted: Bool = false {
         didSet {
             mixer.outputVolume = isMuted ? 0 : volume
         }
     }
-    
-    @Published var isSoloed: Bool = false
-    
-    // MARK: - MIDI Settings
-    
-    /// MIDI channel this strip responds to (1-16, 0 = omni)
-    @Published var midiChannel: Int = 0
 
-    /// MIDI source name this strip responds to (nil = any source)
+    @Published var isSoloed: Bool = false
+
+    // MARK: - MIDI Settings
+
+    @Published var midiChannel: Int = 0  // 0 = omni
     @Published var midiSourceName: String? = nil
-    
-    /// Whether scale filtering is applied to incoming MIDI
     @Published var scaleFilterEnabled: Bool = true
-    
-    /// Whether this channel handles ChordPad chord triggers
     @Published var isChordPadTarget: Bool = false
-    
+
+    // MARK: - Spillover (smooth preset transitions)
+
+    /// Set of currently active (held) MIDI notes
+    private(set) var activeNotes: Set<UInt8> = []
+
+    /// Pending volume to apply when all notes release
+    var pendingVolume: Float?
+
+    /// Pending mute state to apply when all notes release
+    var pendingMute: Bool?
+
+    /// Pending pan to apply when all notes release
+    var pendingPan: Float?
+
+    /// Check if this channel has notes being held
+    var hasActiveNotes: Bool { !activeNotes.isEmpty }
+
+    /// Check if there are pending state changes
+    var hasPendingChanges: Bool {
+        pendingVolume != nil || pendingMute != nil || pendingPan != nil
+    }
+
     // MARK: - Metering
 
     @Published var peakLevel: Float = -60.0
     private var meterTap: Bool = false
-    private var pendingPeakLevel: Float = -60.0  // Written by audio thread
+    private var pendingPeakLevel: Float = -60.0
     private var meterUpdateTimer: Timer?
-    
+
     // MARK: - State
 
     var isInstrumentLoaded: Bool { instrument != nil }
@@ -84,20 +101,19 @@ final class ChannelStrip: ObservableObject, Identifiable {
 
     // MARK: - Host Musical Context
 
-    /// Current tempo for this channel's plugins
     private var hostTempo: Double = 120.0
     private var hostIsPlaying: Bool = true
 
     // MARK: - Initialization
-    
+
     init(engine: AVAudioEngine, index: Int) {
         self.engine = engine
         self.index = index
         self.name = "Channel \(index + 1)"
-        
+
         setupMixer()
     }
-    
+
     private func setupMixer() {
         guard let engine = engine else { return }
 
@@ -114,23 +130,21 @@ final class ChannelStrip: ObservableObject, Identifiable {
             meterTap = true
         }
 
-        // Timer to read pending meter value (avoids main thread dispatch from audio thread)
+        // Timer to read pending meter value
         meterUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let pending = self.pendingPeakLevel
             let newLevel = max(pending, self.peakLevel - 2.0)
-            // Guard against NaN propagation
             self.peakLevel = newLevel.isFinite ? newLevel : -60
         }
     }
-    
+
     private func processMeterData(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
 
         let frameCount = Int(buffer.frameLength)
         var maxSample: Float = 0
 
-        // Use stride for better performance
         let stride = max(1, frameCount / 64)
         var frame = 0
         while frame < frameCount {
@@ -141,8 +155,6 @@ final class ChannelStrip: ObservableObject, Identifiable {
             frame += stride
         }
 
-        // Store for timer to read (no main thread dispatch from audio thread!)
-        // Guard against NaN/Inf from corrupted audio data
         let db: Float
         if maxSample > 0 && maxSample.isFinite {
             db = 20 * log10(maxSample)
@@ -151,58 +163,50 @@ final class ChannelStrip: ObservableObject, Identifiable {
         }
         pendingPeakLevel = db.isFinite ? db : -60
     }
-    
+
     // MARK: - Instrument Loading
-    
-    /// Load an AUv3 instrument into this channel
+
     func loadInstrument(_ description: AudioComponentDescription, completion: @escaping (Bool, Error?) -> Void) {
         guard let engine = engine else {
-            completion(false, NSError(domain: "ChannelStrip", code: 1, userInfo: [NSLocalizedDescriptionKey: "Engine not available"]))
+            completion(false, NSError(domain: "MacChannelStrip", code: 1, userInfo: [NSLocalizedDescriptionKey: "Engine not available"]))
             return
         }
-        
+
         isLoading = true
-        
-        // Unload existing instrument first
         unloadInstrument()
-        
+
         AVAudioUnit.instantiate(with: description, options: []) { [weak self] audioUnit, error in
             guard let self = self else { return }
-            
+
             DispatchQueue.main.async {
                 self.isLoading = false
-                
+
                 if let error = error {
-                    print("ChannelStrip \(self.index): Failed to load instrument: \(error)")
+                    print("MacChannelStrip \(self.index): Failed to load instrument: \(error)")
                     completion(false, error)
                     return
                 }
-                
+
                 guard let audioUnit = audioUnit else {
-                    completion(false, NSError(domain: "ChannelStrip", code: 2, userInfo: [NSLocalizedDescriptionKey: "AudioUnit is nil"]))
+                    completion(false, NSError(domain: "MacChannelStrip", code: 2, userInfo: [NSLocalizedDescriptionKey: "AudioUnit is nil"]))
                     return
                 }
-                
+
                 self.instrument = audioUnit
                 engine.attach(audioUnit)
 
-                // Apply musical context for tempo sync
                 self.applyMusicalContext(to: audioUnit.auAudioUnit)
-
-                // Connect instrument to first effect or directly to mixer
                 self.rebuildAudioChain()
 
-                print("ChannelStrip \(self.index): Loaded instrument")
+                print("MacChannelStrip \(self.index): Loaded instrument")
                 completion(true, nil)
             }
         }
     }
-    
-    /// Unload the current instrument
+
     func unloadInstrument() {
         guard let instrument = instrument, let engine = engine else { return }
 
-        // Clear blocks before detaching to avoid dangling references
         instrument.auAudioUnit.musicalContextBlock = nil
         instrument.auAudioUnit.transportStateBlock = nil
 
@@ -212,77 +216,71 @@ final class ChannelStrip: ObservableObject, Identifiable {
 
         rebuildAudioChain()
     }
-    
+
     // MARK: - Effects Chain
-    
-    /// Add an effect to the insert chain
+
     func addEffect(_ description: AudioComponentDescription, completion: @escaping (Bool, Error?) -> Void) {
         guard let engine = engine else {
-            completion(false, NSError(domain: "ChannelStrip", code: 1, userInfo: [NSLocalizedDescriptionKey: "Engine not available"]))
+            completion(false, NSError(domain: "MacChannelStrip", code: 1, userInfo: [NSLocalizedDescriptionKey: "Engine not available"]))
             return
         }
-        
+
         guard effects.count < maxEffects else {
-            completion(false, NSError(domain: "ChannelStrip", code: 3, userInfo: [NSLocalizedDescriptionKey: "Maximum effects reached"]))
+            completion(false, NSError(domain: "MacChannelStrip", code: 3, userInfo: [NSLocalizedDescriptionKey: "Maximum effects reached"]))
             return
         }
-        
+
         isLoading = true
-        
+
         AVAudioUnit.instantiate(with: description, options: []) { [weak self] audioUnit, error in
             guard let self = self else { return }
-            
+
             DispatchQueue.main.async {
                 self.isLoading = false
-                
+
                 if let error = error {
-                    print("ChannelStrip \(self.index): Failed to load effect: \(error)")
+                    print("MacChannelStrip \(self.index): Failed to load effect: \(error)")
                     completion(false, error)
                     return
                 }
-                
+
                 guard let audioUnit = audioUnit else {
-                    completion(false, NSError(domain: "ChannelStrip", code: 2, userInfo: [NSLocalizedDescriptionKey: "AudioUnit is nil"]))
+                    completion(false, NSError(domain: "MacChannelStrip", code: 2, userInfo: [NSLocalizedDescriptionKey: "AudioUnit is nil"]))
                     return
                 }
-                
+
                 self.effects.append(audioUnit)
                 engine.attach(audioUnit)
 
-                // Apply musical context for tempo sync
                 self.applyMusicalContext(to: audioUnit.auAudioUnit)
-
                 self.rebuildAudioChain()
 
-                print("ChannelStrip \(self.index): Added effect (\(self.effects.count) total)")
+                print("MacChannelStrip \(self.index): Added effect (\(self.effects.count) total)")
                 completion(true, nil)
             }
         }
     }
-    
-    /// Remove an effect at index
+
     func removeEffect(at index: Int) {
         guard index < effects.count, let engine = engine else { return }
 
         let effect = effects.remove(at: index)
-        effectInfos.remove(at: index)
+        if index < effectInfos.count {
+            effectInfos.remove(at: index)
+        }
 
-        // Clear blocks before detaching to avoid dangling references
         effect.auAudioUnit.musicalContextBlock = nil
         effect.auAudioUnit.transportStateBlock = nil
 
         engine.detach(effect)
-
         rebuildAudioChain()
     }
-    
-    /// Toggle bypass on an effect
+
     func setEffectBypassed(_ bypassed: Bool, at index: Int) {
         guard index < effects.count else { return }
         effects[index].auAudioUnit.shouldBypassEffect = bypassed
     }
-    
-    /// Apply bypass states from preset
+
     func applyEffectBypasses(_ bypasses: [Bool]) {
         for (index, bypassed) in bypasses.enumerated() {
             if index < effects.count {
@@ -290,13 +288,12 @@ final class ChannelStrip: ObservableObject, Identifiable {
             }
         }
     }
-    
+
     // MARK: - Audio Chain Management
-    
-    /// Rebuild the audio signal chain after changes
+
     private func rebuildAudioChain() {
         guard let engine = engine else { return }
-        
+
         // Disconnect all existing connections
         if let instrument = instrument {
             engine.disconnectNodeOutput(instrument)
@@ -305,42 +302,31 @@ final class ChannelStrip: ObservableObject, Identifiable {
             engine.disconnectNodeOutput(effect)
         }
         engine.disconnectNodeInput(mixer)
-        
-        // Get the format to use
+
         let format = engine.outputNode.inputFormat(forBus: 0)
-        
+
         // Build the chain: Instrument -> Effects -> Mixer
         var previousNode: AVAudioNode? = instrument
-        
+
         for effect in effects {
             if let prev = previousNode {
                 engine.connect(prev, to: effect, format: format)
             }
             previousNode = effect
         }
-        
-        // Connect final node to mixer
+
         if let finalNode = previousNode {
             engine.connect(finalNode, to: mixer, format: format)
         }
     }
 
-    // MARK: - Host Musical Context (Tempo Sync)
+    // MARK: - Host Musical Context
 
-    /// Update the musical context (tempo, transport) for all hosted plugins
-    /// Note: We only update the values here - the blocks read from these values
-    /// and were set once when the AU was loaded. Don't re-apply blocks while
-    /// audio is rendering as it causes race conditions.
     func updateMusicalContext(tempo: Double, isPlaying: Bool) {
         hostTempo = tempo
         hostIsPlaying = isPlaying
-        // Blocks already reference hostTempo and hostIsPlaying via weak self
-        // No need to re-apply them - that causes race conditions on the audio thread
     }
 
-    /// Apply musical context blocks to a newly loaded AU (called once at load time)
-    /// This should only be called when first loading an instrument/effect,
-    /// NOT when tempo changes (use updateMusicalContext for that)
     func applyMusicalContextToAllAUs() {
         if let instrument = instrument {
             applyMusicalContext(to: instrument.auAudioUnit)
@@ -350,9 +336,7 @@ final class ChannelStrip: ObservableObject, Identifiable {
         }
     }
 
-    /// Apply musical context block to a single AU
     private func applyMusicalContext(to au: AUAudioUnit) {
-        // Create the musical context block that plugins will query
         au.musicalContextBlock = { [weak self] (
             currentTempo: UnsafeMutablePointer<Double>?,
             timeSignatureNumerator: UnsafeMutablePointer<Double>?,
@@ -363,14 +347,9 @@ final class ChannelStrip: ObservableObject, Identifiable {
         ) -> Bool in
             guard let self = self else { return false }
 
-            // Provide tempo
             currentTempo?.pointee = self.hostTempo
-
-            // 4/4 time signature
             timeSignatureNumerator?.pointee = 4.0
             timeSignatureDenominator?.pointee = 4
-
-            // Beat position (simplified - real implementation would track this precisely)
             currentBeatPosition?.pointee = 0.0
             sampleOffsetToNextBeat?.pointee = 0
             currentMeasureDownbeatPosition?.pointee = 0.0
@@ -378,7 +357,6 @@ final class ChannelStrip: ObservableObject, Identifiable {
             return true
         }
 
-        // Also set the transport state block
         au.transportStateBlock = { [weak self] (
             transportStateFlags: UnsafeMutablePointer<AUHostTransportStateFlags>?,
             currentSamplePosition: UnsafeMutablePointer<Double>?,
@@ -387,8 +365,6 @@ final class ChannelStrip: ObservableObject, Identifiable {
         ) -> Bool in
             guard let self = self else { return false }
 
-            // AUHostTransportStateFlags raw values:
-            // Changed = 1, Moving = 2, Recording = 4, Cycling = 8
             var rawFlags: UInt = 1  // Changed
             if self.hostIsPlaying {
                 rawFlags |= 2  // Moving (playing)
@@ -401,17 +377,16 @@ final class ChannelStrip: ObservableObject, Identifiable {
 
             return true
         }
-
-        print("ChannelStrip \(index): Applied musical context (tempo: \(hostTempo) BPM)")
     }
 
-
     // MARK: - MIDI Handling
-    
-    /// Send MIDI note to the instrument
+
     func sendMIDI(noteOn note: UInt8, velocity: UInt8) {
         guard let instrument = instrument else { return }
-        
+
+        // Track active note for spillover
+        activeNotes.insert(note)
+
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
             let data: [UInt8] = [0x90, note, velocity]
             data.withUnsafeBufferPointer { bufferPointer in
@@ -419,21 +394,29 @@ final class ChannelStrip: ObservableObject, Identifiable {
             }
         }
     }
-    
+
     func sendMIDI(noteOff note: UInt8) {
         guard let instrument = instrument else { return }
-        
+
+        // Track note release for spillover
+        activeNotes.remove(note)
+
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
             let data: [UInt8] = [0x80, note, 0]
             data.withUnsafeBufferPointer { bufferPointer in
                 midiBlock(AUEventSampleTimeImmediate, 0, 3, bufferPointer.baseAddress!)
             }
         }
+
+        // Apply pending state changes when all notes are released
+        if activeNotes.isEmpty && hasPendingChanges {
+            applyPendingChanges()
+        }
     }
-    
+
     func sendMIDI(controlChange cc: UInt8, value: UInt8) {
         guard let instrument = instrument else { return }
-        
+
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
             let data: [UInt8] = [0xB0, cc, value]
             data.withUnsafeBufferPointer { bufferPointer in
@@ -441,82 +424,102 @@ final class ChannelStrip: ObservableObject, Identifiable {
             }
         }
     }
-    
-    // MARK: - Plugin UI
-    
+
+    /// Send all notes off (MIDI panic)
+    func sendAllNotesOff() {
+        guard let instrument = instrument else { return }
+
+        if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
+            // CC 123 = All Notes Off
+            let data: [UInt8] = [0xB0, 123, 0]
+            data.withUnsafeBufferPointer { bufferPointer in
+                midiBlock(AUEventSampleTimeImmediate, 0, 3, bufferPointer.baseAddress!)
+            }
+        }
+
+        activeNotes.removeAll()
+
+        // Apply any pending changes immediately
+        if hasPendingChanges {
+            applyPendingChanges()
+        }
+    }
+
+    // MARK: - Spillover State Management
+
+    /// Apply state changes with spillover support
+    /// If notes are active, queue changes; otherwise apply immediately
+    func applyStateWithSpillover(volume: Float? = nil, pan: Float? = nil, mute: Bool? = nil, spilloverEnabled: Bool = true) {
+        if spilloverEnabled && hasActiveNotes {
+            // Queue changes for when notes release
+            if let v = volume { pendingVolume = v }
+            if let p = pan { pendingPan = p }
+            if let m = mute { pendingMute = m }
+            print("MacChannelStrip \(index): Queued state changes (notes active)")
+        } else {
+            // Apply immediately
+            if let v = volume { self.volume = v }
+            if let p = pan { self.pan = p }
+            if let m = mute { self.isMuted = m }
+        }
+    }
+
+    /// Apply any pending state changes
+    private func applyPendingChanges() {
+        if let v = pendingVolume {
+            self.volume = v
+            pendingVolume = nil
+        }
+        if let p = pendingPan {
+            self.pan = p
+            pendingPan = nil
+        }
+        if let m = pendingMute {
+            self.isMuted = m
+            pendingMute = nil
+        }
+        print("MacChannelStrip \(index): Applied pending state changes")
+    }
+
+    /// Clear any pending state changes without applying
+    func clearPendingChanges() {
+        pendingVolume = nil
+        pendingPan = nil
+        pendingMute = nil
+    }
+
+    // MARK: - Plugin UI (macOS)
+
     /// Get the view controller for the instrument's UI
-    func getInstrumentViewController(completion: @escaping (UIViewController?) -> Void) {
+    func getInstrumentViewController(completion: @escaping (NSViewController?) -> Void) {
         guard let instrument = instrument else {
             completion(nil)
             return
         }
-        
+
         instrument.auAudioUnit.requestViewController { viewController in
             DispatchQueue.main.async {
-                completion(viewController)
+                completion(viewController as? NSViewController)
             }
         }
     }
-    
+
     /// Get the view controller for an effect's UI
-    func getEffectViewController(at index: Int, completion: @escaping (UIViewController?) -> Void) {
+    func getEffectViewController(at index: Int, completion: @escaping (NSViewController?) -> Void) {
         guard index < effects.count else {
             completion(nil)
             return
         }
-        
+
         effects[index].auAudioUnit.requestViewController { viewController in
             DispatchQueue.main.async {
-                completion(viewController)
+                completion(viewController as? NSViewController)
             }
         }
     }
-    
-    // MARK: - State Save/Restore
-    
-    /// Get the full state of this channel for saving
-    func getState() -> ChannelStripState {
-        var effectStates: [PluginState] = []
-        
-        for (index, effect) in effects.enumerated() {
-            let info = index < effectInfos.count ? effectInfos[index] : nil
-            let state = PluginState(
-                audioComponentDescription: effect.audioComponentDescription,
-                manufacturerName: info?.manufacturerName ?? "Unknown",
-                pluginName: info?.name ?? "Unknown",
-                presetData: try? effect.auAudioUnit.fullState as? Data,
-                isBypassed: effect.auAudioUnit.shouldBypassEffect
-            )
-            effectStates.append(state)
-        }
-        
-        var instrumentState: PluginState?
-        if let instrument = instrument {
-            instrumentState = PluginState(
-                audioComponentDescription: instrument.audioComponentDescription,
-                manufacturerName: instrumentInfo?.manufacturerName ?? "Unknown",
-                pluginName: instrumentInfo?.name ?? "Unknown",
-                presetData: try? instrument.auAudioUnit.fullState as? Data,
-                isBypassed: false
-            )
-        }
-        
-        return ChannelStripState(
-            id: id,
-            name: name,
-            instrument: instrumentState,
-            effects: effectStates,
-            volume: volume,
-            pan: pan,
-            isMuted: isMuted,
-            midiChannel: midiChannel,
-            scaleFilterEnabled: scaleFilterEnabled,
-            isChordPadTarget: isChordPadTarget
-        )
-    }
-    
+
     // MARK: - Cleanup
-    
+
     func cleanup() {
         guard let engine = engine else { return }
 
@@ -527,7 +530,6 @@ final class ChannelStrip: ObservableObject, Identifiable {
             mixer.removeTap(onBus: 0)
         }
 
-        // Clear musical context blocks before detaching to avoid dangling references
         if let instrument = instrument {
             instrument.auAudioUnit.musicalContextBlock = nil
             instrument.auAudioUnit.transportStateBlock = nil
@@ -542,95 +544,83 @@ final class ChannelStrip: ObservableObject, Identifiable {
 
         engine.detach(mixer)
 
-        // Clear references
         self.instrument = nil
         self.effects.removeAll()
     }
+
+    // MARK: - State Restoration
+
+    func restoreInstrumentState(_ data: Data) {
+        guard let instrument = instrument else { return }
+
+        do {
+            let state = try NSKeyedUnarchiver.unarchivedObject(ofClasses: [NSDictionary.self, NSString.self, NSNumber.self, NSData.self, NSArray.self], from: data)
+            if let dict = state as? [String: Any] {
+                try instrument.auAudioUnit.fullState = dict
+                print("MacChannelStrip: Restored instrument state")
+            }
+        } catch {
+            print("MacChannelStrip: Failed to restore instrument state: \(error)")
+        }
+    }
+
+    func restoreEffectState(_ data: Data, at index: Int) {
+        guard index < effects.count else { return }
+        let effect = effects[index]
+
+        do {
+            let state = try NSKeyedUnarchiver.unarchivedObject(ofClasses: [NSDictionary.self, NSString.self, NSNumber.self, NSData.self, NSArray.self], from: data)
+            if let dict = state as? [String: Any] {
+                try effect.auAudioUnit.fullState = dict
+                print("MacChannelStrip: Restored effect \(index) state")
+            }
+        } catch {
+            print("MacChannelStrip: Failed to restore effect state: \(error)")
+        }
+    }
+
+    func saveInstrumentState() -> Data? {
+        guard let instrument = instrument else { return nil }
+
+        do {
+            if let state = instrument.auAudioUnit.fullState {
+                return try NSKeyedArchiver.archivedData(withRootObject: state, requiringSecureCoding: false)
+            }
+        } catch {
+            print("MacChannelStrip: Failed to save instrument state: \(error)")
+        }
+        return nil
+    }
+
+    func saveEffectState(at index: Int) -> Data? {
+        guard index < effects.count else { return nil }
+        let effect = effects[index]
+
+        do {
+            if let state = effect.auAudioUnit.fullState {
+                return try NSKeyedArchiver.archivedData(withRootObject: state, requiringSecureCoding: false)
+            }
+        } catch {
+            print("MacChannelStrip: Failed to save effect state: \(error)")
+        }
+        return nil
+    }
 }
 
-// MARK: - AUv3 Info
+// MARK: - AU Info
 
-/// Information about a loaded AUv3 plugin
-struct AUv3Info: Codable, Equatable {
+struct MacAUInfo: Codable, Equatable {
     let name: String
     let manufacturerName: String
     let componentType: UInt32
     let componentSubType: UInt32
     let componentManufacturer: UInt32
-    
+
     var isInstrument: Bool {
         componentType == kAudioUnitType_MusicDevice
     }
-    
+
     var isEffect: Bool {
         componentType == kAudioUnitType_Effect || componentType == kAudioUnitType_MusicEffect
     }
 }
-
-// MARK: - Plugin State
-
-/// Saved state of an AUv3 plugin
-struct PluginState: Codable, Equatable {
-    var audioComponentDescription: AudioComponentDescription
-    var manufacturerName: String
-    var pluginName: String
-    var presetData: Data?
-    var isBypassed: Bool
-}
-
-// MARK: - AudioComponentDescription Codable Extension
-
-extension AudioComponentDescription: Codable {
-    enum CodingKeys: String, CodingKey {
-        case componentType, componentSubType, componentManufacturer, componentFlags, componentFlagsMask
-    }
-    
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(
-            componentType: try container.decode(UInt32.self, forKey: .componentType),
-            componentSubType: try container.decode(UInt32.self, forKey: .componentSubType),
-            componentManufacturer: try container.decode(UInt32.self, forKey: .componentManufacturer),
-            componentFlags: try container.decode(UInt32.self, forKey: .componentFlags),
-            componentFlagsMask: try container.decode(UInt32.self, forKey: .componentFlagsMask)
-        )
-    }
-    
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(componentType, forKey: .componentType)
-        try container.encode(componentSubType, forKey: .componentSubType)
-        try container.encode(componentManufacturer, forKey: .componentManufacturer)
-        try container.encode(componentFlags, forKey: .componentFlags)
-        try container.encode(componentFlagsMask, forKey: .componentFlagsMask)
-    }
-}
-
-// MARK: - AudioComponentDescription Equatable Extension
-
-extension AudioComponentDescription: Equatable {
-    public static func == (lhs: AudioComponentDescription, rhs: AudioComponentDescription) -> Bool {
-        lhs.componentType == rhs.componentType &&
-        lhs.componentSubType == rhs.componentSubType &&
-        lhs.componentManufacturer == rhs.componentManufacturer &&
-        lhs.componentFlags == rhs.componentFlags &&
-        lhs.componentFlagsMask == rhs.componentFlagsMask
-    }
-}
-
-// MARK: - Channel Strip State
-
-/// Complete saved state of a channel strip
-struct ChannelStripState: Codable, Equatable {
-    var id: UUID
-    var name: String
-    var instrument: PluginState?
-    var effects: [PluginState]
-    var volume: Float
-    var pan: Float
-    var isMuted: Bool
-    var midiChannel: Int
-    var scaleFilterEnabled: Bool
-    var isChordPadTarget: Bool
-}
-

@@ -129,25 +129,57 @@ struct PerformanceSongEditorView: View {
     }
     
     // MARK: - Name Section
-    
+
     private var nameSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("NAME")
-                .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
-                .tracking(2)
-            
-            TextField("PRESET NAME", text: $song.name)
-                .font(TEFonts.display(24, weight: .black))
-                .foregroundColor(TEColors.black)
-                .textInputAutocapitalization(.characters)
-                .padding(16)
-                .background(
-                    Rectangle()
-                        .strokeBorder(TEColors.black, lineWidth: 2)
-                        .background(TEColors.warmWhite)
-                )
+        VStack(alignment: .leading, spacing: 16) {
+            // Preset Name
+            VStack(alignment: .leading, spacing: 8) {
+                Text("PRESET NAME")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(TEColors.midGray)
+                    .tracking(2)
+
+                TextField("PRESET NAME", text: $song.name)
+                    .font(TEFonts.display(24, weight: .black))
+                    .foregroundColor(TEColors.black)
+                    .textInputAutocapitalization(.characters)
+                    .padding(16)
+                    .background(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                            .background(TEColors.warmWhite)
+                    )
+            }
+
+            // Song Name (optional)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("SONG NAME")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(TEColors.midGray)
+                    .tracking(2)
+
+                TextField("OPTIONAL", text: songNameBinding)
+                    .font(TEFonts.display(18, weight: .bold))
+                    .foregroundColor(TEColors.black)
+                    .textInputAutocapitalization(.characters)
+                    .padding(16)
+                    .background(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                            .background(TEColors.warmWhite)
+                    )
+            }
         }
+    }
+
+    // Helper binding for optional songName
+    private var songNameBinding: Binding<String> {
+        Binding(
+            get: { song.songName ?? "" },
+            set: { newValue in
+                song.songName = newValue.isEmpty ? nil : newValue
+            }
+        )
     }
     
     // MARK: - Key Section
@@ -910,17 +942,11 @@ struct ExternalMIDIMessageRow: View {
                 .padding(.vertical, 4)
                 .background(typeColor)
 
-            // Name and description
-            VStack(alignment: .leading, spacing: 2) {
-                Text(message.name.uppercased())
-                    .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(TEColors.black)
-                    .lineLimit(1)
-
-                Text(message.displayDescription.uppercased())
-                    .font(TEFonts.mono(9, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
-            }
+            // Description
+            Text(message.displayDescription.uppercased())
+                .font(TEFonts.mono(12, weight: .bold))
+                .foregroundColor(TEColors.black)
+                .lineLimit(1)
 
             Spacer()
 

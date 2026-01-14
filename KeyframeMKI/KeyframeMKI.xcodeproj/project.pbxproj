@@ -29,6 +29,7 @@
 		8A1B2C3D4E5F6035 /* BluetoothMIDIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */; };
 		8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */; };
 		8A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */; };
+		8A1B2C3D4E5F6052 /* AppearanceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6052 /* AppearanceManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -56,6 +57,7 @@
 		9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothMIDIView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessageEditorView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessage.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6052 /* AppearanceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceManager.swift; sourceTree = "<group>"; };
 		CA1B2C3D4E5F6000 /* KeyframeMKI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeyframeMKI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -112,6 +114,7 @@
 		GA1B2C3D4E5F6003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				9A1B2C3D4E5F6052 /* AppearanceManager.swift */,
 				9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */,
 				9A1B2C3D4E5F6050 /* Session.swift */,
 			);
@@ -247,6 +250,7 @@
 				8A1B2C3D4E5F6035 /* BluetoothMIDIView.swift in Sources */,
 				8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */,
 				8A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift in Sources */,
+				8A1B2C3D4E5F6052 /* AppearanceManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -385,7 +389,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = KeyframeMKI/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Keyframe MK I";
+				INFOPLIST_KEY_CFBundleDisplayName = Keyframe;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -416,7 +420,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = KeyframeMKI/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Keyframe MK I";
+				INFOPLIST_KEY_CFBundleDisplayName = Keyframe;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

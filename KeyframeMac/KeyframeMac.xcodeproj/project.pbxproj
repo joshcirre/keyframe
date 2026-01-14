@@ -1,0 +1,428 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		MAC001001 /* KeyframeMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002001 /* KeyframeMacApp.swift */; };
+		MAC001002 /* MacAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002002 /* MacAudioEngine.swift */; };
+		MAC001003 /* MacChannelStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002003 /* MacChannelStrip.swift */; };
+		MAC001004 /* MacMIDIEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002004 /* MacMIDIEngine.swift */; };
+		MAC001005 /* MacPluginManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002005 /* MacPluginManager.swift */; };
+		MAC001006 /* MacSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002006 /* MacSession.swift */; };
+		MAC001007 /* SharedTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002007 /* SharedTypes.swift */; };
+		MAC001008 /* MixerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002008 /* MixerView.swift */; };
+		MAC001009 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002009 /* SettingsView.swift */; };
+		MAC001010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = MAC002010 /* Assets.xcassets */; };
+		MAC001011 /* PluginWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002012 /* PluginWindowManager.swift */; };
+		MAC001012 /* ChannelDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002013 /* ChannelDetailView.swift */; };
+		MAC001013 /* PresetGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002014 /* PresetGridView.swift */; };
+		MAC001014 /* KeyframeDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002015 /* KeyframeDocument.swift */; };
+		MAC001015 /* SetlistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002017 /* SetlistView.swift */; };
+		MAC001016 /* SetlistEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002018 /* SetlistEditorView.swift */; };
+		MAC001017 /* ZoneEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002019 /* ZoneEditorView.swift */; };
+		MAC001018 /* BackingTrackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002020 /* BackingTrackView.swift */; };
+		MAC001019 /* AppearanceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002021 /* AppearanceManager.swift */; };
+		MAC001020 /* TEDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002022 /* TEDesignSystem.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		MAC002001 /* KeyframeMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeMacApp.swift; sourceTree = "<group>"; };
+		MAC002002 /* MacAudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAudioEngine.swift; sourceTree = "<group>"; };
+		MAC002003 /* MacChannelStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacChannelStrip.swift; sourceTree = "<group>"; };
+		MAC002004 /* MacMIDIEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMIDIEngine.swift; sourceTree = "<group>"; };
+		MAC002005 /* MacPluginManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPluginManager.swift; sourceTree = "<group>"; };
+		MAC002006 /* MacSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSession.swift; sourceTree = "<group>"; };
+		MAC002007 /* SharedTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedTypes.swift; sourceTree = "<group>"; };
+		MAC002008 /* MixerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixerView.swift; sourceTree = "<group>"; };
+		MAC002009 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		MAC002010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		MAC003000 /* KeyframeMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeyframeMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		MAC002011 /* KeyframeMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KeyframeMac.entitlements; sourceTree = "<group>"; };
+		MAC002012 /* PluginWindowManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginWindowManager.swift; sourceTree = "<group>"; };
+		MAC002013 /* ChannelDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelDetailView.swift; sourceTree = "<group>"; };
+		MAC002014 /* PresetGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetGridView.swift; sourceTree = "<group>"; };
+		MAC002015 /* KeyframeDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeDocument.swift; sourceTree = "<group>"; };
+		MAC002016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		MAC002017 /* SetlistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetlistView.swift; sourceTree = "<group>"; };
+		MAC002018 /* SetlistEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetlistEditorView.swift; sourceTree = "<group>"; };
+		MAC002019 /* ZoneEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoneEditorView.swift; sourceTree = "<group>"; };
+		MAC002020 /* BackingTrackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackingTrackView.swift; sourceTree = "<group>"; };
+		MAC002021 /* AppearanceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceManager.swift; sourceTree = "<group>"; };
+		MAC002022 /* TEDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TEDesignSystem.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		MAC004001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		MAC005000 = {
+			isa = PBXGroup;
+			children = (
+				MAC005001 /* KeyframeMac */,
+				MAC005005 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		MAC005001 /* KeyframeMac */ = {
+			isa = PBXGroup;
+			children = (
+				MAC002001 /* KeyframeMacApp.swift */,
+				MAC005002 /* Engine */,
+				MAC005003 /* Models */,
+				MAC005004 /* Views */,
+				MAC002010 /* Assets.xcassets */,
+				MAC002011 /* KeyframeMac.entitlements */,
+				MAC002016 /* Info.plist */,
+			);
+			path = ".";
+			sourceTree = "<group>";
+		};
+		MAC005002 /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				MAC002002 /* MacAudioEngine.swift */,
+				MAC002003 /* MacChannelStrip.swift */,
+				MAC002004 /* MacMIDIEngine.swift */,
+				MAC002005 /* MacPluginManager.swift */,
+			);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+		MAC005003 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				MAC002006 /* MacSession.swift */,
+				MAC002007 /* SharedTypes.swift */,
+				MAC002015 /* KeyframeDocument.swift */,
+				MAC002021 /* AppearanceManager.swift */,
+				MAC002022 /* TEDesignSystem.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		MAC005004 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				MAC002008 /* MixerView.swift */,
+				MAC002009 /* SettingsView.swift */,
+				MAC002012 /* PluginWindowManager.swift */,
+				MAC002013 /* ChannelDetailView.swift */,
+				MAC002014 /* PresetGridView.swift */,
+				MAC002017 /* SetlistView.swift */,
+				MAC002018 /* SetlistEditorView.swift */,
+				MAC002019 /* ZoneEditorView.swift */,
+				MAC002020 /* BackingTrackView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		MAC005005 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				MAC003000 /* KeyframeMac.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		MAC006000 /* KeyframeMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = MAC008001 /* Build configuration list for PBXNativeTarget "KeyframeMac" */;
+			buildPhases = (
+				MAC006001 /* Sources */,
+				MAC004001 /* Frameworks */,
+				MAC006002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KeyframeMac;
+			productName = KeyframeMac;
+			productReference = MAC003000 /* KeyframeMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		MAC007000 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1640;
+				TargetAttributes = {
+					MAC006000 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = MAC008000 /* Build configuration list for PBXProject "KeyframeMac" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = MAC005000;
+			productRefGroup = MAC005005 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				MAC006000 /* KeyframeMac */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		MAC006002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				MAC001010 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		MAC006001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				MAC001001 /* KeyframeMacApp.swift in Sources */,
+				MAC001002 /* MacAudioEngine.swift in Sources */,
+				MAC001003 /* MacChannelStrip.swift in Sources */,
+				MAC001004 /* MacMIDIEngine.swift in Sources */,
+				MAC001005 /* MacPluginManager.swift in Sources */,
+				MAC001006 /* MacSession.swift in Sources */,
+				MAC001007 /* SharedTypes.swift in Sources */,
+				MAC001008 /* MixerView.swift in Sources */,
+				MAC001009 /* SettingsView.swift in Sources */,
+				MAC001011 /* PluginWindowManager.swift in Sources */,
+				MAC001012 /* ChannelDetailView.swift in Sources */,
+				MAC001013 /* PresetGridView.swift in Sources */,
+				MAC001014 /* KeyframeDocument.swift in Sources */,
+				MAC001015 /* SetlistView.swift in Sources */,
+				MAC001016 /* SetlistEditorView.swift in Sources */,
+				MAC001017 /* ZoneEditorView.swift in Sources */,
+				MAC001018 /* BackingTrackView.swift in Sources */,
+				MAC001019 /* AppearanceManager.swift in Sources */,
+				MAC001020 /* TEDesignSystem.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		MAC009001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = NGQTUK9739;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		MAC009002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = NGQTUK9739;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		MAC009003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = KeyframeMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Keyframe Mac";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.keyframe.mac;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		MAC009004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = KeyframeMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Keyframe Mac";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.keyframe.mac;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		MAC008000 /* Build configuration list for PBXProject "KeyframeMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				MAC009001 /* Debug */,
+				MAC009002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		MAC008001 /* Build configuration list for PBXNativeTarget "KeyframeMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				MAC009003 /* Debug */,
+				MAC009004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = MAC007000 /* Project object */;
+}

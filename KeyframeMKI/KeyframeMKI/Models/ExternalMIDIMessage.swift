@@ -47,20 +47,17 @@ struct ExternalMIDIMessage: Codable, Identifiable, Equatable {
     var type: MIDIMessageType
     var data1: Int        // Note/CC/PC number (0-127)
     var data2: Int        // Velocity/Value (0-127), ignored for PC
-    var name: String      // User label (e.g., "Clean Preset", "Lead Tone")
 
     init(
         id: UUID = UUID(),
         type: MIDIMessageType = .programChange,
         data1: Int = 0,
-        data2: Int = 127,
-        name: String = ""
+        data2: Int = 127
     ) {
         self.id = id
         self.type = type
         self.data1 = min(max(data1, 0), 127)
         self.data2 = min(max(data2, 0), 127)
-        self.name = name
     }
 
     /// Human-readable description of the message
@@ -76,4 +73,48 @@ struct ExternalMIDIMessage: Codable, Identifiable, Equatable {
             return "Note \(data1) OFF"
         }
     }
+}
+
+// MARK: - Remote Preset Data (synced from Mac)
+
+/// Lightweight preset data received from Mac in remote mode
+/// Does not include channel states (iOS doesn't need them in remote mode)
+struct RemotePresetData: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var index: Int              // Position in Mac's preset list (used for Program Change)
+    var name: String
+    var songName: String?       // Optional song/setlist name
+    var bpm: Int?
+    var rootNote: Int?          // NoteName raw value (0-11)
+    var scale: String?          // ScaleType raw value
+
+    var displayName: String {
+        if let songName = songName, !songName.isEmpty {
+            return "\(songName) - \(name)"
+        }
+        return name
+    }
+
+    var keyDisplayName: String? {
+        guard let rootNote = rootNote, let scale = scale else { return nil }
+        let noteNames = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
+        guard rootNote >= 0 && rootNote < 12 else { return nil }
+        return "\(noteNames[rootNote]) \(scale)"
+    }
+}
+
+// MARK: - Remote Preset (iOS storage with local external MIDI)
+
+/// A remote preset with locally-added external MIDI messages for Helix
+struct RemotePreset: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var remoteData: RemotePresetData        // Synced from Mac
+    var externalMIDIMessages: [ExternalMIDIMessage] = []  // Added locally on iOS
+
+    // Convenience accessors
+    var index: Int { remoteData.index }
+    var name: String { remoteData.name }
+    var displayName: String { remoteData.displayName }
+    var bpm: Int? { remoteData.bpm }
+    var keyDisplayName: String? { remoteData.keyDisplayName }
 }
