@@ -18,9 +18,13 @@ class PluginWindowManager: ObservableObject {
     func openInstrumentEditor(for channel: MacChannelStrip, channelName: String) {
         let windowId = "instrument-\(channel.id)"
 
-        // If window already exists, bring to front
+        // If window already exists (even if hidden), bring to front
         if let existing = windows[windowId] {
+            if !existing.isVisible {
+                existing.orderFront(nil)
+            }
             existing.makeKeyAndOrderFront(nil)
+            print("PluginWindowManager: Showing existing window for instrument")
             return
         }
 
@@ -42,8 +46,13 @@ class PluginWindowManager: ObservableObject {
     func openEffectEditor(for channel: MacChannelStrip, effectIndex: Int, channelName: String) {
         let windowId = "effect-\(channel.id)-\(effectIndex)"
 
+        // If window already exists (even if hidden), bring to front
         if let existing = windows[windowId] {
+            if !existing.isVisible {
+                existing.orderFront(nil)
+            }
             existing.makeKeyAndOrderFront(nil)
+            print("PluginWindowManager: Showing existing window for effect")
             return
         }
 
@@ -86,6 +95,7 @@ class PluginWindowManager: ObservableObject {
         window.center()
 
         // Track window closing - store delegate strongly to prevent deallocation
+        // Use the hiding delegate to keep the window around
         let delegate = WindowDelegate(windowId: id, manager: self)
         windowDelegates[id] = delegate
         window.delegate = delegate
@@ -117,7 +127,18 @@ class PluginWindowManager: ObservableObject {
         }
     }
 
-    /// Called when a window is closed by the user
+    /// Called when a window is about to close by the user - hide instead of destroying
+    fileprivate func windowShouldClose(id: String) -> Bool {
+        // Hide the window instead of closing it, so we can reopen it later
+        if let window = windows[id] {
+            window.orderOut(nil)  // Hide instead of close
+            print("PluginWindowManager: Hiding window '\(id)' (will reopen on next click)")
+            return false  // Prevent actual close
+        }
+        return true
+    }
+
+    /// Actually remove a window (only called when channel is removed)
     fileprivate func windowWillClose(id: String) {
         windows.removeValue(forKey: id)
         windowDelegates.removeValue(forKey: id)
@@ -133,6 +154,11 @@ private class WindowDelegate: NSObject, NSWindowDelegate {
     init(windowId: String, manager: PluginWindowManager) {
         self.windowId = windowId
         self.manager = manager
+    }
+
+    /// Intercept close to hide instead - this allows reopening the window
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        return manager?.windowShouldClose(id: windowId) ?? true
     }
 
     func windowWillClose(_ notification: Notification) {

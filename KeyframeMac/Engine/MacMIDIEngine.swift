@@ -64,6 +64,33 @@ final class MacMIDIEngine: ObservableObject {
     /// Callback when preset trigger mapping is learned
     var onPresetTriggerLearned: ((PresetTriggerMapping) -> Void)?
 
+    // MARK: - Song Trigger MIDI Learn
+
+    /// Active song trigger mappings - loaded from session
+    @Published var songTriggerMappings: [SongTriggerMapping] = []
+
+    /// When set, the next PC/CC/Note will be mapped to trigger this song/section
+    @Published var songTriggerLearnTarget: SongTriggerLearnTarget?
+
+    /// Callback when song trigger mapping is learned
+    var onSongTriggerLearned: ((SongTriggerMapping) -> Void)?
+
+    /// Callback to select a song/section when triggered by MIDI
+    var onSongTriggerFired: ((UUID, Int?) -> Void)?
+
+    // MARK: - MIDI Freeze/Hold
+
+    @Published var isFreezeActive = false
+    @Published var freezeMode: FreezeMode = .sustain
+    private var frozenNotes: [Int: [UUID: [UInt8]]] = [:]
+
+    // Freeze trigger mapping (learnable)
+    var freezeTriggerCC: Int? = 64  // Default: sustain pedal (CC 64)
+    var freezeTriggerChannel: Int? = nil  // nil = any channel
+    var freezeTriggerSourceName: String? = nil  // nil = any source
+    @Published var isFreezeLearnMode = false
+    var onFreezeLearn: ((Int, Int, String?) -> Void)?  // (cc, channel, sourceName)
+
     // MARK: - Control Callbacks
 
     var onSongTrigger: ((Int, Int, String?) -> Void)?
@@ -635,8 +662,19 @@ final class MacMIDIEngine: ObservableObject {
             return
         }
 
+        // Song trigger learn mode - capture Note On
+        if let target = songTriggerLearnTarget {
+            completeSongTriggerLearn(type: .noteOn, channel: midiChannel, data1: Int(note), data2: Int(velocity), sourceName: sourceName, target: target)
+            return
+        }
+
         // Check for preset trigger mappings
         if checkPresetTriggers(type: .noteOn, channel: midiChannel, data1: Int(note), data2: Int(velocity), sourceName: sourceName) {
+            return
+        }
+
+        // Check for song trigger mappings
+        if checkSongTriggers(type: .noteOn, channel: midiChannel, data1: Int(note), data2: Int(velocity), sourceName: sourceName) {
             return
         }
 
@@ -723,16 +761,24 @@ final class MacMIDIEngine: ObservableObject {
         let sourceHash = sourceName?.hashValue ?? 0
         let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
 
-        if let channelMappings = activeNotes[sourceKey] {
-            for (channelId, processedNotes) in channelMappings {
-                if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
-                    for processedNote in processedNotes {
-                        targetChannel.sendMIDI(noteOff: processedNote)
-                    }
+        guard let channelMappings = activeNotes[sourceKey] else { return }
+
+        // If freeze is active, move notes to frozenNotes instead of releasing
+        if isFreezeActive {
+            frozenNotes[sourceKey] = channelMappings
+            activeNotes.removeValue(forKey: sourceKey)
+            return
+        }
+
+        // Normal release - send note-off to all target channels
+        for (channelId, processedNotes) in channelMappings {
+            if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
+                for processedNote in processedNotes {
+                    targetChannel.sendMIDI(noteOff: processedNote)
                 }
             }
-            activeNotes.removeValue(forKey: sourceKey)
         }
+        activeNotes.removeValue(forKey: sourceKey)
     }
 
     private func processCC(cc: UInt8, value: UInt8, channel: UInt8, sourceName: String?) {
@@ -744,9 +790,40 @@ final class MacMIDIEngine: ObservableObject {
             return
         }
 
+        // Song trigger learn mode - capture CC for song triggering
+        if let target = songTriggerLearnTarget {
+            completeSongTriggerLearn(type: .controlChange, channel: midiChannel, data1: Int(cc), data2: Int(value), sourceName: sourceName, target: target)
+            return
+        }
+
         // Check for preset trigger mappings (CC-based triggers)
         if checkPresetTriggers(type: .controlChange, channel: midiChannel, data1: Int(cc), data2: Int(value), sourceName: sourceName) {
             return
+        }
+
+        // Check for song trigger mappings (CC-based triggers)
+        if checkSongTriggers(type: .controlChange, channel: midiChannel, data1: Int(cc), data2: Int(value), sourceName: sourceName) {
+            return
+        }
+
+        // Freeze Learn mode - intercept CC for freeze trigger assignment
+        if isFreezeLearnMode {
+            DispatchQueue.main.async { [weak self] in
+                self?.onFreezeLearn?(Int(cc), midiChannel, sourceName)
+                self?.isFreezeLearnMode = false
+            }
+            return
+        }
+
+        // Check for freeze trigger CC
+        if let triggerCC = freezeTriggerCC, Int(cc) == triggerCC {
+            let channelMatch = freezeTriggerChannel == nil || freezeTriggerChannel == midiChannel
+            let sourceMatch = freezeTriggerSourceName == nil || freezeTriggerSourceName == sourceName
+
+            if channelMatch && sourceMatch {
+                handleFreezeTrigger(value: value)
+                return  // Don't pass freeze CC to instruments
+            }
         }
 
         // MIDI Learn mode - capture CC for fader/pan mapping
@@ -966,6 +1043,73 @@ final class MacMIDIEngine: ObservableObject {
         return true
     }
 
+    // MARK: - Song Trigger Learn
+
+    /// Start learning a MIDI trigger for a song or section
+    func startSongTriggerLearn(songId: UUID, songName: String, sectionIndex: Int? = nil, sectionName: String? = nil) {
+        songTriggerLearnTarget = SongTriggerLearnTarget(
+            songId: songId,
+            songName: songName,
+            sectionIndex: sectionIndex,
+            sectionName: sectionName
+        )
+        let targetDesc = sectionName != nil ? "\(songName) / \(sectionName!)" : songName
+        print("MacMIDIEngine: Learning song trigger for '\(targetDesc)'")
+    }
+
+    /// Cancel song trigger learn mode
+    func cancelSongTriggerLearn() {
+        songTriggerLearnTarget = nil
+    }
+
+    /// Complete song trigger learning
+    private func completeSongTriggerLearn(type: PresetTriggerType, channel: Int, data1: Int, data2: Int, sourceName: String?, target: SongTriggerLearnTarget) {
+        let displayName = target.sectionName != nil
+            ? "\(target.songName) / \(target.sectionName!)"
+            : target.songName
+
+        let mapping = SongTriggerMapping(
+            triggerType: type,
+            channel: channel,
+            sourceName: sourceName,
+            data1: data1,
+            data2Min: type == .programChange ? nil : 64,
+            data2Max: type == .programChange ? nil : 127,
+            targetSongId: target.songId,
+            targetSectionIndex: target.sectionIndex,
+            displayName: displayName
+        )
+
+        // Store mapping
+        if !songTriggerMappings.contains(where: { $0.id == mapping.id }) {
+            songTriggerMappings.append(mapping)
+        }
+
+        // Notify and save
+        DispatchQueue.main.async { [weak self] in
+            self?.onSongTriggerLearned?(mapping)
+            self?.songTriggerLearnTarget = nil
+        }
+
+        sessionStore?.addSongTriggerMapping(mapping)
+        print("MacMIDIEngine: Learned \(type.rawValue) \(data1) ch\(channel) → song '\(displayName)'")
+    }
+
+    /// Check for matching song trigger and fire if found
+    /// Returns true if a trigger was matched
+    private func checkSongTriggers(type: PresetTriggerType, channel: Int, data1: Int, data2: Int, sourceName: String?) -> Bool {
+        guard let mapping = songTriggerMappings.first(where: { $0.matches(type: type, channel: channel, data1: data1, data2: data2, sourceName: sourceName) }) else {
+            return false
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.onSongTriggerFired?(mapping.targetSongId, mapping.targetSectionIndex)
+        }
+
+        print("MacMIDIEngine: Song trigger matched → \(mapping.displayName)")
+        return true
+    }
+
     /// Load preset trigger mappings from session
     func loadPresetTriggerMappings(from session: MacSession) {
         DispatchQueue.main.async { [weak self] in
@@ -974,10 +1118,24 @@ final class MacMIDIEngine: ObservableObject {
         print("MacMIDIEngine: Loaded \(session.presetTriggerMappings.count) preset trigger mappings")
     }
 
+    /// Load song trigger mappings from session
+    func loadSongTriggerMappings(from session: MacSession) {
+        DispatchQueue.main.async { [weak self] in
+            self?.songTriggerMappings = session.songTriggerMappings
+        }
+        print("MacMIDIEngine: Loaded \(session.songTriggerMappings.count) song trigger mappings")
+    }
+
     /// Remove a preset trigger mapping
     func removePresetTriggerMapping(_ mapping: PresetTriggerMapping) {
         presetTriggerMappings.removeAll { $0.id == mapping.id }
         sessionStore?.removePresetTriggerMapping(mapping)
+    }
+
+    /// Remove a song trigger mapping
+    func removeSongTriggerMapping(_ mapping: SongTriggerMapping) {
+        songTriggerMappings.removeAll { $0.id == mapping.id }
+        sessionStore?.removeSongTriggerMapping(mapping)
     }
 
     private func processProgramChange(program: UInt8, channel: UInt8, sourceName: String?) {
@@ -987,6 +1145,17 @@ final class MacMIDIEngine: ObservableObject {
         if let target = presetTriggerLearnTarget {
             completePresetTriggerLearn(type: .programChange, channel: midiChannel, data1: Int(program), data2: 0, sourceName: sourceName, target: target)
             return
+        }
+
+        // Song trigger learn mode - capture Program Change
+        if let target = songTriggerLearnTarget {
+            completeSongTriggerLearn(type: .programChange, channel: midiChannel, data1: Int(program), data2: 0, sourceName: sourceName, target: target)
+            return
+        }
+
+        // Check for song trigger mappings (PC-based triggers)
+        if checkSongTriggers(type: .programChange, channel: midiChannel, data1: Int(program), data2: 0, sourceName: sourceName) {
+            // Song trigger matched, but still process iOS remote below if on channel 16
         }
 
         // iOS remote preset change on channel 16
@@ -1246,6 +1415,85 @@ final class MacMIDIEngine: ObservableObject {
         currentRootNote = song.rootNote
         currentScaleType = song.scaleType
         filterMode = song.filterMode
+    }
+
+    // MARK: - Freeze/Hold
+
+    private func handleFreezeTrigger(value: UInt8) {
+        switch freezeMode {
+        case .sustain:
+            // Sustain mode: active while pedal pressed (value > 63)
+            let wasActive = isFreezeActive
+            DispatchQueue.main.async { [weak self] in
+                self?.isFreezeActive = value > 63
+            }
+            if wasActive && value <= 63 {
+                releaseFrozenNotes()
+            }
+        case .toggle:
+            // Toggle mode: latch on/off with each press (only on press, not release)
+            if value > 63 {
+                DispatchQueue.main.async { [weak self] in
+                    self?.isFreezeActive.toggle()
+                    if !(self?.isFreezeActive ?? true) {
+                        self?.releaseFrozenNotes()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Release all frozen notes by sending note-off to their target channels (smooth off)
+    func releaseFrozenNotes() {
+        guard let audioEngine = audioEngine else { return }
+
+        for (_, channelMappings) in frozenNotes {
+            for (channelId, processedNotes) in channelMappings {
+                if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
+                    for note in processedNotes {
+                        targetChannel.sendMIDI(noteOff: note)
+                    }
+                }
+            }
+        }
+        frozenNotes.removeAll()
+    }
+
+    /// Manually toggle freeze state (for UI button)
+    func toggleFreeze() {
+        DispatchQueue.main.async { [weak self] in
+            self?.isFreezeActive.toggle()
+            if !(self?.isFreezeActive ?? true) {
+                self?.releaseFrozenNotes()
+            }
+        }
+    }
+
+    /// Clear freeze trigger mapping
+    func clearFreezeTrigger() {
+        freezeTriggerCC = nil
+        freezeTriggerChannel = nil
+        freezeTriggerSourceName = nil
+    }
+
+    /// Release all active notes (for preset switching)
+    func releaseAllActiveNotes() {
+        guard let audioEngine = audioEngine else { return }
+
+        // Release all active notes
+        for (_, channelMappings) in activeNotes {
+            for (channelId, processedNotes) in channelMappings {
+                if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
+                    for note in processedNotes {
+                        targetChannel.sendMIDI(noteOff: note)
+                    }
+                }
+            }
+        }
+        activeNotes.removeAll()
+
+        // Also release frozen notes
+        releaseFrozenNotes()
     }
 
     // MARK: - Helpers

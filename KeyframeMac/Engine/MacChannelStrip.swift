@@ -62,7 +62,7 @@ final class MacChannelStrip: ObservableObject, Identifiable {
 
     @Published var midiChannel: Int = 0  // 0 = omni
     @Published var midiSourceName: String? = nil
-    @Published var scaleFilterEnabled: Bool = true
+    @Published var scaleFilterEnabled: Bool = false
     @Published var isChordPadTarget: Bool = false
 
     // MARK: - Spillover (smooth preset transitions)

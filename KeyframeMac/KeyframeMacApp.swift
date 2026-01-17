@@ -41,6 +41,9 @@ struct KeyframeMacApp: App {
                 let midiEngine = MacMIDIEngine.shared
 
                 if presetIndex < sessionStore.currentSession.presets.count {
+                    // Smooth note-off: release all active notes before switching
+                    midiEngine.releaseAllActiveNotes()
+
                     sessionStore.currentPresetIndex = presetIndex
                     let preset = sessionStore.currentSession.presets[presetIndex]
 
@@ -82,6 +85,9 @@ struct KeyframeMacApp: App {
                 let midiEngine = MacMIDIEngine.shared
 
                 if presetIndex < sessionStore.currentSession.presets.count {
+                    // Smooth note-off: release all active notes before switching
+                    midiEngine.releaseAllActiveNotes()
+
                     // Suppress broadcast since this change came from iOS
                     sessionStore.suppressBroadcast = true
                     sessionStore.currentPresetIndex = presetIndex
@@ -266,19 +272,6 @@ struct KeyframeMacApp: App {
 
             // View menu additions
             CommandMenu("View") {
-                Menu("Appearance") {
-                    ForEach(AppAppearance.allCases, id: \.self) { appearance in
-                        Button(action: { appearanceManager.currentAppearance = appearance }) {
-                            HStack {
-                                Image(systemName: appearance.icon)
-                                Text(appearance.displayName)
-                            }
-                        }
-                    }
-                }
-
-                Divider()
-
                 Button("Show Setlist") {
                     showingSetlistWindow = true
                 }

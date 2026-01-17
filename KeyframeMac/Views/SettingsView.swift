@@ -999,62 +999,31 @@ struct PresetTriggerRow: View {
 // MARK: - Appearance Settings Content
 
 struct AppearanceSettingsContent: View {
-    @ObservedObject var appearanceManager = AppearanceManager.shared
-
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            // Visual Style
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Visual Style")
                         .font(.headline)
 
-                    Picker("Theme", selection: $appearanceManager.currentTheme) {
-                        ForEach(AppTheme.allCases, id: \.self) { theme in
-                            HStack {
-                                Image(systemName: theme.icon)
-                                Text(theme.displayName)
-                            }
-                            .tag(theme)
+                    HStack(spacing: 12) {
+                        Image(systemName: "keyboard")
+                            .font(.title)
+                            .foregroundColor(TEColors.orange)
+                        VStack(alignment: .leading) {
+                            Text("Keyframe Theme")
+                                .font(.body.bold())
+                            Text("Teenage Engineering-inspired brutalist design with cream background, orange accents, and sharp corners.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
-                    }
-                    .pickerStyle(.radioGroup)
-
-                    Text(themeDescription)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    HStack {
-                        Spacer()
-                        AppearancePreview(theme: appearanceManager.currentTheme)
-                        Spacer()
                     }
                     .padding(.vertical, 8)
-                }
-                .padding(4)
-            }
-
-            // Light/Dark Mode
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Light/Dark Mode")
-                        .font(.headline)
-
-                    Picker("Mode", selection: $appearanceManager.currentAppearance) {
-                        ForEach(AppAppearance.allCases, id: \.self) { appearance in
-                            HStack {
-                                Image(systemName: appearance.icon)
-                                Text(appearance.displayName)
-                            }
-                            .tag(appearance)
-                        }
-                    }
-                    .pickerStyle(.segmented)
 
                     HStack(spacing: 8) {
-                        Image(systemName: appearanceManager.isDarkMode ? "moon.fill" : "sun.max.fill")
-                            .foregroundColor(appearanceManager.isDarkMode ? .yellow : .orange)
-                        Text(appearanceManager.isDarkMode ? "Dark Mode Active" : "Light Mode Active")
+                        Image(systemName: "sun.max.fill")
+                            .foregroundColor(.orange)
+                        Text("Light Mode")
                             .foregroundColor(.secondary)
                     }
                 }
@@ -1062,15 +1031,6 @@ struct AppearanceSettingsContent: View {
             }
 
             Spacer()
-        }
-    }
-
-    private var themeDescription: String {
-        switch appearanceManager.currentTheme {
-        case .native:
-            return "Uses standard macOS styling with system colors and rounded corners."
-        case .te:
-            return "Teenage Engineering-inspired brutalist design with cream/orange colors and sharp corners."
         }
     }
 }

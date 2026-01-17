@@ -1,194 +1,271 @@
 import SwiftUI
 
-/// Grid view for selecting and managing presets (songs)
+// MARK: - Song Grid View (formerly PresetGridView)
+
+/// Grid view for selecting and managing songs with their presets/sections
 struct PresetGridView: View {
     @EnvironmentObject var sessionStore: MacSessionStore
     @EnvironmentObject var audioEngine: MacAudioEngine
     @EnvironmentObject var midiEngine: MacMIDIEngine
+    @ObservedObject var themeProvider: ThemeProvider = .shared
 
-    @State private var showingNewPresetSheet = false
-    @State private var editingPreset: MacPreset?
-    @State private var presetToDelete: MacPreset?
+    @State private var showingNewSongSheet = false
+    @State private var editingSong: MacSong?
+    @State private var songToDelete: MacSong?
+    @State private var expandedSongIds: Set<UUID> = []
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 12)
-    ]
+    private var colors: ThemeColors { themeProvider.colors }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
             headerView
 
-            Divider()
-
-            // Preset Grid
+            // Song List
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(Array(sessionStore.currentSession.presets.enumerated()), id: \.element.id) { index, preset in
-                        PresetCell(
-                            preset: preset,
-                            isSelected: sessionStore.currentPresetIndex == index,
-                            presetIndex: index,
-                            onSelect: { selectPreset(preset) },
-                            onEdit: { editingPreset = preset },
-                            onDelete: { presetToDelete = preset },
-                            onLearnTrigger: { midiEngine.startPresetTriggerLearn(forPresetIndex: index, presetName: preset.name) }
+                LazyVStack(spacing: 0) {
+                    ForEach(sessionStore.currentSession.songs) { song in
+                        SongRow(
+                            song: song,
+                            isExpanded: expandedSongIds.contains(song.id),
+                            isCurrentSong: sessionStore.currentSongId == song.id,
+                            currentSectionIndex: sessionStore.currentSongId == song.id ? sessionStore.currentSectionIndex : nil,
+                            colors: colors,
+                            midiEngine: midiEngine,
+                            existingMappings: midiEngine.songTriggerMappings,
+                            onToggleExpand: { toggleExpand(song) },
+                            onSelectSong: { selectSong(song) },
+                            onSelectSection: { sectionIndex in selectSection(song: song, sectionIndex: sectionIndex) },
+                            onEdit: { editingSong = song },
+                            onDelete: { songToDelete = song },
+                            onAddSection: { addSection(to: song) },
+                            onMIDILearn: { startMIDILearnForSong(song) },
+                            onMIDILearnSection: { sectionIndex in startMIDILearnForSection(song: song, sectionIndex: sectionIndex) }
                         )
                     }
 
-                    // Add new preset button
-                    addPresetButton
+                    // Add new song button
+                    addSongButton
                 }
-                .padding()
+                .padding(16)
             }
+            .background(colors.windowBackground)
         }
-        .sheet(isPresented: $showingNewPresetSheet) {
-            PresetEditorSheet(
-                preset: nil,
-                presetIndex: sessionStore.currentSession.presets.count,  // New preset will be at end
-                onSave: { newPreset in
+        .sheet(isPresented: $showingNewSongSheet) {
+            SongEditorSheet(
+                song: nil,
+                onSave: { newSong in
                     var session = sessionStore.currentSession
-                    session.presets.append(newPreset)
+                    session.songs.append(newSong)
                     sessionStore.currentSession = session
                     sessionStore.saveCurrentSession()
+                    expandedSongIds.insert(newSong.id)
                 }
             )
             .environmentObject(audioEngine)
+            .environmentObject(sessionStore)
         }
-        .sheet(item: $editingPreset) { preset in
-            PresetEditorSheet(
-                preset: preset,
-                presetIndex: sessionStore.currentSession.presets.firstIndex(where: { $0.id == preset.id }) ?? 0,
-                onSave: { updatedPreset in
-                    if let index = sessionStore.currentSession.presets.firstIndex(where: { $0.id == preset.id }) {
+        .sheet(item: $editingSong) { song in
+            SongEditorSheet(
+                song: song,
+                onSave: { updatedSong in
+                    if let index = sessionStore.currentSession.songs.firstIndex(where: { $0.id == song.id }) {
                         var session = sessionStore.currentSession
-                        session.presets[index] = updatedPreset
+                        session.songs[index] = updatedSong
                         sessionStore.currentSession = session
                         sessionStore.saveCurrentSession()
                     }
                 }
             )
             .environmentObject(audioEngine)
+            .environmentObject(sessionStore)
         }
-        .alert("Delete Preset?", isPresented: Binding(
-            get: { presetToDelete != nil },
-            set: { if !$0 { presetToDelete = nil } }
+        .alert("Delete Song?", isPresented: Binding(
+            get: { songToDelete != nil },
+            set: { if !$0 { songToDelete = nil } }
         )) {
-            Button("Cancel", role: .cancel) {
-                presetToDelete = nil
-            }
+            Button("Cancel", role: .cancel) { songToDelete = nil }
             Button("Delete", role: .destructive) {
-                if let preset = presetToDelete {
-                    deletePreset(preset)
+                if let song = songToDelete {
+                    deleteSong(song)
                 }
-                presetToDelete = nil
+                songToDelete = nil
             }
         } message: {
-            if let preset = presetToDelete {
-                Text("Are you sure you want to delete \"\(preset.name)\"?")
+            if let song = songToDelete {
+                Text("Are you sure you want to delete \"\(song.name)\" and all its sections?")
             }
+        }
+        .onAppear {
+            setupMIDITriggerCallbacks()
         }
     }
 
     // MARK: - Header
 
     private var headerView: some View {
-        HStack {
-            Text("Presets")
-                .font(.title2)
-                .fontWeight(.semibold)
+        HStack(spacing: 12) {
+            Text("SONGS")
+                .font(TEFonts.display(16, weight: .bold))
+                .foregroundColor(colors.primaryText)
 
             Spacer()
 
-            // Current preset info
-            if let index = sessionStore.currentPresetIndex,
-               index < sessionStore.currentSession.presets.count {
-                let preset = sessionStore.currentSession.presets[index]
+            // Current song/section info
+            if let songId = sessionStore.currentSongId,
+               let song = sessionStore.currentSession.songs.first(where: { $0.id == songId }) {
                 HStack(spacing: 8) {
-                    Text(preset.name)
-                        .foregroundColor(.secondary)
+                    Text(song.name)
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(colors.primaryText)
 
-                    if let bpm = preset.bpm {
-                        Text("•")
-                            .foregroundColor(.secondary)
-                        Text("\(Int(bpm)) BPM")
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
+                    if let sectionIndex = sessionStore.currentSectionIndex,
+                       sectionIndex < song.sections.count {
+                        Text("›")
+                            .foregroundColor(colors.secondaryText)
+                        Text(song.sections[sectionIndex].name)
+                            .font(TEFonts.mono(11))
+                            .foregroundColor(colors.secondaryText)
                     }
 
-                    if let scale = preset.scale {
+                    if let bpm = song.bpm {
                         Text("•")
-                            .foregroundColor(.secondary)
-                        Text("\(preset.rootNote?.rawValue ?? "C") \(scale.displayName)")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(colors.secondaryText)
+                        Text("\(Int(bpm)) BPM")
+                            .font(TEFonts.mono(11))
+                            .foregroundColor(colors.secondaryText)
+                    }
+
+                    if let scale = song.scale, let root = song.rootNote {
+                        Text("•")
+                            .foregroundColor(colors.secondaryText)
+                        Text("\(root.rawValue) \(scale.shortName)")
+                            .font(TEFonts.mono(11))
+                            .foregroundColor(colors.secondaryText)
                     }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(colors.accent.opacity(0.15))
+                .overlay(Rectangle().strokeBorder(colors.accent, lineWidth: 1))
             }
 
             Spacer()
 
-            Button(action: { showingNewPresetSheet = true }) {
-                Label("New Preset", systemImage: "plus")
+            Button(action: { showingNewSongSheet = true }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                    Text("NEW SONG")
+                }
+                .font(TEFonts.mono(11, weight: .bold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .foregroundColor(.white)
+                .background(colors.accent)
+                .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
             }
+            .buttonStyle(.plain)
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(colors.sectionBackground)
+        .overlay(Rectangle().frame(height: colors.borderWidth).foregroundColor(colors.border), alignment: .bottom)
     }
 
-    // MARK: - Add Button
+    // MARK: - Add Song Button
 
-    private var addPresetButton: some View {
-        Button(action: { showingNewPresetSheet = true }) {
-            VStack(spacing: 8) {
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 32))
-                    .foregroundColor(.accentColor)
-                Text("New Preset")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+    private var addSongButton: some View {
+        Button(action: { showingNewSongSheet = true }) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(TEFonts.mono(14, weight: .bold))
+                Text("ADD SONG")
+                    .font(TEFonts.mono(12, weight: .bold))
             }
+            .foregroundColor(colors.secondaryText)
             .frame(maxWidth: .infinity)
-            .frame(height: 100)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-            .cornerRadius(8)
+            .frame(height: 60)
+            .background(colors.controlBackground)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [5]))
-                    .foregroundColor(.secondary.opacity(0.3))
+                Rectangle()
+                    .strokeBorder(style: StrokeStyle(lineWidth: colors.borderWidth, dash: [6, 3]))
+                    .foregroundColor(colors.border.opacity(0.5))
             )
         }
         .buttonStyle(.plain)
+        .padding(.top, 8)
     }
 
     // MARK: - Actions
 
-    private func selectPreset(_ preset: MacPreset) {
-        guard let index = sessionStore.currentSession.presets.firstIndex(where: { $0.id == preset.id }) else {
-            return
+    private func toggleExpand(_ song: MacSong) {
+        if expandedSongIds.contains(song.id) {
+            expandedSongIds.remove(song.id)
+        } else {
+            expandedSongIds.insert(song.id)
         }
-
-        sessionStore.currentPresetIndex = index
-
-        // Apply preset settings
-        applyPreset(preset)
     }
 
-    private func applyPreset(_ preset: MacPreset) {
-        // Apply BPM if set
-        if let bpm = preset.bpm {
+    private func selectSong(_ song: MacSong) {
+        let previousSongId = sessionStore.currentSongId
+
+        sessionStore.currentSongId = song.id
+        sessionStore.currentSectionIndex = song.sections.isEmpty ? nil : 0
+
+        // Only send song-level settings if we changed songs
+        if previousSongId != song.id {
+            applySongSettings(song)
+        }
+
+        // Apply first section's channel states
+        if let firstSection = song.sections.first {
+            applySectionSettings(firstSection)
+        }
+
+        // Auto-expand the selected song
+        expandedSongIds.insert(song.id)
+    }
+
+    private func selectSection(song: MacSong, sectionIndex: Int) {
+        let previousSongId = sessionStore.currentSongId
+
+        sessionStore.currentSongId = song.id
+        sessionStore.currentSectionIndex = sectionIndex
+
+        // Only send song-level settings if we changed songs
+        if previousSongId != song.id {
+            applySongSettings(song)
+        }
+
+        // Apply section's channel states and MIDI
+        if sectionIndex < song.sections.count {
+            applySectionSettings(song.sections[sectionIndex])
+        }
+    }
+
+    private func applySongSettings(_ song: MacSong) {
+        // Set BPM
+        if let bpm = song.bpm {
             audioEngine.setTempo(bpm)
             midiEngine.currentBPM = Int(bpm)
-            // Send tap tempo to external devices (Helix, etc.)
             midiEngine.sendTapTempo(bpm: Int(bpm))
         }
 
-        // Apply scale/root if set
-        if let scale = preset.scale, let rootNote = preset.rootNote {
+        // Set scale/key
+        if let scale = song.scale, let rootNote = song.rootNote {
             midiEngine.currentRootNote = rootNote.midiValue
             midiEngine.currentScaleType = scale
         }
 
+        // Send song's external MIDI (e.g., Helix preset)
+        midiEngine.sendExternalMIDIMessages(song.externalMIDIMessages)
+
+        print("PresetGridView: Applied song settings for '\(song.name)'")
+    }
+
+    private func applySectionSettings(_ section: SongSection) {
         // Apply channel states
-        for channelState in preset.channelStates {
+        for channelState in section.channelStates {
             if let channel = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
                 channel.volume = channelState.volume
                 channel.pan = channelState.pan
@@ -197,139 +274,415 @@ struct PresetGridView: View {
             }
         }
 
-        // Send external MIDI messages to devices (Helix preset, etc.)
-        midiEngine.sendExternalMIDIMessages(preset.externalMIDIMessages)
+        // Send section's external MIDI (e.g., Helix snapshot)
+        midiEngine.sendExternalMIDIMessages(section.externalMIDIMessages)
 
-        print("PresetGridView: Applied preset '\(preset.name)'")
+        print("PresetGridView: Applied section '\(section.name)'")
     }
 
-    private func deletePreset(_ preset: MacPreset) {
-        sessionStore.currentSession.presets.removeAll { $0.id == preset.id }
+    private func addSection(to song: MacSong) {
+        guard let index = sessionStore.currentSession.songs.firstIndex(where: { $0.id == song.id }) else { return }
 
-        // Adjust current preset index if needed
-        if let currentIndex = sessionStore.currentPresetIndex {
-            if sessionStore.currentSession.presets.isEmpty {
-                sessionStore.currentPresetIndex = nil
-            } else if currentIndex >= sessionStore.currentSession.presets.count {
-                sessionStore.currentPresetIndex = sessionStore.currentSession.presets.count - 1
-            }
+        var updatedSong = song
+        let newSection = SongSection(
+            name: "Section \(song.sections.count + 1)",
+            channelStates: captureCurrentChannelStates(),
+            order: song.sections.count
+        )
+        updatedSong.sections.append(newSection)
+
+        var session = sessionStore.currentSession
+        session.songs[index] = updatedSong
+        sessionStore.currentSession = session
+        sessionStore.saveCurrentSession()
+    }
+
+    private func captureCurrentChannelStates() -> [MacChannelState] {
+        audioEngine.channelStrips.map { channel in
+            MacChannelState(
+                channelId: channel.id,
+                volume: channel.volume,
+                pan: channel.pan,
+                isMuted: channel.isMuted,
+                isSoloed: channel.isSoloed
+            )
+        }
+    }
+
+    private func deleteSong(_ song: MacSong) {
+        sessionStore.currentSession.songs.removeAll { $0.id == song.id }
+
+        if sessionStore.currentSongId == song.id {
+            sessionStore.currentSongId = sessionStore.currentSession.songs.first?.id
+            sessionStore.currentSectionIndex = nil
         }
 
         sessionStore.saveCurrentSession()
     }
+
+    // MARK: - MIDI Learn
+
+    private func startMIDILearnForSong(_ song: MacSong) {
+        // Toggle: if already learning this song, cancel
+        if midiEngine.songTriggerLearnTarget?.songId == song.id &&
+           midiEngine.songTriggerLearnTarget?.sectionIndex == nil {
+            midiEngine.cancelSongTriggerLearn()
+        } else {
+            // Set up the callback to save the mapping when learned
+            midiEngine.onSongTriggerLearned = { [weak sessionStore] mapping in
+                guard let store = sessionStore else { return }
+                store.addSongTriggerMapping(mapping)
+            }
+            midiEngine.startSongTriggerLearn(songId: song.id, songName: song.name)
+        }
+    }
+
+    private func startMIDILearnForSection(song: MacSong, sectionIndex: Int) {
+        guard sectionIndex < song.sections.count else { return }
+        let section = song.sections[sectionIndex]
+
+        // Toggle: if already learning this section, cancel
+        if midiEngine.songTriggerLearnTarget?.songId == song.id &&
+           midiEngine.songTriggerLearnTarget?.sectionIndex == sectionIndex {
+            midiEngine.cancelSongTriggerLearn()
+        } else {
+            // Set up the callback to save the mapping when learned
+            midiEngine.onSongTriggerLearned = { [weak sessionStore] mapping in
+                guard let store = sessionStore else { return }
+                store.addSongTriggerMapping(mapping)
+            }
+            midiEngine.startSongTriggerLearn(
+                songId: song.id,
+                songName: song.name,
+                sectionIndex: sectionIndex,
+                sectionName: section.name
+            )
+        }
+    }
+
+    private func setupMIDITriggerCallbacks() {
+        // When a MIDI trigger fires, select the corresponding song/section
+        midiEngine.onSongTriggerFired = { [weak sessionStore, weak audioEngine, weak midiEngine] songId, sectionIndex in
+            guard let store = sessionStore,
+                  let audio = audioEngine,
+                  let midi = midiEngine,
+                  let song = store.currentSession.songs.first(where: { $0.id == songId }) else { return }
+
+            DispatchQueue.main.async {
+                let previousSongId = store.currentSongId
+                store.currentSongId = songId
+                store.currentSectionIndex = sectionIndex ?? (song.sections.isEmpty ? nil : 0)
+
+                // Apply song-level settings if song changed
+                if previousSongId != songId {
+                    if let bpm = song.bpm {
+                        audio.setTempo(bpm)
+                        midi.currentBPM = Int(bpm)
+                        midi.sendTapTempo(bpm: Int(bpm))
+                    }
+                    if let scale = song.scale, let rootNote = song.rootNote {
+                        midi.currentRootNote = rootNote.midiValue
+                        midi.currentScaleType = scale
+                    }
+                    midi.sendExternalMIDIMessages(song.externalMIDIMessages)
+                }
+
+                // Apply section settings
+                let actualSectionIndex = sectionIndex ?? 0
+                if actualSectionIndex < song.sections.count {
+                    let section = song.sections[actualSectionIndex]
+                    // Apply channel states
+                    for channelState in section.channelStates {
+                        if let channel = audio.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                            channel.volume = channelState.volume
+                            channel.pan = channelState.pan
+                            channel.isMuted = channelState.isMuted
+                            channel.isSoloed = channelState.isSoloed
+                        }
+                    }
+                    // Send section MIDI
+                    midi.sendExternalMIDIMessages(section.externalMIDIMessages)
+                }
+
+                print("PresetGridView: MIDI triggered song '\(song.name)'\(sectionIndex.map { " section \($0 + 1)" } ?? "")")
+            }
+        }
+
+        // Load existing mappings
+        midiEngine.loadSongTriggerMappings(from: sessionStore.currentSession)
+    }
 }
 
-// MARK: - Preset Cell
+// MARK: - Song Row
 
-struct PresetCell: View {
-    let preset: MacPreset
-    let isSelected: Bool
-    let presetIndex: Int
-    let onSelect: () -> Void
+struct SongRow: View {
+    let song: MacSong
+    let isExpanded: Bool
+    let isCurrentSong: Bool
+    let currentSectionIndex: Int?
+    let colors: ThemeColors
+    let midiEngine: MacMIDIEngine
+    let existingMappings: [SongTriggerMapping]
+    let onToggleExpand: () -> Void
+    let onSelectSong: () -> Void
+    let onSelectSection: (Int) -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
-    let onLearnTrigger: () -> Void
+    let onAddSection: () -> Void
+    let onMIDILearn: () -> Void
+    let onMIDILearnSection: (Int) -> Void
+
+    @State private var isHovering = false
+
+    private var isLearning: Bool {
+        midiEngine.songTriggerLearnTarget?.songId == song.id &&
+        midiEngine.songTriggerLearnTarget?.sectionIndex == nil
+    }
+
+    private var songMappings: [SongTriggerMapping] {
+        existingMappings.filter { $0.targetSongId == song.id && $0.targetSectionIndex == nil }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Song header row
+            HStack(spacing: 12) {
+                // Expand/collapse button
+                Button(action: onToggleExpand) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(colors.secondaryText)
+                        .frame(width: 20)
+                }
+                .buttonStyle(.plain)
+
+                // Song name and info
+                Button(action: onSelectSong) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(song.name.uppercased())
+                                .font(TEFonts.mono(13, weight: .bold))
+                                .foregroundColor(isCurrentSong ? colors.accent : colors.primaryText)
+
+                            HStack(spacing: 8) {
+                                if let bpm = song.bpm {
+                                    Text("\(Int(bpm)) BPM")
+                                        .font(TEFonts.mono(10))
+                                        .foregroundColor(colors.secondaryText)
+                                }
+                                if let scale = song.scale, let root = song.rootNote {
+                                    Text("\(root.rawValue) \(scale.shortName)")
+                                        .font(TEFonts.mono(10))
+                                        .foregroundColor(colors.secondaryText)
+                                }
+                                Text("\(song.sections.count) sections")
+                                    .font(TEFonts.mono(10))
+                                    .foregroundColor(colors.secondaryText)
+                            }
+                        }
+
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+
+                // MIDI mapping indicator
+                if !songMappings.isEmpty {
+                    Text(songMappings.first!.triggerDescription)
+                        .font(TEFonts.mono(9))
+                        .foregroundColor(colors.accent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(colors.accent.opacity(0.1))
+                        .overlay(Rectangle().strokeBorder(colors.accent.opacity(0.3), lineWidth: 1))
+                }
+
+                // Learning indicator
+                if isLearning {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 6, height: 6)
+                        Text("LEARNING...")
+                            .font(TEFonts.mono(9, weight: .bold))
+                            .foregroundColor(.red)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                }
+
+                // Action buttons (show on hover)
+                if isHovering {
+                    HStack(spacing: 8) {
+                        Button(action: onMIDILearn) {
+                            Image(systemName: isLearning ? "stop.circle" : "antenna.radiowaves.left.and.right")
+                                .font(TEFonts.mono(12))
+                                .foregroundColor(isLearning ? .red : colors.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .help(isLearning ? "Cancel MIDI Learn" : "MIDI Learn")
+
+                        Button(action: onAddSection) {
+                            Image(systemName: "plus.circle")
+                                .font(TEFonts.mono(12))
+                                .foregroundColor(colors.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Add Section")
+
+                        Button(action: onEdit) {
+                            Image(systemName: "pencil")
+                                .font(TEFonts.mono(12))
+                                .foregroundColor(colors.secondaryText)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Edit Song")
+
+                        Button(action: onDelete) {
+                            Image(systemName: "trash")
+                                .font(TEFonts.mono(12))
+                                .foregroundColor(colors.error)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Delete Song")
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(isCurrentSong ? colors.accent.opacity(0.1) : colors.controlBackground)
+            .overlay(Rectangle().strokeBorder(isCurrentSong ? colors.accent : colors.border, lineWidth: colors.borderWidth))
+            .onHover { isHovering = $0 }
+            .contextMenu {
+                Button(action: onSelectSong) {
+                    Label("Select Song", systemImage: "play.circle")
+                }
+                Divider()
+                Button(action: onMIDILearn) {
+                    Label(isLearning ? "Cancel MIDI Learn" : "MIDI Learn", systemImage: "antenna.radiowaves.left.and.right")
+                }
+                if !songMappings.isEmpty {
+                    Button(action: {
+                        // Remove mapping would be handled by parent
+                    }) {
+                        Label("Clear MIDI Trigger (\(songMappings.first!.triggerDescription))", systemImage: "xmark.circle")
+                    }
+                }
+                Divider()
+                Button(action: onAddSection) {
+                    Label("Add Section", systemImage: "plus.circle")
+                }
+                Button(action: onEdit) {
+                    Label("Edit Song", systemImage: "pencil")
+                }
+                Divider()
+                Button(action: onDelete) {
+                    Label("Delete Song", systemImage: "trash")
+                }
+            }
+
+            // Sections (when expanded)
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(Array(song.sections.enumerated()), id: \.element.id) { index, section in
+                        SectionRow(
+                            section: section,
+                            sectionIndex: index,
+                            isCurrentSection: isCurrentSong && currentSectionIndex == index,
+                            colors: colors,
+                            onSelect: { onSelectSection(index) }
+                        )
+                    }
+
+                    // Add section button
+                    Button(action: onAddSection) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(TEFonts.mono(10))
+                            Text("ADD SECTION")
+                                .font(TEFonts.mono(10, weight: .medium))
+                        }
+                        .foregroundColor(colors.secondaryText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(colors.windowBackground)
+                        .overlay(
+                            Rectangle()
+                                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 2]))
+                                .foregroundColor(colors.border.opacity(0.5))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 32)
+                    .padding(.trailing, 12)
+                    .padding(.vertical, 4)
+                }
+                .background(colors.windowBackground.opacity(0.5))
+            }
+        }
+    }
+}
+
+// MARK: - Section Row
+
+struct SectionRow: View {
+    let section: SongSection
+    let sectionIndex: Int
+    let isCurrentSection: Bool
+    let colors: ThemeColors
+    let onSelect: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 4) {
-                // Preset name
-                Text(preset.name)
-                    .font(.headline)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+            HStack(spacing: 12) {
+                // Section number indicator
+                Text("\(sectionIndex + 1)")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(isCurrentSection ? .white : colors.secondaryText)
+                    .frame(width: 20, height: 20)
+                    .background(isCurrentSection ? colors.accent : colors.controlBackground)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+
+                // Section name
+                Text(section.name)
+                    .font(TEFonts.mono(11, weight: isCurrentSection ? .bold : .medium))
+                    .foregroundColor(isCurrentSection ? colors.accent : colors.primaryText)
 
                 Spacer()
 
-                // Info row
-                HStack {
-                    if let bpm = preset.bpm {
-                        Text("\(Int(bpm))")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
-
-                    Spacer()
-
-                    if let scale = preset.scale, let root = preset.rootNote {
-                        Text("\(root.rawValue) \(scale.shortName)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                // MIDI indicator
+                if !section.externalMIDIMessages.isEmpty {
+                    Text("MIDI")
+                        .font(TEFonts.mono(8, weight: .bold))
+                        .foregroundColor(colors.secondaryText)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(colors.controlBackground)
+                        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
                 }
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 100)
-            .background(isSelected ? Color.accentColor.opacity(0.2) : Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-            )
-            .overlay(alignment: .topTrailing) {
-                if isHovering {
-                    HStack(spacing: 4) {
-                        Button(action: onEdit) {
-                            Image(systemName: "pencil")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Edit Preset")
-
-                        Button(action: onDelete) {
-                            Image(systemName: "trash")
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Delete Preset")
-                    }
-                    .padding(6)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(4)
-                    .padding(4)
-                }
-            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(isCurrentSection ? colors.accent.opacity(0.05) : Color.clear)
         }
         .buttonStyle(.plain)
+        .padding(.leading, 32)
         .onHover { isHovering = $0 }
-        .contextMenu {
-            Button(action: onSelect) {
-                Label("Select", systemImage: "checkmark.circle")
-            }
-
-            Divider()
-
-            Button(action: onLearnTrigger) {
-                Label("Learn MIDI Trigger", systemImage: "bolt.circle")
-            }
-
-            Divider()
-
-            Button(action: onEdit) {
-                Label("Edit", systemImage: "pencil")
-            }
-
-            Button(action: onDelete) {
-                Label("Delete", systemImage: "trash")
-            }
-        }
     }
 }
 
-// MARK: - Preset Editor Sheet
+// MARK: - Song Editor Sheet
 
-struct PresetEditorSheet: View {
+struct SongEditorSheet: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var audioEngine: MacAudioEngine
+    @EnvironmentObject var sessionStore: MacSessionStore
+    @ObservedObject var themeProvider: ThemeProvider = .shared
 
-    let preset: MacPreset?
-    let presetIndex: Int  // Index in preset list (for Helix defaults)
-    let onSave: (MacPreset) -> Void
+    let song: MacSong?
+    let onSave: (MacSong) -> Void
 
     @State private var name: String = ""
     @State private var bpm: Double = 120
@@ -337,219 +690,853 @@ struct PresetEditorSheet: View {
     @State private var rootNote: NoteName = .c
     @State private var scale: ScaleType = .major
     @State private var useScale: Bool = false
-    @State private var captureChannelStates: Bool = true
     @State private var externalMIDIMessages: [ExternalMIDIMessage] = []
+    @State private var sections: [SongSection] = []
     @State private var showingMIDIEditor = false
     @State private var showingHelixPicker = false
+    @State private var editingSectionIndex: Int?
 
-    // Current preset index for Helix defaults
-    private var currentPresetIndex: Int {
-        presetIndex
-    }
+    private var colors: ThemeColors { themeProvider.colors }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            HStack {
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+            headerView
 
-                Spacer()
-
-                Text(preset == nil ? "New Preset" : "Edit Preset")
-                    .font(.headline)
-
-                Spacer()
-
-                Button("Save") { savePreset() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(name.isEmpty)
-            }
-            .padding()
-
-            Divider()
-
-            // Form - wrapped in ScrollView for content overflow
+            // Content
             ScrollView {
-                Form {
-                    Section("Basic Info") {
-                        TextField("Preset Name", text: $name)
-                    }
-
-                    Section("Tempo") {
-                        Toggle("Set BPM", isOn: $useBpm)
-                        if useBpm {
-                            HStack {
-                                Slider(value: $bpm, in: 40...240, step: 1)
-                                TextField("", value: $bpm, format: .number)
-                                    .frame(width: 60)
-                                    .textFieldStyle(.roundedBorder)
-                                Text("BPM")
+                VStack(alignment: .leading, spacing: 16) {
+                    // Basic Info Section
+                    sectionContainer("SONG INFO") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            // Name
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("SONG NAME")
+                                    .font(TEFonts.mono(10, weight: .bold))
+                                    .foregroundColor(colors.secondaryText)
+                                TextField("", text: $name)
+                                    .font(TEFonts.mono(14))
+                                    .textFieldStyle(.plain)
+                                    .padding(10)
+                                    .background(colors.controlBackground)
+                                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
                             }
-                        }
-                    }
 
-                    Section("Scale Filter") {
-                        Toggle("Set Scale", isOn: $useScale)
-                        if useScale {
-                            Picker("Root Note", selection: $rootNote) {
-                                ForEach(NoteName.allCases, id: \.self) { note in
-                                    Text(note.rawValue).tag(note)
+                            // BPM
+                            VStack(alignment: .leading, spacing: 4) {
+                                Toggle(isOn: $useBpm) {
+                                    Text("SET BPM")
+                                        .font(TEFonts.mono(10, weight: .bold))
+                                        .foregroundColor(colors.secondaryText)
                                 }
-                            }
-                            Picker("Scale", selection: $scale) {
-                                ForEach(ScaleType.allCases, id: \.self) { scaleType in
-                                    Text(scaleType.displayName).tag(scaleType)
-                                }
-                            }
-                        }
-                    }
+                                .toggleStyle(.checkbox)
 
-                    Section("Channel States") {
-                        Toggle("Capture Current Channel States", isOn: $captureChannelStates)
-                        Text("Saves volume, pan, mute, and solo settings for all channels")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                                if useBpm {
+                                    HStack(spacing: 12) {
+                                        TEHorizontalSlider(value: $bpm, range: 40...240, colors: colors)
+                                            .frame(height: 24)
 
-                    Section("External MIDI") {
-                        if externalMIDIMessages.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("No MIDI messages configured")
-                                    .foregroundColor(.secondary)
-                                    .font(.caption)
+                                        TextField("", value: $bpm, format: .number)
+                                            .font(TEFonts.mono(14, weight: .bold))
+                                            .textFieldStyle(.plain)
+                                            .frame(width: 50)
+                                            .padding(8)
+                                            .background(colors.controlBackground)
+                                            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
 
-                                // Helix quick setup if no messages yet
-                                HStack {
-                                    Image(systemName: "guitars")
-                                        .foregroundColor(.orange)
-                                    Text("Helix Quick Setup:")
-                                        .font(.caption)
-                                        .fontWeight(.medium)
-                                }
-                                Button(action: { applyHelixDefaults() }) {
-                                    Label("Use Helix Defaults (Preset \(currentPresetIndex + 1))", systemImage: "wand.and.stars")
-                                }
-                                .help("Adds CC32 (User 1), PC \(currentPresetIndex), CC69 (Snap 1)")
-                            }
-                        } else {
-                            ForEach(externalMIDIMessages) { message in
-                                HStack {
-                                    Text(message.displayDescription)
-                                        .font(.system(.body, design: .monospaced))
-                                    Spacer()
-                                    Button(action: { removeMessage(message) }) {
-                                        Image(systemName: "minus.circle")
-                                            .foregroundColor(.red)
+                                        Text("BPM")
+                                            .font(TEFonts.mono(11))
+                                            .foregroundColor(colors.secondaryText)
                                     }
-                                    .buttonStyle(.plain)
+                                }
+                            }
+
+                            // Scale
+                            VStack(alignment: .leading, spacing: 4) {
+                                Toggle(isOn: $useScale) {
+                                    Text("SET KEY / SCALE")
+                                        .font(TEFonts.mono(10, weight: .bold))
+                                        .foregroundColor(colors.secondaryText)
+                                }
+                                .toggleStyle(.checkbox)
+
+                                if useScale {
+                                    HStack(spacing: 12) {
+                                        // Root note picker
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("ROOT")
+                                                .font(TEFonts.mono(9))
+                                                .foregroundColor(colors.secondaryText)
+                                            Picker("", selection: $rootNote) {
+                                                ForEach(NoteName.allCases, id: \.self) { note in
+                                                    Text(note.rawValue).tag(note)
+                                                }
+                                            }
+                                            .labelsHidden()
+                                            .frame(width: 60)
+                                        }
+
+                                        // Scale picker
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("SCALE")
+                                                .font(TEFonts.mono(9))
+                                                .foregroundColor(colors.secondaryText)
+                                            Picker("", selection: $scale) {
+                                                ForEach(ScaleType.allCases, id: \.self) { scaleType in
+                                                    Text(scaleType.displayName).tag(scaleType)
+                                                }
+                                            }
+                                            .labelsHidden()
+                                            .frame(width: 140)
+                                        }
+                                    }
                                 }
                             }
                         }
+                    }
 
-                        HStack(spacing: 12) {
-                            Button(action: { showingMIDIEditor = true }) {
-                                Label("Add MIDI Message", systemImage: "plus")
-                            }
-
-                            Button(action: { showingHelixPicker = true }) {
-                                Label("Add Helix Preset", systemImage: "guitars")
-                            }
-                            .help("Add Helix setlist/preset/snapshot messages")
-
-                            if !externalMIDIMessages.isEmpty {
-                                Button(action: { applyHelixDefaults() }) {
-                                    Label("Helix Defaults", systemImage: "wand.and.stars")
+                    // External MIDI Section (for song-level, like Helix preset)
+                    sectionContainer("EXTERNAL MIDI (SENT WHEN SONG SELECTED)") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if externalMIDIMessages.isEmpty {
+                                Text("No MIDI messages - add Helix preset, etc.")
+                                    .font(TEFonts.mono(11))
+                                    .foregroundColor(colors.secondaryText)
+                            } else {
+                                ForEach(externalMIDIMessages) { message in
+                                    HStack {
+                                        Text(message.displayDescription)
+                                            .font(TEFonts.mono(11))
+                                            .foregroundColor(colors.primaryText)
+                                        Spacer()
+                                        Button(action: { externalMIDIMessages.removeAll { $0.id == message.id } }) {
+                                            Image(systemName: "minus.circle")
+                                                .foregroundColor(colors.error)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .padding(8)
+                                    .background(colors.controlBackground)
+                                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
                                 }
-                                .help("Replace with Helix defaults for preset \(currentPresetIndex + 1)")
+                            }
+
+                            HStack(spacing: 8) {
+                                Button(action: { showingMIDIEditor = true }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "plus")
+                                        Text("ADD MIDI")
+                                    }
+                                    .font(TEFonts.mono(10, weight: .bold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(colors.controlBackground)
+                                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+                                }
+                                .buttonStyle(.plain)
+
+                                Button(action: { showingHelixPicker = true }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "guitars")
+                                        Text("HELIX")
+                                    }
+                                    .font(TEFonts.mono(10, weight: .bold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(colors.controlBackground)
+                                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
+                    }
 
-                        Text("MIDI messages sent to external devices (Helix, etc.) when this preset is selected")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    // Sections
+                    sectionContainer("SECTIONS") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if sections.isEmpty {
+                                Text("No sections yet - add intro, verse, chorus, etc.")
+                                    .font(TEFonts.mono(11))
+                                    .foregroundColor(colors.secondaryText)
+                            } else {
+                                ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+                                    SectionEditorRow(
+                                        section: sections[index],
+                                        sectionIndex: index,
+                                        colors: colors,
+                                        onUpdate: { updated in sections[index] = updated },
+                                        onDelete: { sections.remove(at: index) },
+                                        audioEngine: audioEngine,
+                                        sessionStore: sessionStore
+                                    )
+                                }
+                            }
+
+                            Button(action: addNewSection) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "plus")
+                                    Text("ADD SECTION")
+                                }
+                                .font(TEFonts.mono(10, weight: .bold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .foregroundColor(colors.accent)
+                                .background(colors.controlBackground)
+                                .overlay(
+                                    Rectangle()
+                                        .strokeBorder(style: StrokeStyle(lineWidth: colors.borderWidth, dash: [6, 3]))
+                                        .foregroundColor(colors.accent)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
-                .padding()
+                .padding(16)
             }
+            .background(colors.windowBackground)
         }
-        .frame(minWidth: 450, idealWidth: 500, minHeight: 550, idealHeight: 650)
+        .frame(minWidth: 700, idealWidth: 800, minHeight: 700, idealHeight: 900)
+        .background(colors.windowBackground)
         .onAppear {
-            if let preset = preset {
-                name = preset.name
-                externalMIDIMessages = preset.externalMIDIMessages
-                if let presetBpm = preset.bpm {
-                    bpm = presetBpm
+            if let song = song {
+                name = song.name
+                externalMIDIMessages = song.externalMIDIMessages
+                sections = song.sections
+                if let songBpm = song.bpm {
+                    bpm = songBpm
                     useBpm = true
                 } else {
                     useBpm = false
                 }
-                if let presetScale = preset.scale, let presetRoot = preset.rootNote {
-                    scale = presetScale
-                    rootNote = presetRoot
+                if let songScale = song.scale, let songRoot = song.rootNote {
+                    scale = songScale
+                    rootNote = songRoot
                     useScale = true
                 } else {
                     useScale = false
                 }
+            } else {
+                // New song - create default section
+                sections = [SongSection(name: "Intro", channelStates: captureCurrentChannelStates(), order: 0)]
             }
         }
         .sheet(isPresented: $showingMIDIEditor) {
-            ExternalMIDIMessageEditorSheet { newMessage in
+            TEMIDIMessageEditorSheet(colors: colors) { newMessage in
                 externalMIDIMessages.append(newMessage)
             }
         }
         .sheet(isPresented: $showingHelixPicker) {
-            HelixPresetPickerSheet { helixMessages in
+            TEHelixPresetPickerSheet(colors: colors) { helixMessages in
                 externalMIDIMessages.append(contentsOf: helixMessages)
             }
         }
     }
 
-    private func removeMessage(_ message: ExternalMIDIMessage) {
-        externalMIDIMessages.removeAll { $0.id == message.id }
-    }
+    // MARK: - Header
 
-    private func applyHelixDefaults() {
-        externalMIDIMessages = ExternalMIDIMessage.helixDefaults(forPresetIndex: currentPresetIndex)
-    }
-
-    private func savePreset() {
-        var channelStates: [MacChannelState] = []
-
-        if captureChannelStates {
-            for channel in audioEngine.channelStrips {
-                channelStates.append(MacChannelState(
-                    channelId: channel.id,
-                    volume: channel.volume,
-                    pan: channel.pan,
-                    isMuted: channel.isMuted,
-                    isSoloed: channel.isSoloed
-                ))
+    private var headerView: some View {
+        HStack {
+            Button(action: { dismiss() }) {
+                Text("CANCEL")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .foregroundColor(colors.primaryText)
+                    .background(colors.controlBackground)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
             }
-        } else if let existingPreset = preset {
-            channelStates = existingPreset.channelStates
-        }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
 
-        let newPreset = MacPreset(
-            id: preset?.id ?? UUID(),
+            Spacer()
+
+            Text(song == nil ? "NEW SONG" : "EDIT SONG")
+                .font(TEFonts.display(14, weight: .bold))
+                .foregroundColor(colors.primaryText)
+
+            Spacer()
+
+            Button(action: saveSong) {
+                Text("SAVE")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .foregroundColor(.white)
+                    .background(name.isEmpty ? colors.secondaryText : colors.accent)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.defaultAction)
+            .disabled(name.isEmpty)
+        }
+        .padding(16)
+        .background(colors.sectionBackground)
+        .overlay(Rectangle().frame(height: colors.borderWidth).foregroundColor(colors.border), alignment: .bottom)
+    }
+
+    // MARK: - Helpers
+
+    private func sectionContainer<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(colors.secondaryText)
+
+            content()
+                .padding(12)
+                .background(colors.sectionBackground)
+                .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+        }
+    }
+
+    private func captureCurrentChannelStates() -> [MacChannelState] {
+        audioEngine.channelStrips.map { channel in
+            MacChannelState(
+                channelId: channel.id,
+                volume: channel.volume,
+                pan: channel.pan,
+                isMuted: channel.isMuted,
+                isSoloed: channel.isSoloed
+            )
+        }
+    }
+
+    private func addNewSection() {
+        let newSection = SongSection(
+            name: "Section \(sections.count + 1)",
+            channelStates: captureCurrentChannelStates(),
+            order: sections.count
+        )
+        sections.append(newSection)
+    }
+
+    private func saveSong() {
+        let newSong = MacSong(
+            id: song?.id ?? UUID(),
             name: name,
+            bpm: useBpm ? bpm : nil,
             rootNote: useScale ? rootNote : nil,
             scale: useScale ? scale : nil,
-            bpm: useBpm ? bpm : nil,
-            channelStates: channelStates,
-            externalMIDIMessages: externalMIDIMessages
+            externalMIDIMessages: externalMIDIMessages,
+            sections: sections,
+            order: song?.order ?? 0
         )
 
-        onSave(newPreset)
+        onSave(newSong)
         dismiss()
     }
 }
 
-// MARK: - External MIDI Message Editor Sheet
+// MARK: - Section Editor Row
 
-struct ExternalMIDIMessageEditorSheet: View {
+struct SectionEditorRow: View {
+    let section: SongSection
+    let sectionIndex: Int
+    let colors: ThemeColors
+    let onUpdate: (SongSection) -> Void
+    let onDelete: () -> Void
+    let audioEngine: MacAudioEngine
+    let sessionStore: MacSessionStore
+
+    @State private var showingEditor = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Section number
+            Text("\(sectionIndex + 1)")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(colors.secondaryText)
+                .frame(width: 20, height: 20)
+                .background(colors.controlBackground)
+                .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+
+            // Section name and info
+            VStack(alignment: .leading, spacing: 2) {
+                Text(section.name)
+                    .font(TEFonts.mono(12, weight: .medium))
+                    .foregroundColor(colors.primaryText)
+
+                HStack(spacing: 8) {
+                    if !section.channelStates.isEmpty {
+                        Text("\(section.channelStates.count) ch")
+                            .font(TEFonts.mono(9))
+                            .foregroundColor(colors.secondaryText)
+                    }
+                    if !section.externalMIDIMessages.isEmpty {
+                        Text("\(section.externalMIDIMessages.count) MIDI")
+                            .font(TEFonts.mono(9))
+                            .foregroundColor(colors.accent)
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Edit button
+            Button(action: { showingEditor = true }) {
+                Text("EDIT")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(colors.controlBackground)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
+            // Delete
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .font(TEFonts.mono(10))
+                    .foregroundColor(colors.error)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(10)
+        .background(colors.controlBackground)
+        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+        .sheet(isPresented: $showingEditor) {
+            SectionEditorSheet(
+                section: section,
+                colors: colors,
+                audioEngine: audioEngine,
+                onSave: onUpdate
+            )
+        }
+    }
+}
+
+// MARK: - Section Editor Sheet (Full Editor)
+
+struct SectionEditorSheet: View {
     @Environment(\.dismiss) var dismiss
 
+    let section: SongSection
+    let colors: ThemeColors
+    let audioEngine: MacAudioEngine
+    let onSave: (SongSection) -> Void
+
+    @State private var name: String = ""
+    @State private var channelStates: [MacChannelState] = []
+    @State private var externalMIDIMessages: [ExternalMIDIMessage] = []
+    @State private var showingMIDIEditor = false
+    @State private var showingHelixPicker = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            sheetHeader
+
+            // Content - two columns
+            HStack(spacing: 0) {
+                // Left column: Channel States
+                channelStatesColumn
+
+                // Divider
+                Rectangle()
+                    .fill(colors.border)
+                    .frame(width: colors.borderWidth)
+
+                // Right column: MIDI & Settings
+                midiColumn
+            }
+        }
+        .frame(minWidth: 900, idealWidth: 1000, minHeight: 600, idealHeight: 700)
+        .background(colors.windowBackground)
+        .onAppear {
+            name = section.name
+            externalMIDIMessages = section.externalMIDIMessages
+
+            // Initialize channel states from section or from current mixer
+            if section.channelStates.isEmpty {
+                channelStates = audioEngine.channelStrips.map { channel in
+                    MacChannelState(
+                        channelId: channel.id,
+                        volume: channel.volume,
+                        pan: channel.pan,
+                        isMuted: channel.isMuted,
+                        isSoloed: channel.isSoloed
+                    )
+                }
+            } else {
+                channelStates = section.channelStates
+            }
+        }
+    }
+
+    // MARK: - Header
+
+    private var sheetHeader: some View {
+        HStack {
+            Button(action: { dismiss() }) {
+                Text("CANCEL")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .foregroundColor(colors.primaryText)
+                    .background(colors.controlBackground)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+
+            Spacer()
+
+            // Section name field
+            HStack(spacing: 8) {
+                Text("SECTION:")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(colors.secondaryText)
+                TextField("", text: $name)
+                    .font(TEFonts.mono(14, weight: .bold))
+                    .textFieldStyle(.plain)
+                    .frame(width: 200)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(colors.controlBackground)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+            }
+
+            Spacer()
+
+            Button(action: saveSection) {
+                Text("SAVE")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .foregroundColor(.white)
+                    .background(name.isEmpty ? colors.secondaryText : colors.accent)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.defaultAction)
+            .disabled(name.isEmpty)
+        }
+        .padding(16)
+        .background(colors.sectionBackground)
+        .overlay(Rectangle().frame(height: colors.borderWidth).foregroundColor(colors.border), alignment: .bottom)
+    }
+
+    // MARK: - Channel States Column
+
+    private var channelStatesColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Column header
+            HStack {
+                Text("CHANNEL STATES")
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(colors.primaryText)
+
+                Spacer()
+
+                Button(action: captureCurrentMixer) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.down.circle")
+                        Text("CAPTURE MIXER")
+                    }
+                    .font(TEFonts.mono(9, weight: .bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(colors.accent)
+                    .foregroundColor(.white)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+            .background(colors.sectionBackground)
+            .overlay(Rectangle().frame(height: colors.borderWidth).foregroundColor(colors.border), alignment: .bottom)
+
+            // Channel list
+            ScrollView {
+                VStack(spacing: 1) {
+                    ForEach(Array(channelStates.enumerated()), id: \.element.id) { index, state in
+                        ChannelStateEditorRow(
+                            channelState: $channelStates[index],
+                            channelName: channelName(for: state.channelId),
+                            colors: colors
+                        )
+                    }
+                }
+                .padding(12)
+            }
+        }
+        .frame(minWidth: 500)
+    }
+
+    // MARK: - MIDI Column
+
+    private var midiColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Column header
+            Text("SECTION MIDI")
+                .font(TEFonts.mono(11, weight: .bold))
+                .foregroundColor(colors.primaryText)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(colors.sectionBackground)
+                .overlay(Rectangle().frame(height: colors.borderWidth).foregroundColor(colors.border), alignment: .bottom)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Helix quick-add section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("HELIX / SNAPSHOTS")
+                            .font(TEFonts.mono(9, weight: .bold))
+                            .foregroundColor(colors.secondaryText)
+
+                        Button(action: { showingHelixPicker = true }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "guitars")
+                                Text("ADD HELIX SNAPSHOT")
+                            }
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .foregroundColor(colors.accent)
+                            .background(colors.controlBackground)
+                            .overlay(Rectangle().strokeBorder(colors.accent, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Divider()
+                        .background(colors.border)
+
+                    // Current MIDI messages
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("MIDI MESSAGES")
+                            .font(TEFonts.mono(9, weight: .bold))
+                            .foregroundColor(colors.secondaryText)
+
+                        if externalMIDIMessages.isEmpty {
+                            Text("No MIDI messages configured")
+                                .font(TEFonts.mono(10))
+                                .foregroundColor(colors.secondaryText)
+                                .padding(.vertical, 8)
+                        } else {
+                            ForEach(externalMIDIMessages) { message in
+                                HStack {
+                                    Text(message.displayDescription)
+                                        .font(TEFonts.mono(11))
+                                        .foregroundColor(colors.primaryText)
+                                    Spacer()
+                                    Button(action: { externalMIDIMessages.removeAll { $0.id == message.id } }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(colors.error)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(8)
+                                .background(colors.controlBackground)
+                                .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                            }
+                        }
+
+                        Button(action: { showingMIDIEditor = true }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                Text("ADD CUSTOM MIDI")
+                            }
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .foregroundColor(colors.secondaryText)
+                            .background(colors.controlBackground)
+                            .overlay(
+                                Rectangle()
+                                    .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 2]))
+                                    .foregroundColor(colors.border)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(12)
+            }
+        }
+        .frame(minWidth: 350)
+        .sheet(isPresented: $showingMIDIEditor) {
+            TEMIDIMessageEditorSheet(colors: colors) { newMessage in
+                externalMIDIMessages.append(newMessage)
+            }
+        }
+        .sheet(isPresented: $showingHelixPicker) {
+            TEHelixSnapshotPickerSheet(colors: colors) { helixMessages in
+                externalMIDIMessages.append(contentsOf: helixMessages)
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func channelName(for channelId: UUID) -> String {
+        audioEngine.channelStrips.first { $0.id == channelId }?.name ?? "Unknown"
+    }
+
+    private func captureCurrentMixer() {
+        channelStates = audioEngine.channelStrips.map { channel in
+            MacChannelState(
+                channelId: channel.id,
+                volume: channel.volume,
+                pan: channel.pan,
+                isMuted: channel.isMuted,
+                isSoloed: channel.isSoloed
+            )
+        }
+    }
+
+    private func saveSection() {
+        var updatedSection = section
+        updatedSection.name = name
+        updatedSection.channelStates = channelStates
+        updatedSection.externalMIDIMessages = externalMIDIMessages
+        onSave(updatedSection)
+        dismiss()
+    }
+}
+
+// MARK: - Channel State Editor Row
+
+struct ChannelStateEditorRow: View {
+    @Binding var channelState: MacChannelState
+    let channelName: String
+    let colors: ThemeColors
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Channel name
+            Text(channelName.uppercased())
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(colors.primaryText)
+                .frame(width: 100, alignment: .leading)
+
+            // Mute toggle
+            Button(action: { channelState.isMuted.toggle() }) {
+                Text("M")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(channelState.isMuted ? .white : colors.secondaryText)
+                    .frame(width: 24, height: 24)
+                    .background(channelState.isMuted ? colors.error : colors.controlBackground)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
+            // Solo toggle
+            Button(action: { channelState.isSoloed.toggle() }) {
+                Text("S")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(channelState.isSoloed ? .black : colors.secondaryText)
+                    .frame(width: 24, height: 24)
+                    .background(channelState.isSoloed ? colors.accent : colors.controlBackground)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
+            // Volume slider
+            VStack(alignment: .leading, spacing: 2) {
+                Text("VOL")
+                    .font(TEFonts.mono(8))
+                    .foregroundColor(colors.secondaryText)
+                HStack(spacing: 8) {
+                    TEHorizontalSlider(
+                        value: Binding(
+                            get: { Double(channelState.volume) },
+                            set: { channelState.volume = Float($0) }
+                        ),
+                        range: 0...1,
+                        colors: colors
+                    )
+                    .frame(height: 16)
+
+                    Text("\(Int(channelState.volume * 100))%")
+                        .font(TEFonts.mono(9))
+                        .foregroundColor(colors.secondaryText)
+                        .frame(width: 35, alignment: .trailing)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            // Pan slider
+            VStack(alignment: .leading, spacing: 2) {
+                Text("PAN")
+                    .font(TEFonts.mono(8))
+                    .foregroundColor(colors.secondaryText)
+                HStack(spacing: 8) {
+                    TEHorizontalSlider(
+                        value: Binding(
+                            get: { Double(channelState.pan) },
+                            set: { channelState.pan = Float($0) }
+                        ),
+                        range: -1...1,
+                        colors: colors
+                    )
+                    .frame(width: 80, height: 16)
+
+                    Text(panLabel)
+                        .font(TEFonts.mono(9))
+                        .foregroundColor(colors.secondaryText)
+                        .frame(width: 30, alignment: .trailing)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(colors.controlBackground)
+        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+    }
+
+    private var panLabel: String {
+        if abs(channelState.pan) < 0.05 {
+            return "C"
+        } else if channelState.pan < 0 {
+            return "L\(Int(abs(channelState.pan) * 100))"
+        } else {
+            return "R\(Int(channelState.pan * 100))"
+        }
+    }
+}
+
+// MARK: - TE Horizontal Slider
+
+struct TEHorizontalSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let colors: ThemeColors
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                // Track
+                Rectangle()
+                    .fill(colors.controlBackground)
+
+                // Fill
+                Rectangle()
+                    .fill(colors.accent)
+                    .frame(width: geometry.size.width * normalizedValue)
+            }
+            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        let newValue = Double(gesture.location.x / geometry.size.width)
+                        value = range.lowerBound + (range.upperBound - range.lowerBound) * max(0, min(1, newValue))
+                    }
+            )
+        }
+    }
+
+    private var normalizedValue: CGFloat {
+        CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
+    }
+}
+
+// MARK: - TE MIDI Message Editor Sheet
+
+struct TEMIDIMessageEditorSheet: View {
+    @Environment(\.dismiss) var dismiss
+    let colors: ThemeColors
     let onSave: (ExternalMIDIMessage) -> Void
 
     @State private var messageType: MIDIMessageType = .programChange
@@ -560,68 +1547,84 @@ struct ExternalMIDIMessageEditorSheet: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                Button("CANCEL") { dismiss() }
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .buttonStyle(.plain)
 
                 Spacer()
 
-                Text("Add MIDI Message")
-                    .font(.headline)
+                Text("ADD MIDI MESSAGE")
+                    .font(TEFonts.display(14, weight: .bold))
 
                 Spacer()
 
-                Button("Add") { addMessage() }
-                    .keyboardShortcut(.defaultAction)
+                Button("ADD") { addMessage() }
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(colors.accent)
+                    .buttonStyle(.plain)
             }
-            .padding()
+            .padding(16)
+            .background(colors.sectionBackground)
 
-            Divider()
-
-            Form {
-                Section("Message Type") {
-                    Picker("Type", selection: $messageType) {
+            VStack(alignment: .leading, spacing: 16) {
+                // Type picker
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("MESSAGE TYPE")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(colors.secondaryText)
+                    Picker("", selection: $messageType) {
                         Text("Program Change").tag(MIDIMessageType.programChange)
                         Text("Control Change").tag(MIDIMessageType.controlChange)
                         Text("Note On").tag(MIDIMessageType.noteOn)
                         Text("Note Off").tag(MIDIMessageType.noteOff)
                     }
+                    .labelsHidden()
                 }
 
-                Section(messageType.data1Label) {
+                // Data 1
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(messageType.data1Label.uppercased())
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(colors.secondaryText)
                     HStack {
                         Stepper("\(data1)", value: $data1, in: 0...127)
-                        Slider(value: Binding(
-                            get: { Double(data1) },
-                            set: { data1 = Int($0) }
-                        ), in: 0...127, step: 1)
+                            .font(TEFonts.mono(12))
+                        Spacer()
                     }
                 }
 
+                // Data 2
                 if !messageType.data2Label.isEmpty {
-                    Section(messageType.data2Label) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(messageType.data2Label.uppercased())
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .foregroundColor(colors.secondaryText)
                         HStack {
                             Stepper("\(data2)", value: $data2, in: 0...127)
-                            Slider(value: Binding(
-                                get: { Double(data2) },
-                                set: { data2 = Int($0) }
-                            ), in: 0...127, step: 1)
+                                .font(TEFonts.mono(12))
+                            Spacer()
                         }
                     }
                 }
 
-                Section("Preview") {
-                    Text(previewDescription)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundColor(.secondary)
+                // Preview
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("PREVIEW")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(colors.secondaryText)
+                    Text(ExternalMIDIMessage(type: messageType, data1: data1, data2: data2).displayDescription)
+                        .font(TEFonts.mono(12))
+                        .padding(8)
+                        .background(colors.controlBackground)
+                        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
                 }
             }
-            .padding()
-        }
-        .frame(minWidth: 350, idealWidth: 400, minHeight: 320, idealHeight: 380)
-    }
+            .padding(16)
 
-    private var previewDescription: String {
-        ExternalMIDIMessage(type: messageType, data1: data1, data2: data2).displayDescription
+            Spacer()
+        }
+        .frame(minWidth: 350, idealWidth: 400, minHeight: 350, idealHeight: 400)
+        .background(colors.windowBackground)
     }
 
     private func addMessage() {
@@ -631,109 +1634,219 @@ struct ExternalMIDIMessageEditorSheet: View {
     }
 }
 
-// MARK: - Helix Preset Picker Sheet
+// MARK: - TE Helix Preset Picker Sheet (for Songs - full preset selection)
 
-struct HelixPresetPickerSheet: View {
+struct TEHelixPresetPickerSheet: View {
     @Environment(\.dismiss) var dismiss
-
+    let colors: ThemeColors
     let onSave: ([ExternalMIDIMessage]) -> Void
 
     @State private var setlist: Int = 0
     @State private var preset: Int = 0
     @State private var snapshot: Int = 0
     @State private var includeSetlist: Bool = true
-    @State private var includeSnapshot: Bool = true
+    @State private var includeSnapshot: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                Button(action: { dismiss() }) {
+                    Text("CANCEL")
+                        .font(TEFonts.mono(11, weight: .bold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .foregroundColor(colors.primaryText)
+                        .background(colors.controlBackground)
+                        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
 
                 Spacer()
 
-                Text("Helix Preset")
-                    .font(.headline)
+                Text("HELIX PRESET")
+                    .font(TEFonts.display(14, weight: .bold))
+                    .foregroundColor(colors.primaryText)
 
                 Spacer()
 
-                Button("Add") { addHelixPreset() }
-                    .keyboardShortcut(.defaultAction)
+                Button(action: { addHelixPreset() }) {
+                    Text("ADD")
+                        .font(TEFonts.mono(11, weight: .bold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .foregroundColor(.white)
+                        .background(colors.accent)
+                        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
             }
-            .padding()
+            .padding(16)
+            .background(colors.sectionBackground)
+            .overlay(Rectangle().frame(height: colors.borderWidth).foregroundColor(colors.border), alignment: .bottom)
 
-            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Setlist section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: $includeSetlist) {
+                            Text("CHANGE SETLIST")
+                                .font(TEFonts.mono(10, weight: .bold))
+                                .foregroundColor(colors.primaryText)
+                        }
+                        .toggleStyle(.checkbox)
 
-            Form {
-                Section("Setlist / Bank") {
-                    Toggle("Include Setlist Change", isOn: $includeSetlist)
+                        if includeSetlist {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("SELECT SETLIST")
+                                    .font(TEFonts.mono(9))
+                                    .foregroundColor(colors.secondaryText)
 
-                    if includeSetlist {
-                        Picker("Setlist", selection: $setlist) {
-                            ForEach(HelixSetlist.allCases, id: \.rawValue) { s in
-                                Text(s.displayName).tag(s.rawValue)
+                                // Grid of setlist buttons instead of picker
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible()),
+                                    GridItem(.flexible()),
+                                    GridItem(.flexible()),
+                                    GridItem(.flexible())
+                                ], spacing: 8) {
+                                    ForEach(HelixSetlist.allCases, id: \.rawValue) { s in
+                                        Button(action: { setlist = s.rawValue }) {
+                                            Text(s.shortName)
+                                                .font(TEFonts.mono(10, weight: .bold))
+                                                .frame(maxWidth: .infinity)
+                                                .padding(.vertical, 8)
+                                                .foregroundColor(setlist == s.rawValue ? .white : colors.primaryText)
+                                                .background(setlist == s.rawValue ? colors.accent : colors.controlBackground)
+                                                .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                            .padding(12)
+                            .background(colors.controlBackground.opacity(0.5))
+                            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                        }
+                    }
+
+                    // Preset section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("PRESET NUMBER")
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .foregroundColor(colors.primaryText)
+
+                        HStack(spacing: 12) {
+                            // Preset number input
+                            HStack(spacing: 8) {
+                                Button(action: { if preset > 0 { preset -= 1 } }) {
+                                    Image(systemName: "minus")
+                                        .font(TEFonts.mono(12, weight: .bold))
+                                        .frame(width: 30, height: 30)
+                                        .background(colors.controlBackground)
+                                        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+
+                                Text("\(preset + 1)")
+                                    .font(TEFonts.mono(20, weight: .bold))
+                                    .foregroundColor(colors.accent)
+                                    .frame(width: 60)
+
+                                Button(action: { if preset < 127 { preset += 1 } }) {
+                                    Image(systemName: "plus")
+                                        .font(TEFonts.mono(12, weight: .bold))
+                                        .frame(width: 30, height: 30)
+                                        .background(colors.controlBackground)
+                                        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            Text("(PC \(preset))")
+                                .font(TEFonts.mono(11))
+                                .foregroundColor(colors.secondaryText)
+
+                            Spacer()
+
+                            // Slider for quick selection
+                            TEHorizontalSlider(
+                                value: Binding(
+                                    get: { Double(preset) },
+                                    set: { preset = Int($0) }
+                                ),
+                                range: 0...127,
+                                colors: colors
+                            )
+                            .frame(width: 200, height: 20)
+                        }
+                    }
+
+                    // Snapshot section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: $includeSnapshot) {
+                            Text("INCLUDE SNAPSHOT")
+                                .font(TEFonts.mono(10, weight: .bold))
+                                .foregroundColor(colors.primaryText)
+                        }
+                        .toggleStyle(.checkbox)
+
+                        if includeSnapshot {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("SELECT SNAPSHOT")
+                                    .font(TEFonts.mono(9))
+                                    .foregroundColor(colors.secondaryText)
+
+                                // Grid of snapshot buttons
+                                HStack(spacing: 6) {
+                                    ForEach(0..<8, id: \.self) { s in
+                                        Button(action: { snapshot = s }) {
+                                            Text("\(s + 1)")
+                                                .font(TEFonts.mono(12, weight: .bold))
+                                                .frame(width: 40, height: 36)
+                                                .foregroundColor(snapshot == s ? .white : colors.primaryText)
+                                                .background(snapshot == s ? colors.accent : colors.controlBackground)
+                                                .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                            .padding(12)
+                            .background(colors.controlBackground.opacity(0.5))
+                            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                        }
+                    }
+
+                    // Preview section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("MIDI MESSAGES TO SEND")
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .foregroundColor(colors.primaryText)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(previewMessages, id: \.displayDescription) { msg in
+                                HStack {
+                                    Image(systemName: "arrow.right.circle.fill")
+                                        .foregroundColor(colors.accent)
+                                    Text(msg.displayDescription)
+                                        .font(TEFonts.mono(11))
+                                        .foregroundColor(colors.primaryText)
+                                }
                             }
                         }
-                        .pickerStyle(.menu)
-
-                        Text("CC32 = \(setlist)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(colors.controlBackground)
+                        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
                     }
                 }
-
-                Section("Preset") {
-                    HStack {
-                        Text("Preset Number")
-                        Spacer()
-                        TextField("", value: $preset, format: .number)
-                            .frame(width: 60)
-                            .textFieldStyle(.roundedBorder)
-                        Stepper("", value: $preset, in: 0...127)
-                            .labelsHidden()
-                    }
-
-                    Slider(value: Binding(
-                        get: { Double(preset) },
-                        set: { preset = Int($0) }
-                    ), in: 0...127, step: 1)
-
-                    Text("PC = \(preset) (display: \(preset + 1))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Section("Snapshot") {
-                    Toggle("Include Snapshot Change", isOn: $includeSnapshot)
-
-                    if includeSnapshot {
-                        Picker("Snapshot", selection: $snapshot) {
-                            ForEach(0..<8, id: \.self) { s in
-                                Text("Snapshot \(s + 1)").tag(s)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        Text("CC69 = \(snapshot)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                Section("Preview") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(previewMessages, id: \.displayDescription) { msg in
-                            Text(msg.displayDescription)
-                                .font(.system(.body, design: .monospaced))
-                        }
-                    }
-                    .foregroundColor(.secondary)
-                }
+                .padding(20)
             }
-            .padding()
         }
-        .frame(minWidth: 400, idealWidth: 450, minHeight: 450, idealHeight: 520)
+        .frame(minWidth: 500, idealWidth: 550, minHeight: 500, idealHeight: 550)
+        .background(colors.windowBackground)
     }
 
     private var previewMessages: [ExternalMIDIMessage] {
@@ -750,6 +1863,124 @@ struct HelixPresetPickerSheet: View {
 
     private func addHelixPreset() {
         onSave(previewMessages)
+        dismiss()
+    }
+}
+
+// MARK: - TE Helix Snapshot Picker Sheet (for Sections - snapshot only)
+
+struct TEHelixSnapshotPickerSheet: View {
+    @Environment(\.dismiss) var dismiss
+    let colors: ThemeColors
+    let onSave: ([ExternalMIDIMessage]) -> Void
+
+    @State private var snapshot: Int = 0
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Button(action: { dismiss() }) {
+                    Text("CANCEL")
+                        .font(TEFonts.mono(11, weight: .bold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .foregroundColor(colors.primaryText)
+                        .background(colors.controlBackground)
+                        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Text("HELIX SNAPSHOT")
+                    .font(TEFonts.display(14, weight: .bold))
+                    .foregroundColor(colors.primaryText)
+
+                Spacer()
+
+                Button(action: { addSnapshot() }) {
+                    Text("ADD")
+                        .font(TEFonts.mono(11, weight: .bold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .foregroundColor(.white)
+                        .background(colors.accent)
+                        .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+            .background(colors.sectionBackground)
+            .overlay(Rectangle().frame(height: colors.borderWidth).foregroundColor(colors.border), alignment: .bottom)
+
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Select a Helix snapshot to recall when this section is selected.")
+                    .font(TEFonts.mono(11))
+                    .foregroundColor(colors.secondaryText)
+
+                // Snapshot grid - 2 rows of 4
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        ForEach(0..<4, id: \.self) { s in
+                            snapshotButton(s)
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        ForEach(4..<8, id: \.self) { s in
+                            snapshotButton(s)
+                        }
+                    }
+                }
+
+                // Preview
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("MIDI MESSAGE")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundColor(colors.secondaryText)
+
+                    HStack {
+                        Image(systemName: "arrow.right.circle.fill")
+                            .foregroundColor(colors.accent)
+                        Text(ExternalMIDIMessage.helixSnapshot(snapshot).displayDescription)
+                            .font(TEFonts.mono(11))
+                            .foregroundColor(colors.primaryText)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(colors.controlBackground)
+                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                }
+            }
+            .padding(20)
+
+            Spacer()
+        }
+        .frame(minWidth: 400, idealWidth: 420, minHeight: 320, idealHeight: 350)
+        .background(colors.windowBackground)
+    }
+
+    private func snapshotButton(_ index: Int) -> some View {
+        Button(action: { snapshot = index }) {
+            VStack(spacing: 4) {
+                Text("\(index + 1)")
+                    .font(TEFonts.mono(18, weight: .bold))
+                Text("SNAPSHOT")
+                    .font(TEFonts.mono(8))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 60)
+            .foregroundColor(snapshot == index ? .white : colors.primaryText)
+            .background(snapshot == index ? colors.accent : colors.controlBackground)
+            .overlay(Rectangle().strokeBorder(snapshot == index ? colors.accent : colors.border, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func addSnapshot() {
+        onSave([.helixSnapshot(snapshot)])
         dismiss()
     }
 }

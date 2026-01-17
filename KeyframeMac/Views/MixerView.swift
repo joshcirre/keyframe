@@ -6,11 +6,16 @@ struct MixerView: View {
     @EnvironmentObject var midiEngine: MacMIDIEngine
     @EnvironmentObject var sessionStore: MacSessionStore
     @EnvironmentObject var pluginManager: MacPluginManager
+    @ObservedObject var themeProvider: ThemeProvider = .shared
 
     @State private var showingAddChannel = false
     @State private var selectedChannelIndex: Int?
     @State private var showingPresetEditor = false
     @State private var showPresetGrid = false
+    @State private var showingRenamePopover = false
+    @State private var editingSessionName = ""
+
+    private var colors: ThemeColors { themeProvider.colors }
 
     var body: some View {
         HSplitView {
@@ -19,28 +24,25 @@ struct MixerView: View {
                 // Header
                 headerView
 
-                Divider()
-
                 // Main content
                 if showPresetGrid {
                     PresetGridView()
+                        .background(colors.windowBackground)
                 } else {
                     HStack(spacing: 0) {
                         // Channel strips
                         channelStripsView
 
-                        Divider()
-
                         // Master section
                         masterSection
                     }
+                    .background(colors.windowBackground)
                 }
-
-                Divider()
 
                 // Status bar
                 statusBarView
             }
+            .background(colors.windowBackground)
 
             // Right: Channel detail (when selected)
             if let selectedIndex = selectedChannelIndex,
@@ -49,9 +51,10 @@ struct MixerView: View {
                     channel: audioEngine.channelStrips[selectedIndex],
                     config: binding(for: selectedIndex)
                 )
+                .background(colors.windowBackground)
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(colors.windowBackground)
         .navigationTitle(windowTitle)
     }
 
@@ -67,25 +70,99 @@ struct MixerView: View {
     // MARK: - Header
 
     private var headerView: some View {
-        HStack {
+        HStack(spacing: 12) {
             // View toggle
-            Picker("View", selection: $showPresetGrid) {
-                Image(systemName: "slider.horizontal.3")
-                    .help("Mixer")
-                    .tag(false)
-                Image(systemName: "square.grid.2x2")
-                    .help("Presets")
-                    .tag(true)
+            HStack(spacing: 0) {
+                Button(action: { showPresetGrid = false }) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .frame(width: 36, height: 28)
+                        .background(!showPresetGrid ? colors.accent : colors.controlBackground)
+                        .foregroundColor(!showPresetGrid ? .white : colors.primaryText)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: { showPresetGrid = true }) {
+                    Image(systemName: "square.grid.2x2")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .frame(width: 36, height: 28)
+                        .background(showPresetGrid ? colors.accent : colors.controlBackground)
+                        .foregroundColor(showPresetGrid ? .white : colors.primaryText)
+                }
+                .buttonStyle(.plain)
             }
-            .pickerStyle(.segmented)
-            .frame(width: 80)
+            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
 
-            Divider()
-                .frame(height: 20)
+            // Session name (clickable to rename) with save button
+            HStack(spacing: 8) {
+                Button(action: {
+                    editingSessionName = sessionStore.currentSession.name
+                    showingRenamePopover = true
+                }) {
+                    HStack(spacing: 6) {
+                        Text(sessionStore.currentSession.name)
+                            .font(TEFonts.display(14, weight: .bold))
+                            .foregroundColor(colors.primaryText)
 
-            // Session name
-            Text(sessionStore.currentSession.name)
-                .font(.headline)
+                        if sessionStore.isDocumentDirty {
+                            Circle()
+                                .fill(colors.accent)
+                                .frame(width: 8, height: 8)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showingRenamePopover) {
+                    VStack(spacing: 12) {
+                        Text("SESSION NAME")
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .foregroundColor(colors.secondaryText)
+
+                        TextField("", text: $editingSessionName)
+                            .font(TEFonts.mono(14))
+                            .textFieldStyle(.plain)
+                            .padding(10)
+                            .frame(width: 200)
+                            .background(colors.controlBackground)
+                            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+
+                        HStack(spacing: 8) {
+                            Button("CANCEL") {
+                                showingRenamePopover = false
+                            }
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(colors.controlBackground)
+                            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+
+                            Button("SAVE") {
+                                sessionStore.currentSession.name = editingSessionName
+                                sessionStore.saveCurrentSession()
+                                showingRenamePopover = false
+                            }
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .foregroundColor(.white)
+                            .background(colors.accent)
+                            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(16)
+                    .background(colors.windowBackground)
+                }
+
+                // Save button
+                Button(action: { sessionStore.saveCurrentSession() }) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(sessionStore.isDocumentDirty ? colors.accent : colors.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Save Session")
+            }
 
             Spacer()
 
@@ -93,18 +170,18 @@ struct MixerView: View {
             if let index = sessionStore.currentPresetIndex,
                index < sessionStore.currentSession.presets.count {
                 let preset = sessionStore.currentSession.presets[index]
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 6, height: 6)
+                        .fill(colors.accent)
+                        .frame(width: 8, height: 8)
                     Text(preset.name)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .font(TEFonts.mono(12, weight: .medium))
+                        .foregroundColor(colors.primaryText)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.accentColor.opacity(0.15))
-                .cornerRadius(4)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(colors.accent.opacity(0.15))
+                .overlay(Rectangle().strokeBorder(colors.accent, lineWidth: 1))
             }
 
             Spacer()
@@ -113,41 +190,59 @@ struct MixerView: View {
             if !showPresetGrid {
                 Button(action: { addChannel() }) {
                     Image(systemName: "plus")
+                        .font(TEFonts.mono(14, weight: .bold))
+                        .frame(width: 32, height: 28)
                 }
+                .buttonStyle(.plain)
+                .background(colors.controlBackground)
+                .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
                 .help("Add Channel")
             }
 
             // Engine toggle
             Button(action: toggleEngine) {
                 Image(systemName: audioEngine.isRunning ? "stop.fill" : "play.fill")
-                    .foregroundColor(audioEngine.isRunning ? .green : .secondary)
+                    .font(TEFonts.mono(14, weight: .bold))
+                    .frame(width: 32, height: 28)
+                    .foregroundColor(audioEngine.isRunning ? colors.success : colors.secondaryText)
             }
+            .buttonStyle(.plain)
+            .background(colors.controlBackground)
+            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
             .help(audioEngine.isRunning ? "Stop Engine" : "Start Engine")
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(colors.sectionBackground)
+        .overlay(Rectangle().frame(height: colors.borderWidth).foregroundColor(colors.border), alignment: .bottom)
     }
 
     // MARK: - Channel Strips
 
     private var channelStripsView: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 1) {
-                ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
-                    ChannelStripView(
-                        channel: channel,
-                        config: binding(for: index),
-                        isSelected: selectedChannelIndex == index,
-                        onSelect: { selectedChannelIndex = index },
-                        onRemove: { removeChannel(at: index) }
-                    )
-                }
+        GeometryReader { geometry in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
+                        TEChannelStripView(
+                            channel: channel,
+                            config: binding(for: index),
+                            isSelected: selectedChannelIndex == index,
+                            onSelect: { selectedChannelIndex = index },
+                            onRemove: { removeChannel(at: index) },
+                            colors: colors
+                        )
+                    }
 
-                // Add channel placeholder
-                if audioEngine.channelStrips.isEmpty {
-                    emptyStateView
+                    // Add channel placeholder
+                    if audioEngine.channelStrips.isEmpty {
+                        emptyStateView
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(minHeight: geometry.size.height, alignment: .top)
             }
-            .padding()
         }
     }
 
@@ -155,18 +250,25 @@ struct MixerView: View {
         VStack(spacing: 16) {
             Image(systemName: "waveform")
                 .font(.system(size: 48))
-                .foregroundColor(.secondary)
+                .foregroundColor(colors.secondaryText)
 
-            Text("No Channels")
-                .font(.headline)
+            Text("NO CHANNELS")
+                .font(TEFonts.mono(14, weight: .bold))
+                .foregroundColor(colors.primaryText)
 
             Text("Click + to add a channel")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+                .font(TEFonts.mono(11))
+                .foregroundColor(colors.secondaryText)
 
-            Button("Add Channel") {
+            Button("ADD CHANNEL") {
                 addChannel()
             }
+            .font(TEFonts.mono(11, weight: .bold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(colors.accent)
+            .foregroundColor(.white)
+            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
         }
         .frame(minWidth: 200, minHeight: 300)
         .padding()
@@ -187,80 +289,82 @@ struct MixerView: View {
     private var masterSection: some View {
         VStack(spacing: 8) {
             Text("MASTER")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(colors.secondaryText)
 
-            // Master fader
-            VStack {
-                // Level meter
-                MeterView(level: audioEngine.peakLevel)
-                    .frame(width: 20, height: 150)
+            // Level meter
+            TEMeterView(level: audioEngine.peakLevel, colors: colors)
+                .frame(width: 24, height: 160)
 
-                // Volume slider with MIDI Learn
-                Slider(value: $audioEngine.masterVolume, in: 0...1)
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: 150, height: 30)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(isLearningMaster ? Color.orange : (hasMasterMapping ? Color.blue : Color.clear), lineWidth: 2)
-                            .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isLearningMaster)
-                    )
-                    .contextMenu {
-                        if isLearningMaster {
-                            Button("Cancel Learn") {
-                                midiEngine.cancelMIDILearn()
-                            }
-                        } else {
-                            Button("MIDI Learn Master Volume") {
-                                midiEngine.startMIDILearn(for: .masterVolume)
-                            }
+            // Master fader - vertical
+            TEVerticalFader(value: $audioEngine.masterVolume, colors: colors)
+                .frame(width: 44, height: 160)
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(isLearningMaster ? colors.accent : (hasMasterMapping ? Color.blue : Color.clear), lineWidth: 2)
+                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isLearningMaster)
+                )
+                .contextMenu {
+                    if isLearningMaster {
+                        Button("Cancel Learn") {
+                            midiEngine.cancelMIDILearn()
+                        }
+                    } else {
+                        Button("MIDI Learn Master Volume") {
+                            midiEngine.startMIDILearn(for: .masterVolume)
+                        }
 
-                            if hasMasterMapping {
-                                Button("Clear Master Mapping") {
-                                    if let mapping = midiEngine.midiMappings.first(where: { $0.target == .masterVolume }) {
-                                        midiEngine.removeMapping(mapping)
-                                    }
+                        if hasMasterMapping {
+                            Button("Clear Master Mapping") {
+                                if let mapping = midiEngine.midiMappings.first(where: { $0.target == .masterVolume }) {
+                                    midiEngine.removeMapping(mapping)
                                 }
                             }
                         }
                     }
+                }
 
-                // Volume label
-                Text("\(Int(audioEngine.masterVolume * 100))%")
-                    .font(.caption)
-                    .monospacedDigit()
-            }
+            // Volume label
+            Text("\(Int(audioEngine.masterVolume * 100))")
+                .font(TEFonts.mono(12, weight: .bold))
+                .foregroundColor(colors.primaryText)
+                .monospacedDigit()
 
             Spacer()
 
             // CPU load
             VStack(spacing: 2) {
                 Text("CPU")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .font(TEFonts.mono(9, weight: .medium))
+                    .foregroundColor(colors.secondaryText)
                 Text("\(Int(audioEngine.cpuUsage))%")
-                    .font(.caption)
+                    .font(TEFonts.mono(11, weight: .bold))
                     .monospacedDigit()
-                    .foregroundColor(audioEngine.cpuUsage > 80 ? .red : .primary)
+                    .foregroundColor(audioEngine.cpuUsage > 80 ? colors.error : colors.primaryText)
             }
         }
         .frame(width: 80)
-        .padding()
+        .padding(.vertical, 16)
+        .padding(.horizontal, 8)
+        .background(colors.sectionBackground)
+        .overlay(Rectangle().frame(width: colors.borderWidth).foregroundColor(colors.border), alignment: .leading)
     }
 
     // MARK: - Status Bar
 
     private var statusBarView: some View {
-        HStack {
+        HStack(spacing: 12) {
             // Engine status
             Circle()
-                .fill(audioEngine.isRunning ? Color.green : Color.red)
+                .fill(audioEngine.isRunning ? colors.success : colors.error)
                 .frame(width: 8, height: 8)
-            Text(audioEngine.isRunning ? "Running" : "Stopped")
-                .font(.caption)
+            Text(audioEngine.isRunning ? "RUNNING" : "STOPPED")
+                .font(TEFonts.mono(10, weight: .medium))
+                .foregroundColor(colors.primaryText)
 
-            Divider()
-                .frame(height: 12)
+            Rectangle()
+                .fill(colors.border)
+                .frame(width: 1, height: 12)
 
             // MIDI activity
             if let lastActivity = midiEngine.lastActivity,
@@ -270,31 +374,33 @@ struct MixerView: View {
                     .frame(width: 8, height: 8)
             } else {
                 Circle()
-                    .stroke(Color.secondary, lineWidth: 1)
+                    .stroke(colors.secondaryText, lineWidth: 1)
                     .frame(width: 8, height: 8)
             }
-            Text("MIDI: \(midiEngine.connectedSources.count) sources")
-                .font(.caption)
+            Text("MIDI: \(midiEngine.connectedSources.count)")
+                .font(TEFonts.mono(10, weight: .medium))
+                .foregroundColor(colors.primaryText)
 
             // MIDI Learn indicator
             if let target = midiEngine.learningTarget {
-                Divider()
-                    .frame(height: 12)
+                Rectangle()
+                    .fill(colors.border)
+                    .frame(width: 1, height: 12)
 
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(Color.orange)
+                        .fill(colors.accent)
                         .frame(width: 8, height: 8)
-                    Text("Learning: \(target.displayName)")
-                        .font(.caption)
-                        .foregroundColor(.orange)
+                    Text("LEARNING: \(target.displayName)")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(colors.accent)
 
                     Button(action: { midiEngine.cancelMIDILearn() }) {
                         Image(systemName: "xmark.circle.fill")
                             .font(.caption)
                     }
                     .buttonStyle(.plain)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(colors.secondaryText)
                 }
             }
 
@@ -302,29 +408,34 @@ struct MixerView: View {
 
             // Mappings count
             if !midiEngine.midiMappings.isEmpty {
-                Text("\(midiEngine.midiMappings.count) mappings")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Text("\(midiEngine.midiMappings.count) MAPPINGS")
+                    .font(TEFonts.mono(10))
+                    .foregroundColor(colors.secondaryText)
 
-                Divider()
-                    .frame(height: 12)
+                Rectangle()
+                    .fill(colors.border)
+                    .frame(width: 1, height: 12)
             }
 
             // BPM
             Text("\(midiEngine.currentBPM) BPM")
-                .font(.caption)
+                .font(TEFonts.mono(11, weight: .bold))
                 .monospacedDigit()
+                .foregroundColor(colors.primaryText)
 
-            Divider()
-                .frame(height: 12)
+            Rectangle()
+                .fill(colors.border)
+                .frame(width: 1, height: 12)
 
             // Scale info
             Text("\(NoteName.from(midiValue: midiEngine.currentRootNote)?.displayName ?? "?") \(midiEngine.currentScaleType.rawValue)")
-                .font(.caption)
+                .font(TEFonts.mono(11, weight: .medium))
+                .foregroundColor(colors.primaryText)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 4)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(colors.sectionBackground)
+        .overlay(Rectangle().frame(height: colors.borderWidth).foregroundColor(colors.border), alignment: .top)
     }
 
     // MARK: - Actions
@@ -375,18 +486,18 @@ struct MixerView: View {
     }
 }
 
-// MARK: - Channel Strip View
+// MARK: - TE Channel Strip View
 
-struct ChannelStripView: View {
+struct TEChannelStripView: View {
     @ObservedObject var channel: MacChannelStrip
     @Binding var config: MacChannelConfiguration
     @EnvironmentObject var midiEngine: MacMIDIEngine
     var isSelected: Bool
     var onSelect: () -> Void
     var onRemove: () -> Void
+    let colors: ThemeColors
 
     @State private var showingPluginBrowser = false
-    @State private var showingPluginUI = false
 
     /// Check if this channel is the current MIDI learn target
     private var isLearningVolume: Bool {
@@ -394,23 +505,13 @@ struct ChannelStripView: View {
         return target.target == .channelVolume && target.channelId == channel.id
     }
 
-    private var isLearningPan: Bool {
-        guard let target = midiEngine.learningTarget else { return false }
-        return target.target == .channelPan && target.channelId == channel.id
-    }
-
     private var isLearningMute: Bool {
         guard let target = midiEngine.learningTarget else { return false }
         return target.target == .channelMute && target.channelId == channel.id
     }
 
-    /// Check if this channel has an existing mapping for volume
     private var hasVolumeMapping: Bool {
         midiEngine.midiMappings.contains { $0.target == .channelVolume && $0.targetChannelId == channel.id }
-    }
-
-    private var hasPanMapping: Bool {
-        midiEngine.midiMappings.contains { $0.target == .channelPan && $0.targetChannelId == channel.id }
     }
 
     private var hasMuteMapping: Bool {
@@ -418,193 +519,245 @@ struct ChannelStripView: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
-            // Channel name
-            Text(config.name)
-                .font(.caption)
-                .lineLimit(1)
-
-            // Instrument slot
-            Button(action: { showingPluginBrowser = true }) {
-                VStack {
-                    if let info = channel.instrumentInfo {
-                        Text(info.name)
-                            .font(.caption2)
-                            .lineLimit(2)
-                    } else {
-                        Image(systemName: "plus.circle")
-                        Text("Add Inst")
-                            .font(.caption2)
-                    }
-                }
-                .frame(width: 60, height: 40)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .cornerRadius(4)
-            }
-            .buttonStyle(.plain)
-
-            // Level meter
-            MeterView(level: channel.peakLevel)
-                .frame(width: 20, height: 100)
-
-            // Volume fader with MIDI Learn context menu
-            faderSection
-
-            // Volume value
-            Text("\(Int(channel.volume * 100))")
-                .font(.caption)
-                .monospacedDigit()
-
-            // Mute/Solo buttons with MIDI Learn context menus
-            mutesoloSection
-
-            // Remove button
-            Button(action: onRemove) {
-                Image(systemName: "trash")
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
+        VStack(spacing: 6) {
+            channelNameView
+            instrumentSlotView
+            meterView
+            volumeFaderView
+            volumeValueView
+            muteSoloButtons
+            removeButton
         }
         .padding(8)
-        .frame(width: 80)
-        .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-        .cornerRadius(4)
+        .frame(width: 72)
+        .background(isSelected ? colors.accent.opacity(0.1) : colors.controlBackground)
+        .overlay(Rectangle().strokeBorder(isSelected ? colors.accent : colors.border, lineWidth: colors.borderWidth))
         .onTapGesture { onSelect() }
         .sheet(isPresented: $showingPluginBrowser) {
             PluginBrowserView(channel: channel, config: $config)
         }
     }
 
-    // MARK: - Fader with MIDI Learn
+    // MARK: - Subviews
 
-    private var faderSection: some View {
-        VStack {
-            Slider(value: $channel.volume, in: 0...1)
-                .rotationEffect(.degrees(-90))
-                .frame(width: 100, height: 30)
+    private var channelNameView: some View {
+        Text(config.name.uppercased())
+            .font(TEFonts.mono(10, weight: .bold))
+            .foregroundColor(colors.primaryText)
+            .lineLimit(1)
+            .frame(width: 56)
+    }
+
+    private var instrumentSlotView: some View {
+        Button(action: { showingPluginBrowser = true }) {
+            VStack(spacing: 2) {
+                if let info = channel.instrumentInfo {
+                    Text(info.name)
+                        .font(TEFonts.mono(8))
+                        .lineLimit(2)
+                        .foregroundColor(colors.primaryText)
+                } else {
+                    Image(systemName: "plus")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(colors.secondaryText)
+                }
+            }
+            .frame(width: 56, height: 32)
+            .background(colors.controlBackground)
+            .overlay(
+                Rectangle()
+                    .strokeBorder(style: StrokeStyle(lineWidth: colors.borderWidth, dash: channel.instrumentInfo == nil ? [4, 2] : []))
+                    .foregroundColor(colors.border)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var meterView: some View {
+        TEMeterView(level: channel.peakLevel, colors: colors)
+            .frame(width: 20, height: 120)
+    }
+
+    private var volumeFaderView: some View {
+        TEVerticalFader(value: $channel.volume, colors: colors)
+            .frame(width: 44, height: 160)
+            .overlay(
+                Rectangle()
+                    .strokeBorder(isLearningVolume ? colors.accent : (hasVolumeMapping ? Color.blue : Color.clear), lineWidth: 2)
+                    .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isLearningVolume)
+            )
+            .contextMenu {
+                volumeContextMenu
+            }
+    }
+
+    @ViewBuilder
+    private var volumeContextMenu: some View {
+        if isLearningVolume {
+            Button("Cancel Learn") {
+                midiEngine.cancelMIDILearn()
+            }
+        } else {
+            Button("MIDI Learn Volume") {
+                midiEngine.startMIDILearn(for: .channelVolume(channelId: channel.id, name: config.name))
+            }
+
+            if hasVolumeMapping {
+                Button("Clear Volume Mapping") {
+                    if let mapping = midiEngine.midiMappings.first(where: {
+                        $0.target == .channelVolume && $0.targetChannelId == channel.id
+                    }) {
+                        midiEngine.removeMapping(mapping)
+                    }
+                }
+            }
+        }
+    }
+
+    private var volumeValueView: some View {
+        Text("\(Int(channel.volume * 100))")
+            .font(TEFonts.mono(12, weight: .bold))
+            .foregroundColor(colors.primaryText)
+            .monospacedDigit()
+    }
+
+    private var muteSoloButtons: some View {
+        HStack(spacing: 4) {
+            muteButton
+            soloButton
+        }
+    }
+
+    private var muteButton: some View {
+        Button(action: { channel.isMuted.toggle() }) {
+            Text("M")
+                .font(TEFonts.mono(10, weight: .bold))
+                .frame(width: 24, height: 22)
+                .background(channel.isMuted ? colors.error : colors.controlBackground)
+                .foregroundColor(channel.isMuted ? .white : colors.primaryText)
                 .overlay(
-                    // MIDI Learn indicator
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isLearningVolume ? Color.orange : (hasVolumeMapping ? Color.blue : Color.clear), lineWidth: 2)
-                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isLearningVolume)
+                    Rectangle()
+                        .strokeBorder(isLearningMute ? colors.accent : (hasMuteMapping ? Color.blue : colors.border), lineWidth: colors.borderWidth)
                 )
         }
+        .buttonStyle(.plain)
         .contextMenu {
-            if isLearningVolume {
-                Button("Cancel Learn") {
-                    midiEngine.cancelMIDILearn()
-                }
-            } else {
-                Button("MIDI Learn Volume") {
-                    midiEngine.startMIDILearn(for: .channelVolume(channelId: channel.id, name: config.name))
-                }
+            muteContextMenu
+        }
+    }
 
-                Button("MIDI Learn Pan") {
-                    midiEngine.startMIDILearn(for: .channelPan(channelId: channel.id, name: config.name))
-                }
+    @ViewBuilder
+    private var muteContextMenu: some View {
+        if isLearningMute {
+            Button("Cancel Learn") {
+                midiEngine.cancelMIDILearn()
+            }
+        } else {
+            Button("MIDI Learn Mute") {
+                midiEngine.startMIDILearn(for: .channelMute(channelId: channel.id, name: config.name))
+            }
 
-                if hasVolumeMapping || hasPanMapping {
-                    Divider()
-
-                    if hasVolumeMapping {
-                        Button("Clear Volume Mapping") {
-                            clearMapping(for: .channelVolume)
-                        }
-                    }
-
-                    if hasPanMapping {
-                        Button("Clear Pan Mapping") {
-                            clearMapping(for: .channelPan)
-                        }
+            if hasMuteMapping {
+                Button("Clear Mute Mapping") {
+                    if let mapping = midiEngine.midiMappings.first(where: {
+                        $0.target == .channelMute && $0.targetChannelId == channel.id
+                    }) {
+                        midiEngine.removeMapping(mapping)
                     }
                 }
             }
         }
     }
 
-    // MARK: - Mute/Solo with MIDI Learn
-
-    private var mutesoloSection: some View {
-        HStack(spacing: 4) {
-            Button(action: { channel.isMuted.toggle() }) {
-                Text("M")
-                    .font(.caption2.bold())
-                    .frame(width: 24, height: 20)
-                    .background(channel.isMuted ? Color.red : Color(nsColor: .controlBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(isLearningMute ? Color.orange : (hasMuteMapping ? Color.blue : Color.clear), lineWidth: 1)
-                    )
-                    .cornerRadius(2)
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-                if isLearningMute {
-                    Button("Cancel Learn") {
-                        midiEngine.cancelMIDILearn()
-                    }
-                } else {
-                    Button("MIDI Learn Mute") {
-                        midiEngine.startMIDILearn(for: .channelMute(channelId: channel.id, name: config.name))
-                    }
-
-                    if hasMuteMapping {
-                        Button("Clear Mute Mapping") {
-                            clearMapping(for: .channelMute)
-                        }
-                    }
-                }
-            }
-
-            Button(action: { channel.isSoloed.toggle() }) {
-                Text("S")
-                    .font(.caption2.bold())
-                    .frame(width: 24, height: 20)
-                    .background(channel.isSoloed ? Color.yellow : Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(2)
-            }
-            .buttonStyle(.plain)
+    private var soloButton: some View {
+        Button(action: { channel.isSoloed.toggle() }) {
+            Text("S")
+                .font(TEFonts.mono(10, weight: .bold))
+                .frame(width: 24, height: 22)
+                .background(channel.isSoloed ? colors.warning : colors.controlBackground)
+                .foregroundColor(channel.isSoloed ? TEColors.black : colors.primaryText)
+                .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
         }
+        .buttonStyle(.plain)
     }
 
-    // MARK: - Helpers
+    private var removeButton: some View {
+        Button(action: onRemove) {
+            Image(systemName: "trash")
+                .font(TEFonts.mono(10))
+                .foregroundColor(colors.secondaryText)
+        }
+        .buttonStyle(.plain)
+    }
+}
 
-    private func clearMapping(for targetType: MIDIMappingTarget) {
-        if let mapping = midiEngine.midiMappings.first(where: {
-            $0.target == targetType && $0.targetChannelId == channel.id
-        }) {
-            midiEngine.removeMapping(mapping)
+// MARK: - TE Vertical Fader
+
+struct TEVerticalFader: View {
+    @Binding var value: Float
+    let colors: ThemeColors
+
+    @State private var isDragging = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                // Track background
+                Rectangle()
+                    .fill(colors.controlBackground)
+
+                // Fill
+                Rectangle()
+                    .fill(colors.accent)
+                    .frame(height: geometry.size.height * CGFloat(value))
+
+                // Handle line
+                Rectangle()
+                    .fill(colors.border)
+                    .frame(height: 4)
+                    .offset(y: -geometry.size.height * CGFloat(value) + 2)
+            }
+            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        isDragging = true
+                        let newValue = 1.0 - Float(gesture.location.y / geometry.size.height)
+                        value = max(0, min(1, newValue))
+                    }
+                    .onEnded { _ in
+                        isDragging = false
+                    }
+            )
         }
     }
 }
 
-// MARK: - Meter View
+// MARK: - TE Meter View
 
-struct MeterView: View {
+struct TEMeterView: View {
     let level: Float
+    let colors: ThemeColors
 
-    private let segmentCount = 8
-    private let greenThreshold = -12.0
-    private let yellowThreshold = -6.0
+    private let segmentCount = 12
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 2) {
+            VStack(spacing: 1) {
                 ForEach((0..<segmentCount).reversed(), id: \.self) { index in
                     let segmentDB = dBForSegment(index)
                     let isLit = Double(level) >= segmentDB
 
                     Rectangle()
                         .fill(colorForSegment(index, isLit: isLit))
-                        .frame(height: geometry.size.height / CGFloat(segmentCount) - 2)
+                        .frame(height: geometry.size.height / CGFloat(segmentCount) - 1)
                 }
             }
+            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
         }
     }
 
     private func dBForSegment(_ index: Int) -> Double {
-        // Map segments to dB range: -60 to 0
         let range = 60.0
         return -range + (Double(index) / Double(segmentCount - 1)) * range
     }
@@ -613,72 +766,108 @@ struct MeterView: View {
         let db = dBForSegment(index)
 
         if !isLit {
-            return Color.gray.opacity(0.3)
+            return colors.controlBackground
         }
 
-        if db > yellowThreshold {
-            return .red
-        } else if db > greenThreshold {
-            return .yellow
+        if db > -6 {
+            return colors.error
+        } else if db > -12 {
+            return colors.warning
         } else {
-            return .green
+            return colors.success
         }
     }
 }
 
-// MARK: - Plugin Browser View
+// MARK: - Plugin Browser View (keep existing, just style it)
 
 struct PluginBrowserView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var channel: MacChannelStrip
     @Binding var config: MacChannelConfiguration
+    @ObservedObject var themeProvider: ThemeProvider = .shared
 
     @StateObject private var pluginManager = MacPluginManager.shared
 
-    @State private var selectedTab = 0  // 0 = instruments, 1 = effects
+    @State private var selectedTab = 0
     @State private var searchText = ""
+
+    private var colors: ThemeColors { themeProvider.colors }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("Plugin Browser")
-                    .font(.headline)
+                Text("PLUGIN BROWSER")
+                    .font(TEFonts.mono(14, weight: .bold))
+                    .foregroundColor(colors.primaryText)
                 Spacer()
-                Button("Done") { dismiss() }
+                Button("DONE") { dismiss() }
+                    .font(TEFonts.mono(11, weight: .bold))
             }
             .padding()
+            .background(colors.sectionBackground)
 
             // Tabs
-            Picker("Category", selection: $selectedTab) {
-                Text("Instruments").tag(0)
-                Text("Effects").tag(1)
+            HStack(spacing: 0) {
+                Button(action: { selectedTab = 0 }) {
+                    Text("INSTRUMENTS")
+                        .font(TEFonts.mono(11, weight: .bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(selectedTab == 0 ? colors.accent : colors.controlBackground)
+                        .foregroundColor(selectedTab == 0 ? .white : colors.primaryText)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: { selectedTab = 1 }) {
+                    Text("EFFECTS")
+                        .font(TEFonts.mono(11, weight: .bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(selectedTab == 1 ? colors.accent : colors.controlBackground)
+                        .foregroundColor(selectedTab == 1 ? .white : colors.primaryText)
+                }
+                .buttonStyle(.plain)
             }
-            .pickerStyle(.segmented)
+            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
             .padding(.horizontal)
 
             // Search
-            TextField("Search", text: $searchText)
-                .textFieldStyle(.roundedBorder)
+            TextField("SEARCH", text: $searchText)
+                .font(TEFonts.mono(12))
+                .textFieldStyle(.plain)
+                .padding(8)
+                .background(colors.controlBackground)
+                .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
                 .padding()
 
             // Plugin list
             List {
                 ForEach(filteredPlugins) { plugin in
-                    Button(action: { loadPlugin(plugin) }) {
-                        VStack(alignment: .leading) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(plugin.name)
-                                .font(.body)
+                                .font(TEFonts.mono(12, weight: .medium))
+                                .foregroundColor(colors.primaryText)
                             Text(plugin.manufacturerName)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                                .font(TEFonts.mono(10))
+                                .foregroundColor(colors.secondaryText)
                         }
+                        Spacer()
                     }
-                    .buttonStyle(.plain)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 4)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        loadPlugin(plugin)
+                    }
                 }
             }
+            .listStyle(.plain)
         }
         .frame(minWidth: 400, idealWidth: 450, minHeight: 500, idealHeight: 600)
+        .background(colors.windowBackground)
     }
 
     private var filteredPlugins: [MacPluginInfo] {
@@ -695,43 +884,62 @@ struct PluginBrowserView: View {
     }
 
     private func loadPlugin(_ plugin: MacPluginInfo) {
-        if selectedTab == 0 {
-            // Load instrument
-            channel.loadInstrument(plugin.audioComponentDescription) { success, error in
-                if success {
-                    channel.instrumentInfo = MacAUInfo(
-                        name: plugin.name,
-                        manufacturerName: plugin.manufacturerName,
-                        componentType: plugin.audioComponentDescription.componentType,
-                        componentSubType: plugin.audioComponentDescription.componentSubType,
-                        componentManufacturer: plugin.audioComponentDescription.componentManufacturer
-                    )
+        let configBinding = $config
+        let channelName = config.name
 
-                    config.instrument = MacPluginConfiguration(
-                        name: plugin.name,
-                        manufacturerName: plugin.manufacturerName,
-                        audioComponentDescription: plugin.audioComponentDescription
-                    )
+        if selectedTab == 0 {
+            channel.loadInstrument(plugin.audioComponentDescription) { [channel] success, error in
+                if success {
+                    DispatchQueue.main.async {
+                        channel.instrumentInfo = MacAUInfo(
+                            name: plugin.name,
+                            manufacturerName: plugin.manufacturerName,
+                            componentType: plugin.audioComponentDescription.componentType,
+                            componentSubType: plugin.audioComponentDescription.componentSubType,
+                            componentManufacturer: plugin.audioComponentDescription.componentManufacturer
+                        )
+
+                        configBinding.wrappedValue.instrument = MacPluginConfiguration(
+                            name: plugin.name,
+                            manufacturerName: plugin.manufacturerName,
+                            audioComponentDescription: plugin.audioComponentDescription
+                        )
+
+                        // Auto-open the plugin editor window
+                        PluginWindowManager.shared.openInstrumentEditor(
+                            for: channel,
+                            channelName: channelName
+                        )
+                    }
                 }
             }
         } else {
-            // Add effect
-            channel.addEffect(plugin.audioComponentDescription) { success, error in
+            channel.addEffect(plugin.audioComponentDescription) { [channel] success, error in
                 if success {
-                    let info = MacAUInfo(
-                        name: plugin.name,
-                        manufacturerName: plugin.manufacturerName,
-                        componentType: plugin.audioComponentDescription.componentType,
-                        componentSubType: plugin.audioComponentDescription.componentSubType,
-                        componentManufacturer: plugin.audioComponentDescription.componentManufacturer
-                    )
-                    channel.effectInfos.append(info)
+                    DispatchQueue.main.async {
+                        let info = MacAUInfo(
+                            name: plugin.name,
+                            manufacturerName: plugin.manufacturerName,
+                            componentType: plugin.audioComponentDescription.componentType,
+                            componentSubType: plugin.audioComponentDescription.componentSubType,
+                            componentManufacturer: plugin.audioComponentDescription.componentManufacturer
+                        )
+                        channel.effectInfos.append(info)
 
-                    config.effects.append(MacPluginConfiguration(
-                        name: plugin.name,
-                        manufacturerName: plugin.manufacturerName,
-                        audioComponentDescription: plugin.audioComponentDescription
-                    ))
+                        configBinding.wrappedValue.effects.append(MacPluginConfiguration(
+                            name: plugin.name,
+                            manufacturerName: plugin.manufacturerName,
+                            audioComponentDescription: plugin.audioComponentDescription
+                        ))
+
+                        // Auto-open the effect editor window
+                        let effectIndex = channel.effects.count - 1
+                        PluginWindowManager.shared.openEffectEditor(
+                            for: channel,
+                            effectIndex: effectIndex,
+                            channelName: channelName
+                        )
+                    }
                 }
             }
         }

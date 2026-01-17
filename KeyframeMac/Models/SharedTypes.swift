@@ -82,6 +82,24 @@ enum FilterMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Freeze Mode
+
+enum FreezeMode: String, Codable, CaseIterable, Identifiable {
+    case sustain = "Sustain"  // Hold while pedal/button pressed
+    case toggle = "Toggle"    // Latch on/off with each press
+
+    var id: String { rawValue }
+
+    var description: String {
+        switch self {
+        case .sustain:
+            return "Hold notes while pedal pressed"
+        case .toggle:
+            return "Toggle freeze on/off"
+        }
+    }
+}
+
 // MARK: - Chord Quality
 
 enum ChordQuality: String, Codable {
@@ -273,6 +291,19 @@ enum HelixSetlist: Int, CaseIterable {
         case .user4: return "User 4"
         case .user5: return "User 5"
         case .user6: return "User 6"
+        }
+    }
+
+    var shortName: String {
+        switch self {
+        case .factory1: return "FAC 1"
+        case .factory2: return "FAC 2"
+        case .user1: return "USER 1"
+        case .user2: return "USER 2"
+        case .user3: return "USER 3"
+        case .user4: return "USER 4"
+        case .user5: return "USER 5"
+        case .user6: return "USER 6"
         }
     }
 }

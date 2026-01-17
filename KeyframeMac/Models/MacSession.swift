@@ -23,6 +23,12 @@ final class MacSessionStore: ObservableObject {
         }
     }
 
+    /// Current song ID (for Song→Section model)
+    @Published var currentSongId: UUID?
+
+    /// Current section index within the current song
+    @Published var currentSectionIndex: Int?
+
     /// Callback when preset index changes - used for iOS sync
     var onPresetChanged: ((Int) -> Void)?
 
@@ -55,9 +61,9 @@ final class MacSessionStore: ObservableObject {
             defaults.set(data, forKey: currentSessionKey)
         }
 
-        // Mark document as dirty (has unsaved changes to file)
-        if currentFileURL != nil {
-            isDocumentDirty = true
+        // Auto-save to file if we have a file URL
+        if let url = currentFileURL {
+            saveToFile(url)
         }
     }
 
@@ -224,6 +230,23 @@ final class MacSessionStore: ObservableObject {
         saveCurrentSession()
     }
 
+    func addSongTriggerMapping(_ mapping: SongTriggerMapping) {
+        // Remove any existing mapping for the same trigger
+        currentSession.songTriggerMappings.removeAll {
+            $0.triggerType == mapping.triggerType &&
+            $0.data1 == mapping.data1 &&
+            $0.channel == mapping.channel &&
+            $0.sourceName == mapping.sourceName
+        }
+        currentSession.songTriggerMappings.append(mapping)
+        saveCurrentSession()
+    }
+
+    func removeSongTriggerMapping(_ mapping: SongTriggerMapping) {
+        currentSession.songTriggerMappings.removeAll { $0.id == mapping.id }
+        saveCurrentSession()
+    }
+
     func clearPresetTriggerMappings() {
         currentSession.presetTriggerMappings.removeAll()
         saveCurrentSession()
@@ -315,11 +338,13 @@ struct MacSession: Codable, Identifiable {
     var id = UUID()
     var name: String = "Untitled Session"
     var channels: [MacChannelConfiguration] = []
-    var presets: [MacPreset] = []
+    var presets: [MacPreset] = []  // Legacy presets (for backwards compatibility)
+    var songs: [MacSong] = []       // New Song→Section model
     var activePresetId: UUID?
     var masterVolume: Float = 1.0
     var midiMappings: [MIDICCMapping] = []
     var presetTriggerMappings: [PresetTriggerMapping] = []
+    var songTriggerMappings: [SongTriggerMapping] = []  // MIDI triggers for songs/sections
 
     // Setlist support
     var setlists: [Setlist] = []
@@ -434,7 +459,7 @@ struct MacChannelConfiguration: Codable, Identifiable, Equatable {
         isMuted: Bool = false,
         midiChannel: Int = 0,
         midiSourceName: String? = nil,
-        scaleFilterEnabled: Bool = true,
+        scaleFilterEnabled: Bool = false,
         isChordPadTarget: Bool = false,
         keyboardZones: [KeyboardZone] = []
     ) {
@@ -584,6 +609,63 @@ struct MacPreset: Codable, Identifiable, Equatable {
         self.order = order
         self.externalMIDIMessages = externalMIDIMessages
         self.backingTrack = backingTrack
+    }
+}
+
+// MARK: - Song Model (contains sections/presets)
+
+struct MacSong: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var bpm: Double?
+    var rootNote: NoteName?
+    var scale: ScaleType?
+    var externalMIDIMessages: [ExternalMIDIMessage] = []
+    var sections: [SongSection] = []
+    var order: Int
+
+    init(
+        id: UUID = UUID(),
+        name: String = "New Song",
+        bpm: Double? = nil,
+        rootNote: NoteName? = nil,
+        scale: ScaleType? = nil,
+        externalMIDIMessages: [ExternalMIDIMessage] = [],
+        sections: [SongSection] = [],
+        order: Int = 0
+    ) {
+        self.id = id
+        self.name = name
+        self.bpm = bpm
+        self.rootNote = rootNote
+        self.scale = scale
+        self.externalMIDIMessages = externalMIDIMessages
+        self.sections = sections
+        self.order = order
+    }
+}
+
+// MARK: - Song Section (preset within a song)
+
+struct SongSection: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var channelStates: [MacChannelState] = []
+    var externalMIDIMessages: [ExternalMIDIMessage] = []
+    var order: Int
+
+    init(
+        id: UUID = UUID(),
+        name: String = "New Section",
+        channelStates: [MacChannelState] = [],
+        externalMIDIMessages: [ExternalMIDIMessage] = [],
+        order: Int = 0
+    ) {
+        self.id = id
+        self.name = name
+        self.channelStates = channelStates
+        self.externalMIDIMessages = externalMIDIMessages
+        self.order = order
     }
 }
 
@@ -832,6 +914,94 @@ struct PresetTriggerMapping: Codable, Identifiable, Equatable, Hashable {
 struct PresetTriggerLearnTarget: Equatable {
     var presetIndex: Int
     var presetName: String
+}
+
+// MARK: - Song Trigger Mapping
+
+/// Maps a MIDI message to a song or section
+/// Supports Program Change, Control Change (value-based), or Note On triggers
+struct SongTriggerMapping: Codable, Identifiable, Equatable, Hashable {
+    var id = UUID()
+    var triggerType: PresetTriggerType
+    var channel: Int?               // MIDI channel (1-16, nil = any)
+    var sourceName: String?         // MIDI source filter (nil = any)
+    var data1: Int                  // PC number, CC number, or Note number (0-127)
+    var data2Min: Int?              // For CC/Note: min value (nil = 64 for toggle)
+    var data2Max: Int?              // For CC/Note: max value (nil = 127)
+    var targetSongId: UUID          // Target song ID
+    var targetSectionIndex: Int?    // Target section index (nil = first section / song start)
+    var displayName: String         // User-friendly description
+
+    init(
+        triggerType: PresetTriggerType,
+        channel: Int? = nil,
+        sourceName: String? = nil,
+        data1: Int,
+        data2Min: Int? = nil,
+        data2Max: Int? = nil,
+        targetSongId: UUID,
+        targetSectionIndex: Int? = nil,
+        displayName: String = ""
+    ) {
+        self.triggerType = triggerType
+        self.channel = channel
+        self.sourceName = sourceName
+        self.data1 = data1
+        self.data2Min = data2Min
+        self.data2Max = data2Max
+        self.targetSongId = targetSongId
+        self.targetSectionIndex = targetSectionIndex
+        self.displayName = displayName
+    }
+
+    /// Check if incoming MIDI matches this trigger
+    func matches(type: PresetTriggerType, channel: Int, data1: Int, data2: Int, sourceName: String?) -> Bool {
+        guard self.triggerType == type else { return false }
+        guard self.data1 == data1 else { return false }
+
+        // Channel filter (nil = any)
+        if let requiredChannel = self.channel, requiredChannel != channel { return false }
+
+        // Source filter (nil = any)
+        if let requiredSource = self.sourceName, requiredSource != sourceName { return false }
+
+        // For CC/Note, check value range
+        if type == .controlChange || type == .noteOn {
+            let minVal = data2Min ?? 64  // Default: trigger on values >= 64
+            let maxVal = data2Max ?? 127
+            guard data2 >= minVal && data2 <= maxVal else { return false }
+        }
+
+        return true
+    }
+
+    /// Human-readable trigger description
+    var triggerDescription: String {
+        var parts: [String] = []
+
+        switch triggerType {
+        case .programChange:
+            parts.append("PC \(data1)")
+        case .controlChange:
+            parts.append("CC \(data1)")
+        case .noteOn:
+            parts.append("Note \(KeyboardZone.noteName(for: data1))")
+        }
+
+        if let ch = channel {
+            parts.append("Ch \(ch)")
+        }
+
+        return parts.joined(separator: " ")
+    }
+}
+
+/// Represents what we're learning during song trigger MIDI Learn
+struct SongTriggerLearnTarget: Equatable {
+    var songId: UUID
+    var songName: String
+    var sectionIndex: Int?
+    var sectionName: String?
 }
 
 // MARK: - AudioComponentDescription Codable

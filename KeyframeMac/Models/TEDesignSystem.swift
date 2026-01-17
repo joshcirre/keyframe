@@ -3,23 +3,20 @@ import AppKit
 
 // MARK: - TE Design System (Teenage Engineering Inspired)
 
-/// Color palette inspired by Teenage Engineering's aesthetic
+/// Color palette inspired by Teenage Engineering's aesthetic - Light theme
 enum TEColors {
+    // Light theme colors (always used)
     static let cream = Color(red: 0.98, green: 0.96, blue: 0.92)
     static let warmWhite = Color(red: 0.99, green: 0.98, blue: 0.96)
-    static let orange = Color(red: 1.0, green: 0.45, blue: 0.0)
     static let black = Color(red: 0.08, green: 0.08, blue: 0.08)
     static let darkGray = Color(red: 0.3, green: 0.3, blue: 0.3)
     static let midGray = Color(red: 0.6, green: 0.6, blue: 0.6)
-    static let lightGray = Color(red: 0.85, green: 0.83, blue: 0.80)
+
+    // Accent colors
+    static let orange = Color(red: 1.0, green: 0.45, blue: 0.0)
     static let red = Color(red: 0.9, green: 0.2, blue: 0.15)
     static let green = Color(red: 0.2, green: 0.75, blue: 0.3)
     static let yellow = Color(red: 0.95, green: 0.8, blue: 0.0)
-
-    // Dark mode variants
-    static let darkBackground = Color(red: 0.12, green: 0.12, blue: 0.12)
-    static let darkSurface = Color(red: 0.18, green: 0.18, blue: 0.18)
-    static let darkBorder = Color(red: 0.4, green: 0.4, blue: 0.4)
 }
 
 /// Font helpers for consistent typography
@@ -33,247 +30,77 @@ enum TEFonts {
     }
 }
 
-// MARK: - App Theme Enum
+// MARK: - Theme Colors (Simplified - Always TE Light)
 
-/// The visual style/theme of the app
-enum AppTheme: String, CaseIterable {
-    case native = "Native"
-    case te = "Keyframe"
-
-    var displayName: String {
-        switch self {
-        case .native: return "Native macOS"
-        case .te: return "Keyframe (TE Style)"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .native: return "apple.logo"
-        case .te: return "keyboard"
-        }
-    }
-}
-
-// MARK: - Theme Environment Key
-
-struct ThemeEnvironmentKey: EnvironmentKey {
-    static let defaultValue: AppTheme = .native
-}
-
-extension EnvironmentValues {
-    var appTheme: AppTheme {
-        get { self[ThemeEnvironmentKey.self] }
-        set { self[ThemeEnvironmentKey.self] = newValue }
-    }
-}
-
-// MARK: - Theme Colors (Semantic Colors Based on Theme)
-
-/// Provides semantic colors that adapt based on the current theme and appearance
+/// Provides semantic colors for the TE light theme
 struct ThemeColors {
-    let theme: AppTheme
-    let isDark: Bool
+    // No configuration needed - always TE light theme
+    init() {}
 
-    init(theme: AppTheme, isDark: Bool) {
-        self.theme = theme
-        self.isDark = isDark
-    }
+    // For compatibility with existing code that passes parameters
+    init(theme: Any, isDark: Bool) {}
 
     // MARK: - Backgrounds
 
-    var windowBackground: Color {
-        switch theme {
-        case .native:
-            return Color(nsColor: .windowBackgroundColor)
-        case .te:
-            return isDark ? TEColors.darkBackground : TEColors.cream
-        }
-    }
-
-    var controlBackground: Color {
-        switch theme {
-        case .native:
-            return Color(nsColor: .controlBackgroundColor)
-        case .te:
-            return isDark ? TEColors.darkSurface : TEColors.warmWhite
-        }
-    }
-
-    var sectionBackground: Color {
-        switch theme {
-        case .native:
-            return Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
-        case .te:
-            return isDark ? TEColors.darkSurface : TEColors.warmWhite
-        }
-    }
+    var windowBackground: Color { TEColors.cream }
+    var controlBackground: Color { TEColors.warmWhite }
+    var sectionBackground: Color { TEColors.warmWhite }
 
     // MARK: - Text
 
-    var primaryText: Color {
-        switch theme {
-        case .native:
-            return Color(nsColor: .labelColor)
-        case .te:
-            return isDark ? TEColors.warmWhite : TEColors.black
-        }
-    }
-
-    var secondaryText: Color {
-        switch theme {
-        case .native:
-            return Color(nsColor: .secondaryLabelColor)
-        case .te:
-            return isDark ? TEColors.midGray : TEColors.darkGray
-        }
-    }
+    var primaryText: Color { TEColors.black }
+    var secondaryText: Color { TEColors.darkGray }
 
     // MARK: - Accent Colors
 
-    var accent: Color {
-        switch theme {
-        case .native:
-            return Color.accentColor
-        case .te:
-            return TEColors.orange
-        }
-    }
-
-    var accentText: Color {
-        switch theme {
-        case .native:
-            return .white
-        case .te:
-            return .white
-        }
-    }
+    var accent: Color { TEColors.orange }
+    var accentText: Color { .white }
 
     // MARK: - Borders
 
-    var border: Color {
-        switch theme {
-        case .native:
-            return Color(nsColor: .separatorColor)
-        case .te:
-            return isDark ? TEColors.darkBorder : TEColors.black
-        }
-    }
-
-    var borderWidth: CGFloat {
-        switch theme {
-        case .native:
-            return 1
-        case .te:
-            return 2
-        }
-    }
+    var border: Color { TEColors.black }
+    var borderWidth: CGFloat { 2 }
 
     // MARK: - Status Colors
 
-    var success: Color {
-        switch theme {
-        case .native:
-            return .green
-        case .te:
-            return TEColors.green
-        }
-    }
+    var success: Color { TEColors.green }
+    var warning: Color { TEColors.yellow }
+    var error: Color { TEColors.red }
 
-    var warning: Color {
-        switch theme {
-        case .native:
-            return .yellow
-        case .te:
-            return TEColors.yellow
-        }
-    }
+    // MARK: - Corner Radius (Brutalist = no rounded corners)
 
-    var error: Color {
-        switch theme {
-        case .native:
-            return .red
-        case .te:
-            return TEColors.red
-        }
-    }
-
-    // MARK: - Corner Radius
-
-    var cornerRadius: CGFloat {
-        switch theme {
-        case .native:
-            return 6
-        case .te:
-            return 0  // Brutalist = no rounded corners
-        }
-    }
-
-    var smallCornerRadius: CGFloat {
-        switch theme {
-        case .native:
-            return 4
-        case .te:
-            return 0
-        }
-    }
+    var cornerRadius: CGFloat { 0 }
+    var smallCornerRadius: CGFloat { 0 }
 
     // MARK: - Fonts
 
     func bodyFont(size: CGFloat = 13) -> Font {
-        switch theme {
-        case .native:
-            return .system(size: size)
-        case .te:
-            return TEFonts.mono(size)
-        }
+        TEFonts.mono(size)
     }
 
     func headingFont(size: CGFloat = 14) -> Font {
-        switch theme {
-        case .native:
-            return .system(size: size, weight: .semibold)
-        case .te:
-            return TEFonts.display(size, weight: .bold)
-        }
+        TEFonts.display(size, weight: .bold)
     }
 
     func monoFont(size: CGFloat = 12) -> Font {
-        // Both themes use mono for technical text
-        return .system(size: size, design: .monospaced)
+        .system(size: size, design: .monospaced)
     }
 }
 
-// MARK: - Theme Provider
+// MARK: - Theme Provider (Simplified)
 
-/// Observable object that provides current theme colors
+/// Observable object that provides theme colors - always TE light
 final class ThemeProvider: ObservableObject {
     static let shared = ThemeProvider()
 
-    @Published var theme: AppTheme = .native
-    @Published var isDark: Bool = false
-
     private init() {
-        // Observe appearance changes
-        updateDarkMode()
-
-        // Listen for effective appearance changes
-        DistributedNotificationCenter.default.addObserver(
-            forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.updateDarkMode()
+        // Force light mode on app launch
+        DispatchQueue.main.async {
+            NSApp.appearance = NSAppearance(named: .aqua)
         }
     }
 
-    private func updateDarkMode() {
-        isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    }
-
-    var colors: ThemeColors {
-        ThemeColors(theme: theme, isDark: isDark)
-    }
+    var colors: ThemeColors { ThemeColors() }
 }
 
 // MARK: - View Modifiers
@@ -289,8 +116,6 @@ struct TESectionStyle: ViewModifier {
                 Rectangle()
                     .strokeBorder(themeColors.border, lineWidth: themeColors.borderWidth)
             )
-            .cornerRadius(themeColors.cornerRadius)
-            .clipped()
     }
 }
 
@@ -315,7 +140,6 @@ struct TEButtonStyle: ButtonStyle {
                 Rectangle()
                     .strokeBorder(themeColors.border, lineWidth: themeColors.borderWidth)
             )
-            .cornerRadius(themeColors.cornerRadius)
             .opacity(configuration.isPressed ? 0.8 : 1.0)
     }
 }
@@ -330,4 +154,14 @@ extension View {
     func teButtonStyle(colors: ThemeColors, isAccent: Bool = false) -> some View {
         self.buttonStyle(TEButtonStyle(themeColors: colors, isAccent: isAccent))
     }
+}
+
+// MARK: - Legacy Compatibility
+
+/// Kept for compatibility - not used
+enum AppTheme: String, CaseIterable {
+    case te = "Keyframe"
+
+    var displayName: String { "Keyframe" }
+    var icon: String { "keyboard" }
 }
