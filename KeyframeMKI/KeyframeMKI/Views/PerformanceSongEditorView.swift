@@ -6,7 +6,7 @@ struct PerformanceSongEditorView: View {
     @StateObject private var sessionStore = SessionStore.shared
     @StateObject private var midiEngine = MIDIEngine.shared
 
-    @State var song: PerformanceSong
+    @State var song: SetlistSong
     let isNew: Bool
     let channels: [ChannelConfiguration]
 
@@ -151,14 +151,14 @@ struct PerformanceSongEditorView: View {
                     )
             }
 
-            // Song Name (optional)
+            // Artist (optional)
             VStack(alignment: .leading, spacing: 8) {
-                Text("SONG NAME")
+                Text("ARTIST")
                     .font(TEFonts.mono(10, weight: .bold))
                     .foregroundColor(TEColors.midGray)
                     .tracking(2)
 
-                TextField("OPTIONAL", text: songNameBinding)
+                TextField("OPTIONAL", text: artistBinding)
                     .font(TEFonts.display(18, weight: .bold))
                     .foregroundColor(TEColors.black)
                     .textInputAutocapitalization(.characters)
@@ -172,12 +172,12 @@ struct PerformanceSongEditorView: View {
         }
     }
 
-    // Helper binding for optional songName
-    private var songNameBinding: Binding<String> {
+    // Helper binding for optional artist
+    private var artistBinding: Binding<String> {
         Binding(
-            get: { song.songName ?? "" },
+            get: { song.artist ?? "" },
             set: { newValue in
-                song.songName = newValue.isEmpty ? nil : newValue
+                song.artist = newValue.isEmpty ? nil : newValue
             }
         )
     }
@@ -986,7 +986,10 @@ struct ExternalMIDIMessageRow: View {
 
 #Preview {
     PerformanceSongEditorView(
-        song: PerformanceSong(name: "Test"),
+        song: SetlistSong(
+            name: "Test",
+            presets: [SongPreset(name: "Default", order: 0, isActive: true)]
+        ),
         isNew: true,
         channels: []
     )

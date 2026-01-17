@@ -480,7 +480,7 @@ struct SetlistPickerView: View {
             }
             .padding()
         }
-        .frame(width: 400, height: 400)
+        .frame(minWidth: 400, idealWidth: 450, minHeight: 400, idealHeight: 500)
     }
 }
 

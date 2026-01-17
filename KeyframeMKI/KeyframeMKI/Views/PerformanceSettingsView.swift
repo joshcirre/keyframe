@@ -46,6 +46,8 @@ struct PerformanceSettingsView: View {
                         audioSection
                         midiSection
                         midiOutputSection
+                        freezeSection
+                        looperSection
                         scaleFilterSection
                         pluginsSection
                         appearanceSection
@@ -600,6 +602,282 @@ struct PerformanceSettingsView: View {
             return "NONE"
         }
         return dest.name.uppercased()
+    }
+
+    // MARK: - Freeze/Hold Section
+
+    private var freezeSection: some View {
+        TESettingsSection(title: "FREEZE/HOLD") {
+            VStack(spacing: 16) {
+                // Mode picker
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("MODE")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundColor(TEColors.darkGray)
+
+                    Text(freezeModeDescription)
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 8) {
+                        ForEach(FreezeMode.allCases, id: \.self) { mode in
+                            Button {
+                                sessionStore.currentSession.freezeMode = mode
+                                midiEngine.freezeMode = mode
+                                sessionStore.saveCurrentSession()
+                            } label: {
+                                Text(mode.rawValue.uppercased())
+                                    .font(TEFonts.mono(11, weight: .bold))
+                                    .foregroundColor(sessionStore.currentSession.freezeMode == mode ? .white : TEColors.black)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        Rectangle()
+                                            .fill(sessionStore.currentSession.freezeMode == mode ? TEColors.orange : TEColors.warmWhite)
+                                    )
+                                    .overlay(
+                                        Rectangle()
+                                            .strokeBorder(TEColors.black, lineWidth: 2)
+                                    )
+                            }
+                        }
+                    }
+                }
+
+                // Divider
+                Rectangle()
+                    .fill(TEColors.lightGray)
+                    .frame(height: 1)
+
+                // Trigger mapping
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("TRIGGER MAPPING")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundColor(TEColors.darkGray)
+
+                    // Current mapping display
+                    HStack {
+                        Text("CC")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundColor(TEColors.midGray)
+
+                        Spacer()
+
+                        Text(freezeTriggerLabel)
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundColor(sessionStore.currentSession.freezeTriggerCC == nil ? TEColors.midGray : TEColors.orange)
+                    }
+
+                    // Learn button
+                    Button {
+                        if midiEngine.isFreezeLearnMode {
+                            midiEngine.isFreezeLearnMode = false
+                        } else {
+                            midiEngine.isFreezeLearnMode = true
+                            midiEngine.onFreezeLearn = { cc, channel, sourceName in
+                                sessionStore.currentSession.freezeTriggerCC = cc
+                                sessionStore.currentSession.freezeTriggerChannel = channel
+                                sessionStore.currentSession.freezeTriggerSourceName = sourceName
+                                midiEngine.freezeTriggerCC = cc
+                                midiEngine.freezeTriggerChannel = channel
+                                midiEngine.freezeTriggerSourceName = sourceName
+                                sessionStore.saveCurrentSession()
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            if midiEngine.isFreezeLearnMode {
+                                Circle()
+                                    .fill(TEColors.red)
+                                    .frame(width: 8, height: 8)
+                                Text("WAITING FOR CC...")
+                                    .font(TEFonts.mono(11, weight: .bold))
+                            } else {
+                                Image(systemName: "graduationcap")
+                                    .font(.system(size: 12, weight: .bold))
+                                Text("LEARN TRIGGER")
+                                    .font(TEFonts.mono(11, weight: .bold))
+                            }
+                        }
+                        .foregroundColor(midiEngine.isFreezeLearnMode ? .white : TEColors.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(
+                            Rectangle()
+                                .fill(midiEngine.isFreezeLearnMode ? TEColors.red : TEColors.cream)
+                        )
+                        .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                    }
+
+                    // Clear mapping button
+                    if sessionStore.currentSession.freezeTriggerCC != nil {
+                        Button {
+                            sessionStore.currentSession.freezeTriggerCC = nil
+                            sessionStore.currentSession.freezeTriggerChannel = nil
+                            sessionStore.currentSession.freezeTriggerSourceName = nil
+                            midiEngine.clearFreezeTrigger()
+                            sessionStore.saveCurrentSession()
+                        } label: {
+                            HStack {
+                                Image(systemName: "xmark.circle")
+                                    .font(.system(size: 12, weight: .bold))
+                                Text("CLEAR MAPPING")
+                                    .font(TEFonts.mono(11, weight: .bold))
+                            }
+                            .foregroundColor(TEColors.red)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(
+                                Rectangle()
+                                    .strokeBorder(TEColors.red, lineWidth: 2)
+                            )
+                        }
+                    }
+                }
+                .padding(12)
+                .background(
+                    Rectangle()
+                        .fill(TEColors.cream)
+                )
+
+                // Status indicator
+                if midiEngine.isFreezeActive {
+                    HStack {
+                        Image(systemName: "pause.circle.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(TEColors.red)
+                        Text("FREEZE ACTIVE")
+                            .font(TEFonts.mono(11, weight: .bold))
+                            .foregroundColor(TEColors.red)
+                        Spacer()
+                    }
+                }
+            }
+        }
+    }
+
+    private var freezeModeDescription: String {
+        switch sessionStore.currentSession.freezeMode {
+        case .sustain:
+            return "Notes sustain while the trigger is held. Release to stop."
+        case .toggle:
+            return "Tap to freeze notes, tap again to release. Latching mode."
+        }
+    }
+
+    private var freezeTriggerLabel: String {
+        guard let cc = sessionStore.currentSession.freezeTriggerCC else {
+            return "NOT MAPPED"
+        }
+        var label = "CC \(cc)"
+        if let channel = sessionStore.currentSession.freezeTriggerChannel {
+            label += " CH \(channel)"
+        }
+        if let source = sessionStore.currentSession.freezeTriggerSourceName {
+            label += " (\(source))"
+        }
+        return label
+    }
+
+    // MARK: - Looper Section
+
+    private var looperSection: some View {
+        TESettingsSection(title: "LOOPER") {
+            VStack(spacing: 16) {
+                // Status display
+                if let looper = audioEngine.looper {
+                    TESettingsRow(label: "STATUS") {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(looperStatusColor(looper.state))
+                                .frame(width: 8, height: 8)
+                            Text(looper.statusText)
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundColor(TEColors.black)
+                        }
+                    }
+
+                    if looper.state != .empty {
+                        TESettingsRow(label: "DURATION") {
+                            Text(looper.durationString)
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundColor(looper.state == .recording ? TEColors.red : TEColors.black)
+                        }
+                    }
+                }
+
+                // Length mode picker
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("RECORDING LENGTH")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundColor(TEColors.darkGray)
+
+                    Text("Free mode records until you stop. Bar-based modes auto-stop at the specified length.")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    // Length mode buttons
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                        ForEach(LooperLengthMode.allCases, id: \.self) { mode in
+                            Button {
+                                audioEngine.looper?.lengthMode = mode
+                            } label: {
+                                Text(mode.rawValue.uppercased())
+                                    .font(TEFonts.mono(11, weight: .bold))
+                                    .foregroundColor(audioEngine.looper?.lengthMode == mode ? .white : TEColors.black)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        Rectangle()
+                                            .fill(audioEngine.looper?.lengthMode == mode ? TEColors.orange : TEColors.warmWhite)
+                                    )
+                                    .overlay(
+                                        Rectangle()
+                                            .strokeBorder(TEColors.black, lineWidth: 2)
+                                    )
+                            }
+                        }
+                    }
+                }
+                .padding(12)
+                .background(
+                    Rectangle()
+                        .fill(TEColors.cream)
+                )
+
+                // Clear button
+                if let looper = audioEngine.looper, looper.state != .empty {
+                    Button {
+                        audioEngine.looper?.clear()
+                    } label: {
+                        HStack {
+                            Image(systemName: "trash")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("CLEAR LOOP")
+                                .font(TEFonts.mono(11, weight: .bold))
+                        }
+                        .foregroundColor(TEColors.red)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.red, lineWidth: 2)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func looperStatusColor(_ state: LooperState) -> Color {
+        switch state {
+        case .empty: return TEColors.midGray
+        case .recording: return TEColors.red
+        case .playing: return TEColors.green
+        case .stopped: return TEColors.orange
+        }
     }
 
     // MARK: - Scale Filter Section

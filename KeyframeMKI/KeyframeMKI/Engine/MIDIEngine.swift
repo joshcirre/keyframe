@@ -49,6 +49,19 @@ final class MIDIEngine: ObservableObject {
     var onNoteLearn: ((Int, Int, String?) -> Void)?  // (note, channel, sourceName)
     var onCCLearn: ((Int, Int, String?) -> Void)?    // (cc, channel, sourceName)
 
+    // MARK: - MIDI Freeze/Hold
+
+    @Published var isFreezeActive = false
+    @Published var freezeMode: FreezeMode = .sustain
+    private var frozenNotes: [Int: [UUID: [UInt8]]] = [:]
+
+    // Freeze trigger mapping (learnable)
+    var freezeTriggerCC: Int? = 64  // Default: sustain pedal (CC 64)
+    var freezeTriggerChannel: Int? = nil  // nil = any channel
+    var freezeTriggerSourceName: String? = nil  // nil = any source
+    @Published var isFreezeLearnMode = false
+    var onFreezeLearn: ((Int, Int, String?) -> Void)?  // (cc, channel, sourceName)
+
     // MARK: - Control Callbacks
 
     var onSongTrigger: ((Int, Int, String?) -> Void)?       // (note, channel, sourceName) - for triggering songs
@@ -76,7 +89,8 @@ final class MIDIEngine: ObservableObject {
     @Published var externalMIDIChannel: Int = 1 {  // 1-16
         didSet { saveOutputSettings() }
     }
-    @Published var isNetworkSessionEnabled: Bool = false {
+    /// Network MIDI for Mac connection - enabled by default for seamless remote mode
+    @Published var isNetworkSessionEnabled: Bool = true {
         didSet {
             configureNetworkSession()
             saveOutputSettings()
@@ -214,8 +228,14 @@ final class MIDIEngine: ObservableObject {
     private func loadOutputSettings() {
         let defaults = UserDefaults.standard
 
-        // Load network session state (but don't trigger didSet yet)
-        let networkEnabled = defaults.bool(forKey: networkSessionEnabledKey)
+        // Network MIDI: default to true (enabled) for seamless Mac connection
+        // Only disable if user explicitly turned it off
+        if defaults.object(forKey: networkSessionEnabledKey) != nil {
+            isNetworkSessionEnabled = defaults.bool(forKey: networkSessionEnabledKey)
+        } else {
+            // First launch: auto-enable network MIDI
+            isNetworkSessionEnabled = true
+        }
 
         // Load channel
         if defaults.object(forKey: externalMIDIChannelKey) != nil {
@@ -231,11 +251,6 @@ final class MIDIEngine: ObservableObject {
         // Load remote mode
         isRemoteMode = defaults.bool(forKey: remoteModeKey)
         savedRemoteHostName = defaults.string(forKey: remoteHostKey)
-
-        // Configure network session before refreshing destinations
-        if networkEnabled {
-            isNetworkSessionEnabled = networkEnabled
-        }
 
         print("MIDIEngine: Loaded output settings - channel: \(externalMIDIChannel), network: \(isNetworkSessionEnabled), tempoSync: \(isExternalTempoSyncEnabled), tapCC: \(tapTempoCC), remoteMode: \(isRemoteMode), savedDest: \(defaults.string(forKey: selectedDestinationKey) ?? "none"), remoteHost: \(savedRemoteHostName ?? "none")")
     }
@@ -1077,17 +1092,24 @@ final class MIDIEngine: ObservableObject {
         let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
 
         // Look up which notes were actually sent to each channel for this input note
-        if let channelMappings = activeNotes[sourceKey] {
-            for (channelId, processedNotes) in channelMappings {
-                // Find the channel strip by ID
-                if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
-                    for processedNote in processedNotes {
-                        targetChannel.sendMIDI(noteOff: processedNote)
-                    }
+        guard let channelMappings = activeNotes[sourceKey] else { return }
+
+        // If freeze is active, move notes to frozenNotes instead of releasing
+        if isFreezeActive {
+            frozenNotes[sourceKey] = channelMappings
+            activeNotes.removeValue(forKey: sourceKey)
+            return
+        }
+
+        // Normal release - send note-off to all target channels
+        for (channelId, processedNotes) in channelMappings {
+            if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
+                for processedNote in processedNotes {
+                    targetChannel.sendMIDI(noteOff: processedNote)
                 }
             }
-            activeNotes.removeValue(forKey: sourceKey)
         }
+        activeNotes.removeValue(forKey: sourceKey)
     }
     
     private func processCC(cc: UInt8, value: UInt8, channel: UInt8, sourceName: String?) {
@@ -1099,6 +1121,26 @@ final class MIDIEngine: ObservableObject {
                 self?.onCCLearn?(Int(cc), midiChannel, sourceName)
             }
             return
+        }
+
+        // Freeze Learn mode - intercept CC for freeze trigger assignment
+        if isFreezeLearnMode {
+            DispatchQueue.main.async { [weak self] in
+                self?.onFreezeLearn?(Int(cc), midiChannel, sourceName)
+                self?.isFreezeLearnMode = false
+            }
+            return
+        }
+
+        // Check for freeze trigger CC
+        if let triggerCC = freezeTriggerCC, Int(cc) == triggerCC {
+            let channelMatch = freezeTriggerChannel == nil || freezeTriggerChannel == midiChannel
+            let sourceMatch = freezeTriggerSourceName == nil || freezeTriggerSourceName == sourceName
+
+            if channelMatch && sourceMatch {
+                handleFreezeTrigger(value: value)
+                return  // Don't pass freeze CC to instruments
+            }
         }
 
         // Fader control callback (for mapped CC controls)
@@ -1123,7 +1165,60 @@ final class MIDIEngine: ObservableObject {
     private func processPitchBend(lsb: UInt8, msb: UInt8, channel: UInt8, sourceName: String?) {
         // TODO: Implement pitch bend forwarding
     }
-    
+
+    // MARK: - Freeze/Hold
+
+    private func handleFreezeTrigger(value: UInt8) {
+        switch freezeMode {
+        case .sustain:
+            // Sustain mode: active while pedal pressed (value > 63)
+            let wasActive = isFreezeActive
+            isFreezeActive = value > 63
+            if wasActive && !isFreezeActive {
+                releaseFrozenNotes()
+            }
+        case .toggle:
+            // Toggle mode: latch on/off with each press (only on press, not release)
+            if value > 63 {
+                isFreezeActive.toggle()
+                if !isFreezeActive {
+                    releaseFrozenNotes()
+                }
+            }
+        }
+    }
+
+    /// Release all frozen notes by sending note-off to their target channels
+    func releaseFrozenNotes() {
+        guard let audioEngine = audioEngine else { return }
+
+        for (_, channelMappings) in frozenNotes {
+            for (channelId, processedNotes) in channelMappings {
+                if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
+                    for note in processedNotes {
+                        targetChannel.sendMIDI(noteOff: note)
+                    }
+                }
+            }
+        }
+        frozenNotes.removeAll()
+    }
+
+    /// Manually toggle freeze state (for UI button)
+    func toggleFreeze() {
+        isFreezeActive.toggle()
+        if !isFreezeActive {
+            releaseFrozenNotes()
+        }
+    }
+
+    /// Clear freeze trigger mapping
+    func clearFreezeTrigger() {
+        freezeTriggerCC = nil
+        freezeTriggerChannel = nil
+        freezeTriggerSourceName = nil
+    }
+
     // MARK: - Scale Filtering
     
     private func applyScaleFilter(note: UInt8) -> [UInt8] {

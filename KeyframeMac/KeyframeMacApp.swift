@@ -11,6 +11,7 @@ struct KeyframeMacApp: App {
     @StateObject private var sessionStore = MacSessionStore.shared
     @StateObject private var pluginManager = MacPluginManager.shared
     @StateObject private var appearanceManager = AppearanceManager.shared
+    @StateObject private var discovery = KeyframeDiscovery.shared
 
     // App delegate for handling app termination
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -283,6 +284,33 @@ struct KeyframeMacApp: App {
                 }
                 .keyboardShortcut("l", modifiers: .command)
             }
+
+            #if DEBUG
+            // Debug menu (only in debug builds)
+            CommandMenu("Debug") {
+                Button("Run Layout Tests") {
+                    LayoutTests.runAll()
+                }
+
+                Toggle("Show Layout Borders", isOn: Binding(
+                    get: { LayoutDebugger.shared.showBorders },
+                    set: { LayoutDebugger.shared.showBorders = $0 }
+                ))
+
+                Toggle("Highlight Truncation", isOn: Binding(
+                    get: { LayoutDebugger.shared.highlightTruncation },
+                    set: { LayoutDebugger.shared.highlightTruncation = $0 }
+                ))
+
+                Divider()
+
+                Button("Open Audio MIDI Setup") {
+                    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.audio.AudioMIDISetup") {
+                        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+                    }
+                }
+            }
+            #endif
         }
 
         // Setlist performance window
@@ -298,20 +326,9 @@ struct KeyframeMacApp: App {
 
         // Settings window
         Settings {
-            TabView {
-                SettingsView()
-                    .environmentObject(midiEngine)
-                    .environmentObject(audioEngine)
-                    .tabItem {
-                        Label("General", systemImage: "gearshape")
-                    }
-
-                AppearanceSettingsView()
-                    .tabItem {
-                        Label("Appearance", systemImage: "paintbrush")
-                    }
-            }
-            .frame(width: 500, height: 450)
+            SettingsView()
+                .environmentObject(midiEngine)
+                .environmentObject(audioEngine)
         }
     }
 

@@ -27,6 +27,8 @@
 		MAC001018 /* BackingTrackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002020 /* BackingTrackView.swift */; };
 		MAC001019 /* AppearanceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002021 /* AppearanceManager.swift */; };
 		MAC001020 /* TEDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002022 /* TEDesignSystem.swift */; };
+		MAC001021 /* LayoutDebugger.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002023 /* LayoutDebugger.swift */; };
+		MAC001022 /* KeyframeDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002024 /* KeyframeDiscovery.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +55,8 @@
 		MAC002020 /* BackingTrackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackingTrackView.swift; sourceTree = "<group>"; };
 		MAC002021 /* AppearanceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceManager.swift; sourceTree = "<group>"; };
 		MAC002022 /* TEDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TEDesignSystem.swift; sourceTree = "<group>"; };
+		MAC002023 /* LayoutDebugger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutDebugger.swift; sourceTree = "<group>"; };
+		MAC002024 /* KeyframeDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeDiscovery.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,11 +85,29 @@
 				MAC005002 /* Engine */,
 				MAC005003 /* Models */,
 				MAC005004 /* Views */,
+				MAC005007 /* Network */,
+				MAC005006 /* Debug */,
 				MAC002010 /* Assets.xcassets */,
 				MAC002011 /* KeyframeMac.entitlements */,
 				MAC002016 /* Info.plist */,
 			);
 			path = ".";
+			sourceTree = "<group>";
+		};
+		MAC005007 /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				MAC002024 /* KeyframeDiscovery.swift */,
+			);
+			path = Network;
+			sourceTree = "<group>";
+		};
+		MAC005006 /* Debug */ = {
+			isa = PBXGroup;
+			children = (
+				MAC002023 /* LayoutDebugger.swift */,
+			);
+			path = Debug;
 			sourceTree = "<group>";
 		};
 		MAC005002 /* Engine */ = {
@@ -223,6 +245,8 @@
 				MAC001018 /* BackingTrackView.swift in Sources */,
 				MAC001019 /* AppearanceManager.swift in Sources */,
 				MAC001020 /* TEDesignSystem.swift in Sources */,
+				MAC001021 /* LayoutDebugger.swift in Sources */,
+				MAC001022 /* KeyframeDiscovery.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -359,7 +383,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Keyframe Mac";
+				INFOPLIST_KEY_CFBundleDisplayName = Keyframe;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -386,7 +410,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Keyframe Mac";
+				INFOPLIST_KEY_CFBundleDisplayName = Keyframe;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (

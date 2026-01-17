@@ -35,6 +35,12 @@
 	<string>Keyframe uses Bluetooth to connect to wireless MIDI devices like CME WIDI for sending MIDI to external gear.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Keyframe uses Bluetooth to connect to wireless MIDI devices like CME WIDI for sending MIDI to external gear.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_keyframe._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Keyframe uses the local network to discover and connect to Keyframe Mac for remote control.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIRequiredDeviceCapabilities</key>

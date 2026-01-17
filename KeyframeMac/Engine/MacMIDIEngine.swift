@@ -95,7 +95,8 @@ final class MacMIDIEngine: ObservableObject {
         didSet { saveOutputSettings() }
     }
 
-    @Published var isNetworkSessionEnabled: Bool = false {
+    /// Network MIDI for iOS remote - enabled by default for seamless connection
+    @Published var isNetworkSessionEnabled: Bool = true {
         didSet {
             configureNetworkSession()
             saveOutputSettings()
@@ -222,7 +223,14 @@ final class MacMIDIEngine: ObservableObject {
     private func loadOutputSettings() {
         let defaults = UserDefaults.standard
 
-        let networkEnabled = defaults.bool(forKey: networkSessionEnabledKey)
+        // Network MIDI: default to true (enabled) for seamless iOS remote connection
+        // Only disable if user explicitly turned it off
+        if defaults.object(forKey: networkSessionEnabledKey) != nil {
+            isNetworkSessionEnabled = defaults.bool(forKey: networkSessionEnabledKey)
+        } else {
+            // First launch: auto-enable network MIDI
+            isNetworkSessionEnabled = true
+        }
 
         if defaults.object(forKey: externalMIDIChannelKey) != nil {
             externalMIDIChannel = defaults.integer(forKey: externalMIDIChannelKey)
@@ -243,10 +251,6 @@ final class MacMIDIEngine: ObservableObject {
         // Helix auto-connect (default true)
         if defaults.object(forKey: autoConnectHelixKey) != nil {
             autoConnectHelix = defaults.bool(forKey: autoConnectHelixKey)
-        }
-
-        if networkEnabled {
-            isNetworkSessionEnabled = networkEnabled
         }
 
         savedDestinationName = defaults.string(forKey: selectedDestinationKey)

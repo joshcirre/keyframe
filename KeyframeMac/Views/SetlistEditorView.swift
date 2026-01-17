@@ -118,7 +118,7 @@ struct SetlistEditorView: View {
             }
             .padding()
         }
-        .frame(minWidth: 200)
+        .frame(minWidth: 200, idealWidth: 250, maxWidth: 300)
     }
 
     // MARK: - Actions
@@ -440,7 +440,7 @@ struct PresetPickerView: View {
             }
             .padding()
         }
-        .frame(width: 500, height: 500)
+        .frame(minWidth: 500, idealWidth: 550, minHeight: 500, idealHeight: 600)
     }
 }
 
@@ -511,6 +511,6 @@ struct EntryNotesEditor: View {
             }
         }
         .padding()
-        .frame(width: 400, height: 300)
+        .frame(minWidth: 400, idealWidth: 450, minHeight: 280, idealHeight: 350)
     }
 }

@@ -678,7 +678,7 @@ struct PluginBrowserView: View {
                 }
             }
         }
-        .frame(width: 400, height: 500)
+        .frame(minWidth: 400, idealWidth: 450, minHeight: 500, idealHeight: 600)
     }
 
     private var filteredPlugins: [MacPluginInfo] {

@@ -21,18 +21,21 @@
 		8A1B2C3D4E5F6032 /* PluginBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6032 /* PluginBrowserView.swift */; };
 		8A1B2C3D4E5F6033 /* PerformanceSongEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6033 /* PerformanceSongEditorView.swift */; };
 		8A1B2C3D4E5F6034 /* PerformanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6034 /* PerformanceSettingsView.swift */; };
+		8A1B2C3D4E5F6035 /* BluetoothMIDIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */; };
+		8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */; };
 		8A1B2C3D4E5F6040 /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6040 /* AudioEngine.swift */; };
 		8A1B2C3D4E5F6041 /* ChannelStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6041 /* ChannelStrip.swift */; };
 		8A1B2C3D4E5F6042 /* MIDIEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6042 /* MIDIEngine.swift */; };
 		8A1B2C3D4E5F6043 /* AUv3HostManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6043 /* AUv3HostManager.swift */; };
 		8A1B2C3D4E5F6050 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6050 /* Session.swift */; };
-		8A1B2C3D4E5F6035 /* BluetoothMIDIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */; };
-		8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */; };
 		8A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */; };
 		8A1B2C3D4E5F6052 /* AppearanceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6052 /* AppearanceManager.swift */; };
+		8A1B2C3D4E5F6053 /* KeyframeDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6053 /* KeyframeDiscovery.swift */; };
+		EDED6BBB66A8AC89A273DBEE /* LooperEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D55E23330A46FC71FD3C360 /* LooperEngine.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		6D55E23330A46FC71FD3C360 /* LooperEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LooperEngine.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6001 /* KeyframeMKIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeMKIApp.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6005 /* ChordMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordMapView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F600B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -49,15 +52,16 @@
 		9A1B2C3D4E5F6032 /* PluginBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginBrowserView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6033 /* PerformanceSongEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceSongEditorView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6034 /* PerformanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceSettingsView.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothMIDIView.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessageEditorView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6040 /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6041 /* ChannelStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelStrip.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6042 /* MIDIEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIEngine.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6043 /* AUv3HostManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AUv3HostManager.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6050 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
-		9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothMIDIView.swift; sourceTree = "<group>"; };
-		9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessageEditorView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessage.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6052 /* AppearanceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceManager.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6053 /* KeyframeDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeDiscovery.swift; sourceTree = "<group>"; };
 		CA1B2C3D4E5F6000 /* KeyframeMKI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeyframeMKI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -89,6 +93,7 @@
 				GA1B2C3D4E5F6003 /* Models */,
 				GA1B2C3D4E5F6004 /* Services */,
 				GA1B2C3D4E5F6005 /* Engine */,
+				GA1B2C3D4E5F6006 /* Network */,
 				9A1B2C3D4E5F600B /* Assets.xcassets */,
 				9A1B2C3D4E5F600C /* Info.plist */,
 				9A1B2C3D4E5F600D /* KeyframeMKI.entitlements */,
@@ -135,8 +140,17 @@
 				9A1B2C3D4E5F6041 /* ChannelStrip.swift */,
 				9A1B2C3D4E5F6042 /* MIDIEngine.swift */,
 				9A1B2C3D4E5F6043 /* AUv3HostManager.swift */,
+				6D55E23330A46FC71FD3C360 /* LooperEngine.swift */,
 			);
 			path = Engine;
+			sourceTree = "<group>";
+		};
+		GA1B2C3D4E5F6006 /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				9A1B2C3D4E5F6053 /* KeyframeDiscovery.swift */,
+			);
+			path = Network;
 			sourceTree = "<group>";
 		};
 		GA3B2C3D4E5F6001 /* Shared */ = {
@@ -251,6 +265,8 @@
 				8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */,
 				8A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift in Sources */,
 				8A1B2C3D4E5F6052 /* AppearanceManager.swift in Sources */,
+				8A1B2C3D4E5F6053 /* KeyframeDiscovery.swift in Sources */,
+				EDED6BBB66A8AC89A273DBEE /* LooperEngine.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

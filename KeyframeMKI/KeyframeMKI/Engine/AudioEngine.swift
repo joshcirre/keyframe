@@ -47,6 +47,10 @@ final class AudioEngine: ObservableObject {
     // MARK: - Channel Strips
 
     private(set) var channelStrips: [ChannelStrip] = []
+
+    // MARK: - Looper
+
+    private(set) var looper: LooperEngine?
     
     // MARK: - Metering
 
@@ -111,7 +115,12 @@ final class AudioEngine: ObservableObject {
             self?.processMeterData(buffer: buffer)
         }
 
-        print("AudioEngine: Audio graph configured (no default channels)")
+        // Set up looper (records from and plays into master mixer)
+        let looperEngine = LooperEngine(engine: engine)
+        looperEngine.setup(masterMixer: masterMixer)
+        self.looper = looperEngine
+
+        print("AudioEngine: Audio graph configured with looper (no default channels)")
     }
     
     private func connectChannelToMaster(_ channel: ChannelStrip) {
@@ -430,6 +439,9 @@ final class AudioEngine: ObservableObject {
     
     private func processMeterData(buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
+
+        // Feed buffer to looper if it's recording
+        looper?.feedRecordingBuffer(buffer)
 
         let channelCount = Int(buffer.format.channelCount)
         let frameCount = Int(buffer.frameLength)

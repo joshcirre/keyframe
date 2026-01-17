@@ -369,109 +369,111 @@ struct PresetEditorSheet: View {
 
             Divider()
 
-            // Form
-            Form {
-                Section("Basic Info") {
-                    TextField("Preset Name", text: $name)
-                }
-
-                Section("Tempo") {
-                    Toggle("Set BPM", isOn: $useBpm)
-                    if useBpm {
-                        HStack {
-                            Slider(value: $bpm, in: 40...240, step: 1)
-                            TextField("", value: $bpm, format: .number)
-                                .frame(width: 60)
-                                .textFieldStyle(.roundedBorder)
-                            Text("BPM")
-                        }
+            // Form - wrapped in ScrollView for content overflow
+            ScrollView {
+                Form {
+                    Section("Basic Info") {
+                        TextField("Preset Name", text: $name)
                     }
-                }
 
-                Section("Scale Filter") {
-                    Toggle("Set Scale", isOn: $useScale)
-                    if useScale {
-                        Picker("Root Note", selection: $rootNote) {
-                            ForEach(NoteName.allCases, id: \.self) { note in
-                                Text(note.rawValue).tag(note)
-                            }
-                        }
-                        Picker("Scale", selection: $scale) {
-                            ForEach(ScaleType.allCases, id: \.self) { scaleType in
-                                Text(scaleType.displayName).tag(scaleType)
+                    Section("Tempo") {
+                        Toggle("Set BPM", isOn: $useBpm)
+                        if useBpm {
+                            HStack {
+                                Slider(value: $bpm, in: 40...240, step: 1)
+                                TextField("", value: $bpm, format: .number)
+                                    .frame(width: 60)
+                                    .textFieldStyle(.roundedBorder)
+                                Text("BPM")
                             }
                         }
                     }
-                }
 
-                Section("Channel States") {
-                    Toggle("Capture Current Channel States", isOn: $captureChannelStates)
-                    Text("Saves volume, pan, mute, and solo settings for all channels")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Section("External MIDI") {
-                    if externalMIDIMessages.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("No MIDI messages configured")
-                                .foregroundColor(.secondary)
-                                .font(.caption)
-
-                            // Helix quick setup if no messages yet
-                            HStack {
-                                Image(systemName: "guitars")
-                                    .foregroundColor(.orange)
-                                Text("Helix Quick Setup:")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                            }
-                            Button(action: { applyHelixDefaults() }) {
-                                Label("Use Helix Defaults (Preset \(currentPresetIndex + 1))", systemImage: "wand.and.stars")
-                            }
-                            .help("Adds CC32 (User 1), PC \(currentPresetIndex), CC69 (Snap 1)")
-                        }
-                    } else {
-                        ForEach(externalMIDIMessages) { message in
-                            HStack {
-                                Text(message.displayDescription)
-                                    .font(.system(.body, design: .monospaced))
-                                Spacer()
-                                Button(action: { removeMessage(message) }) {
-                                    Image(systemName: "minus.circle")
-                                        .foregroundColor(.red)
+                    Section("Scale Filter") {
+                        Toggle("Set Scale", isOn: $useScale)
+                        if useScale {
+                            Picker("Root Note", selection: $rootNote) {
+                                ForEach(NoteName.allCases, id: \.self) { note in
+                                    Text(note.rawValue).tag(note)
                                 }
-                                .buttonStyle(.plain)
+                            }
+                            Picker("Scale", selection: $scale) {
+                                ForEach(ScaleType.allCases, id: \.self) { scaleType in
+                                    Text(scaleType.displayName).tag(scaleType)
+                                }
                             }
                         }
                     }
 
-                    HStack(spacing: 12) {
-                        Button(action: { showingMIDIEditor = true }) {
-                            Label("Add MIDI Message", systemImage: "plus")
-                        }
-
-                        Button(action: { showingHelixPicker = true }) {
-                            Label("Add Helix Preset", systemImage: "guitars")
-                        }
-                        .help("Add Helix setlist/preset/snapshot messages")
-
-                        if !externalMIDIMessages.isEmpty {
-                            Button(action: { applyHelixDefaults() }) {
-                                Label("Helix Defaults", systemImage: "wand.and.stars")
-                            }
-                            .help("Replace with Helix defaults for preset \(currentPresetIndex + 1)")
-                        }
+                    Section("Channel States") {
+                        Toggle("Capture Current Channel States", isOn: $captureChannelStates)
+                        Text("Saves volume, pan, mute, and solo settings for all channels")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
 
-                    Text("MIDI messages sent to external devices (Helix, etc.) when this preset is selected")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Section("External MIDI") {
+                        if externalMIDIMessages.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("No MIDI messages configured")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+
+                                // Helix quick setup if no messages yet
+                                HStack {
+                                    Image(systemName: "guitars")
+                                        .foregroundColor(.orange)
+                                    Text("Helix Quick Setup:")
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                }
+                                Button(action: { applyHelixDefaults() }) {
+                                    Label("Use Helix Defaults (Preset \(currentPresetIndex + 1))", systemImage: "wand.and.stars")
+                                }
+                                .help("Adds CC32 (User 1), PC \(currentPresetIndex), CC69 (Snap 1)")
+                            }
+                        } else {
+                            ForEach(externalMIDIMessages) { message in
+                                HStack {
+                                    Text(message.displayDescription)
+                                        .font(.system(.body, design: .monospaced))
+                                    Spacer()
+                                    Button(action: { removeMessage(message) }) {
+                                        Image(systemName: "minus.circle")
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+
+                        HStack(spacing: 12) {
+                            Button(action: { showingMIDIEditor = true }) {
+                                Label("Add MIDI Message", systemImage: "plus")
+                            }
+
+                            Button(action: { showingHelixPicker = true }) {
+                                Label("Add Helix Preset", systemImage: "guitars")
+                            }
+                            .help("Add Helix setlist/preset/snapshot messages")
+
+                            if !externalMIDIMessages.isEmpty {
+                                Button(action: { applyHelixDefaults() }) {
+                                    Label("Helix Defaults", systemImage: "wand.and.stars")
+                                }
+                                .help("Replace with Helix defaults for preset \(currentPresetIndex + 1)")
+                            }
+                        }
+
+                        Text("MIDI messages sent to external devices (Helix, etc.) when this preset is selected")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
+                .padding()
             }
-            .padding()
         }
-        .frame(width: 450, height: 550)
+        .frame(minWidth: 450, idealWidth: 500, minHeight: 550, idealHeight: 650)
         .onAppear {
             if let preset = preset {
                 name = preset.name
@@ -615,7 +617,7 @@ struct ExternalMIDIMessageEditorSheet: View {
             }
             .padding()
         }
-        .frame(width: 350, height: 350)
+        .frame(minWidth: 350, idealWidth: 400, minHeight: 320, idealHeight: 380)
     }
 
     private var previewDescription: String {
@@ -731,7 +733,7 @@ struct HelixPresetPickerSheet: View {
             }
             .padding()
         }
-        .frame(width: 400, height: 480)
+        .frame(minWidth: 400, idealWidth: 450, minHeight: 450, idealHeight: 520)
     }
 
     private var previewMessages: [ExternalMIDIMessage] {

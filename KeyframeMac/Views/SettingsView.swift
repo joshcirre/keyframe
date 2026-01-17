@@ -2,379 +2,680 @@ import SwiftUI
 import CoreMIDI
 import CoreAudio
 
+// MARK: - Settings Navigation
+
+/// Settings category for sidebar navigation
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case midi = "MIDI"
+    case audio = "Audio"
+    case network = "Network"
+    case mappings = "Mappings"
+    case triggers = "Triggers"
+    case appearance = "Appearance"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .midi: return "pianokeys"
+        case .audio: return "speaker.wave.3"
+        case .network: return "network"
+        case .mappings: return "slider.horizontal.below.rectangle"
+        case .triggers: return "bolt.circle"
+        case .appearance: return "paintbrush"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .midi: return "MIDI input/output and devices"
+        case .audio: return "Audio output and engine"
+        case .network: return "Network MIDI for iOS remote"
+        case .mappings: return "MIDI CC mappings"
+        case .triggers: return "Preset trigger mappings"
+        case .appearance: return "Visual style and theme"
+        }
+    }
+}
+
+// MARK: - Main Settings View
+
 /// Settings/Preferences window for the macOS app
+/// Uses NavigationSplitView for proper macOS sidebar navigation
 struct SettingsView: View {
     @EnvironmentObject var midiEngine: MacMIDIEngine
     @EnvironmentObject var audioEngine: MacAudioEngine
 
+    @State private var selectedCategory: SettingsCategory = .midi
+
     var body: some View {
-        TabView {
-            // MIDI Settings
-            MIDISettingsView()
-                .environmentObject(midiEngine)
-                .tabItem {
-                    Label("MIDI", systemImage: "pianokeys")
+        NavigationSplitView {
+            // Sidebar with categories
+            List(SettingsCategory.allCases, selection: $selectedCategory) { category in
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(category.rawValue)
+                            .font(.body)
+                        Text(category.description)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: category.icon)
+                        .foregroundColor(.accentColor)
                 }
+                .tag(category)
+                .padding(.vertical, 4)
+            }
+            .listStyle(.sidebar)
+            .frame(minWidth: 180, idealWidth: 200)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 250)
+        } detail: {
+            // Detail view for selected category
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Header
+                    HStack {
+                        Image(systemName: selectedCategory.icon)
+                            .font(.title2)
+                            .foregroundColor(.accentColor)
+                        Text(selectedCategory.rawValue)
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+                    .padding()
 
-            // MIDI Mappings
-            MIDIMappingsView()
-                .environmentObject(midiEngine)
-                .tabItem {
-                    Label("Mappings", systemImage: "slider.horizontal.below.rectangle")
-                }
+                    Divider()
 
-            // Audio Settings
-            AudioSettingsView()
-                .environmentObject(audioEngine)
-                .tabItem {
-                    Label("Audio", systemImage: "speaker.wave.3")
+                    // Content
+                    settingsContent(for: selectedCategory)
+                        .padding()
                 }
-
-            // Network/Remote
-            NetworkSettingsView()
-                .environmentObject(midiEngine)
-                .tabItem {
-                    Label("Network", systemImage: "network")
-                }
-
-            // Appearance
-            AppearanceSettingsView()
-                .tabItem {
-                    Label("Appearance", systemImage: "paintbrush")
-                }
-
-            // Preset Triggers
-            PresetTriggerMappingsView()
-                .environmentObject(midiEngine)
-                .tabItem {
-                    Label("Triggers", systemImage: "bolt.circle")
-                }
+            }
+            .frame(minWidth: 450, idealWidth: 500)
         }
-        .frame(width: 550, height: 500)
+        .frame(minWidth: 650, idealWidth: 700, minHeight: 500, idealHeight: 600)
+    }
+
+    @ViewBuilder
+    private func settingsContent(for category: SettingsCategory) -> some View {
+        switch category {
+        case .midi:
+            MIDISettingsContent()
+                .environmentObject(midiEngine)
+        case .audio:
+            AudioSettingsContent()
+                .environmentObject(audioEngine)
+        case .network:
+            NetworkSettingsContent()
+                .environmentObject(midiEngine)
+        case .mappings:
+            MIDIMappingsContent()
+                .environmentObject(midiEngine)
+        case .triggers:
+            PresetTriggerMappingsContent()
+                .environmentObject(midiEngine)
+        case .appearance:
+            AppearanceSettingsContent()
+        }
     }
 }
 
-// MARK: - MIDI Settings
+// MARK: - MIDI Settings Content
 
-struct MIDISettingsView: View {
+struct MIDISettingsContent: View {
     @EnvironmentObject var midiEngine: MacMIDIEngine
 
     var body: some View {
-        Form {
-            Section("MIDI Sources") {
-                if midiEngine.connectedSources.isEmpty {
-                    Text("No MIDI sources connected")
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(midiEngine.connectedSources) { source in
-                        HStack {
-                            Image(systemName: source.isConnected ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(source.isConnected ? .green : .secondary)
-                            Text(source.name)
+        VStack(alignment: .leading, spacing: 24) {
+            // Quick Actions
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Quick Actions")
+                            .font(.headline)
+                        Spacer()
+                    }
+
+                    HStack(spacing: 12) {
+                        Button(action: openMIDISetup) {
+                            Label("Open Audio MIDI Setup", systemImage: "gear")
+                        }
+                        .help("Opens macOS Audio MIDI Setup to configure MIDI devices")
+
+                        Button(action: { midiEngine.connectToAllSources() }) {
+                            Label("Refresh Devices", systemImage: "arrow.clockwise")
                         }
                     }
                 }
-
-                Button("Refresh Sources") {
-                    midiEngine.connectToAllSources()
-                }
+                .padding(4)
             }
 
-            Section("MIDI Output") {
-                // Helix detection status
-                if let helix = midiEngine.detectedHelix {
+            // MIDI Sources
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Image(systemName: "guitars.fill")
-                            .foregroundColor(.green)
-                        Text("Helix Detected: \(helix.name)")
-                            .foregroundColor(.green)
+                        Text("MIDI Sources")
+                            .font(.headline)
                         Spacer()
-                        if !midiEngine.isConnectedToHelix {
-                            Button("Connect") {
-                                midiEngine.connectToHelix()
+                        Text("\(midiEngine.connectedSources.count) connected")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if midiEngine.connectedSources.isEmpty {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text("No MIDI sources detected. Connect a MIDI device or enable Network MIDI.")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 8)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(midiEngine.connectedSources) { source in
+                                HStack(spacing: 8) {
+                                    Image(systemName: source.isConnected ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(source.isConnected ? .green : .secondary)
+                                    Text(source.name)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer()
+                                }
                             }
-                            .buttonStyle(.bordered)
-                        } else {
-                            Text("Connected")
+                        }
+                    }
+                }
+                .padding(4)
+            }
+
+            // MIDI Output
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("MIDI Output")
+                        .font(.headline)
+
+                    // Helix detection
+                    if let helix = midiEngine.detectedHelix {
+                        HStack(spacing: 8) {
+                            Image(systemName: "guitars.fill")
+                                .foregroundColor(.green)
+                            Text("Helix Detected: \(helix.name)")
+                                .foregroundColor(.green)
+                            Spacer()
+                            if !midiEngine.isConnectedToHelix {
+                                Button("Connect") {
+                                    midiEngine.connectToHelix()
+                                }
+                                .buttonStyle(.bordered)
+                            } else {
+                                Label("Connected", systemImage: "checkmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            }
+                        }
+                        .padding(8)
+                        .background(Color.green.opacity(0.1))
+                        .cornerRadius(6)
+                    }
+
+                    Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
+                        GridRow {
+                            Text("Destination")
+                                .gridColumnAlignment(.trailing)
+                            Picker("", selection: $midiEngine.selectedDestinationEndpoint) {
+                                Text("None").tag(nil as MIDIEndpointRef?)
+                                ForEach(midiEngine.availableDestinations) { dest in
+                                    HStack {
+                                        if dest.name.lowercased().contains("helix") || dest.name.lowercased().contains("hx ") {
+                                            Image(systemName: "guitars")
+                                        }
+                                        Text(dest.name)
+                                    }
+                                    .tag(dest.endpoint as MIDIEndpointRef?)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 250)
+                        }
+
+                        GridRow {
+                            Text("Channel")
+                            Picker("", selection: $midiEngine.externalMIDIChannel) {
+                                ForEach(1...16, id: \.self) { ch in
+                                    Text("Channel \(ch)").tag(ch)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 150)
+                        }
+
+                        GridRow {
+                            Text("Auto-connect")
+                            Toggle("Automatically connect to Helix when detected", isOn: $midiEngine.autoConnectHelix)
+                                .toggleStyle(.checkbox)
+                        }
+                    }
+
+                    Button(action: { midiEngine.refreshDestinations() }) {
+                        Label("Refresh Destinations", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(4)
+            }
+
+            // External Tempo Sync
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("External Tempo Sync")
+                        .font(.headline)
+
+                    Toggle("Enable Tap Tempo CC", isOn: $midiEngine.isExternalTempoSyncEnabled)
+                        .toggleStyle(.checkbox)
+
+                    if midiEngine.isExternalTempoSyncEnabled {
+                        HStack {
+                            Text("CC Number:")
+                            Stepper(value: $midiEngine.tapTempoCC, in: 0...127) {
+                                Text("\(midiEngine.tapTempoCC)")
+                                    .monospacedDigit()
+                                    .frame(width: 40)
+                            }
+                        }
+
+                        Text("Sends tap tempo CC to sync external devices (like Helix) with preset BPM.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(4)
+            }
+
+            // External Preset Trigger
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("External Preset Trigger")
+                        .font(.headline)
+
+                    Toggle("Enable Program Change preset selection", isOn: $midiEngine.isExternalPresetTriggerEnabled)
+                        .toggleStyle(.checkbox)
+
+                    if midiEngine.isExternalPresetTriggerEnabled {
+                        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                            GridRow {
+                                Text("Channel")
+                                    .gridColumnAlignment(.trailing)
+                                Picker("", selection: $midiEngine.externalPresetTriggerChannel) {
+                                    ForEach(1...15, id: \.self) { ch in
+                                        Text("Channel \(ch)").tag(ch)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(maxWidth: 150)
+                            }
+
+                            GridRow {
+                                Text("Source")
+                                Picker("", selection: $midiEngine.externalPresetTriggerSource) {
+                                    Text("Any Source").tag(nil as String?)
+                                    ForEach(midiEngine.connectedSources) { source in
+                                        Text(source.name).tag(source.name as String?)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(maxWidth: 200)
+                            }
+                        }
+
+                        Text("Program Change on this channel selects Keyframe presets and triggers external MIDI. Channel 16 is reserved for iOS remote.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(4)
+            }
+
+            // ChordPad
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("ChordPad")
+                        .font(.headline)
+
+                    Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Source")
+                                .gridColumnAlignment(.trailing)
+                            Picker("", selection: $midiEngine.chordPadSourceName) {
+                                Text("Disabled").tag(nil as String?)
+                                ForEach(midiEngine.connectedSources) { source in
+                                    Text(source.name).tag(source.name as String?)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 200)
+                        }
+
+                        GridRow {
+                            Text("Channel")
+                            Picker("", selection: $midiEngine.chordPadChannel) {
+                                ForEach(1...16, id: \.self) { ch in
+                                    Text("Channel \(ch)").tag(ch)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 150)
+                        }
+                    }
+                }
+                .padding(4)
+            }
+
+            Spacer()
+        }
+    }
+
+    private func openMIDISetup() {
+        // Open Audio MIDI Setup.app
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.audio.AudioMIDISetup") {
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                if let error = error {
+                    print("Failed to open Audio MIDI Setup: \(error)")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Audio Settings Content
+
+struct AudioSettingsContent: View {
+    @EnvironmentObject var audioEngine: MacAudioEngine
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            // Engine Status
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Engine Status")
+                            .font(.headline)
+                        Spacer()
+                        Circle()
+                            .fill(audioEngine.isRunning ? Color.green : Color.red)
+                            .frame(width: 10, height: 10)
+                        Text(audioEngine.isRunning ? "Running" : "Stopped")
+                            .foregroundColor(audioEngine.isRunning ? .green : .red)
+                    }
+
+                    HStack(spacing: 16) {
+                        Button(audioEngine.isRunning ? "Stop Engine" : "Start Engine") {
+                            if audioEngine.isRunning {
+                                audioEngine.stop()
+                            } else {
+                                audioEngine.start()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("Panic (All Notes Off)") {
+                            audioEngine.panicAllNotesOff()
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                    }
+
+                    Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
+                        GridRow {
+                            Text("CPU Load")
+                                .foregroundColor(.secondary)
+                            Text("\(Int(audioEngine.cpuUsage))%")
+                                .monospacedDigit()
+                                .foregroundColor(audioEngine.cpuUsage > 80 ? .red : .primary)
+                        }
+
+                        GridRow {
+                            Text("Peak Level")
+                                .foregroundColor(.secondary)
+                            Text(String(format: "%.1f dB", audioEngine.peakLevel))
+                                .monospacedDigit()
+                        }
+
+                        GridRow {
+                            Text("Active Channels")
+                                .foregroundColor(.secondary)
+                            Text("\(audioEngine.channelStrips.count)")
+                                .monospacedDigit()
+                        }
+                    }
+                }
+                .padding(4)
+            }
+
+            // Output Device
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Output Device")
+                            .font(.headline)
+                        Spacer()
+                        Button(action: { audioEngine.refreshOutputDevices() }) {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    Picker("Audio Output", selection: $audioEngine.selectedOutputDeviceID) {
+                        Text("System Default").tag(nil as AudioDeviceID?)
+                        ForEach(audioEngine.availableOutputDevices) { device in
+                            Text(device.name).tag(device.id as AudioDeviceID?)
+                        }
+                    }
+                    .labelsHidden()
+
+                    if let deviceID = audioEngine.selectedOutputDeviceID,
+                       let device = audioEngine.availableOutputDevices.first(where: { $0.id == deviceID }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Using: \(device.name)")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
-                    .padding(.vertical, 4)
                 }
+                .padding(4)
+            }
 
-                Picker("Destination", selection: $midiEngine.selectedDestinationEndpoint) {
-                    Text("None").tag(nil as MIDIEndpointRef?)
-                    ForEach(midiEngine.availableDestinations) { dest in
-                        HStack {
-                            if dest.name.lowercased().contains("helix") || dest.name.lowercased().contains("hx ") {
-                                Image(systemName: "guitars")
+            // Tempo
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Tempo")
+                        .font(.headline)
+
+                    Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Host Tempo")
+                                .foregroundColor(.secondary)
+                            HStack {
+                                Text("\(Int(audioEngine.currentTempo))")
+                                    .monospacedDigit()
+                                    .frame(width: 40, alignment: .trailing)
+                                Text("BPM")
+                                    .foregroundColor(.secondary)
                             }
-                            Text(dest.name)
                         }
-                        .tag(dest.endpoint as MIDIEndpointRef?)
-                    }
-                }
 
-                Picker("Channel", selection: $midiEngine.externalMIDIChannel) {
-                    ForEach(1...16, id: \.self) { ch in
-                        Text("Ch \(ch)").tag(ch)
-                    }
-                }
-
-                Toggle("Auto-connect to Helix", isOn: $midiEngine.autoConnectHelix)
-                    .help("Automatically select Helix as MIDI destination when detected")
-
-                Button("Refresh Destinations") {
-                    midiEngine.refreshDestinations()
-                }
-            }
-
-            Section("External Tempo Sync") {
-                Toggle("Enable Tap Tempo Sync", isOn: $midiEngine.isExternalTempoSyncEnabled)
-
-                if midiEngine.isExternalTempoSyncEnabled {
-                    Stepper("CC Number: \(midiEngine.tapTempoCC)", value: $midiEngine.tapTempoCC, in: 0...127)
-                }
-            }
-
-            Section("External Preset Trigger") {
-                Toggle("Enable Preset Trigger", isOn: $midiEngine.isExternalPresetTriggerEnabled)
-
-                if midiEngine.isExternalPresetTriggerEnabled {
-                    Picker("Trigger Channel", selection: $midiEngine.externalPresetTriggerChannel) {
-                        ForEach(1...15, id: \.self) { ch in
-                            Text("Ch \(ch)").tag(ch)
+                        GridRow {
+                            Text("Transport")
+                                .foregroundColor(.secondary)
+                            HStack(spacing: 4) {
+                                Image(systemName: audioEngine.isTransportPlaying ? "play.fill" : "stop.fill")
+                                    .foregroundColor(audioEngine.isTransportPlaying ? .green : .secondary)
+                                Text(audioEngine.isTransportPlaying ? "Playing" : "Stopped")
+                            }
                         }
                     }
-                    .help("Channel 16 is reserved for iOS remote control")
-
-                    Picker("Source Filter", selection: $midiEngine.externalPresetTriggerSource) {
-                        Text("Any Source").tag(nil as String?)
-                        ForEach(midiEngine.connectedSources) { source in
-                            Text(source.name).tag(source.name as String?)
-                        }
-                    }
-
-                    Text("Program Change messages on this channel will select Keyframe presets and trigger external MIDI messages (Helix, etc.)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
+                .padding(4)
             }
 
-            Section("ChordPad") {
-                Picker("Source", selection: $midiEngine.chordPadSourceName) {
-                    Text("Disabled").tag(nil as String?)
-                    ForEach(midiEngine.connectedSources) { source in
-                        Text(source.name).tag(source.name as String?)
-                    }
-                }
-
-                Picker("Channel", selection: $midiEngine.chordPadChannel) {
-                    ForEach(1...16, id: \.self) { ch in
-                        Text("Ch \(ch)").tag(ch)
-                    }
-                }
-            }
+            Spacer()
         }
-        .padding()
     }
 }
 
-// MARK: - Audio Settings
+// MARK: - Network Settings Content
 
-struct AudioSettingsView: View {
-    @EnvironmentObject var audioEngine: MacAudioEngine
-
-    var body: some View {
-        Form {
-            Section("Output Device") {
-                Picker("Audio Output", selection: $audioEngine.selectedOutputDeviceID) {
-                    Text("System Default").tag(nil as AudioDeviceID?)
-                    ForEach(audioEngine.availableOutputDevices) { device in
-                        Text(device.name).tag(device.id as AudioDeviceID?)
-                    }
-                }
-
-                Button("Refresh Devices") {
-                    audioEngine.refreshOutputDevices()
-                }
-
-                if let deviceID = audioEngine.selectedOutputDeviceID,
-                   let device = audioEngine.availableOutputDevices.first(where: { $0.id == deviceID }) {
-                    Text("Selected: \(device.name)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Section("Engine Status") {
-                HStack {
-                    Circle()
-                        .fill(audioEngine.isRunning ? Color.green : Color.red)
-                        .frame(width: 10, height: 10)
-                    Text(audioEngine.isRunning ? "Running" : "Stopped")
-
-                    Spacer()
-
-                    Button(audioEngine.isRunning ? "Stop" : "Start") {
-                        if audioEngine.isRunning {
-                            audioEngine.stop()
-                        } else {
-                            audioEngine.start()
-                        }
-                    }
-                }
-
-                LabeledContent("CPU Load") {
-                    Text("\(Int(audioEngine.cpuUsage))%")
-                        .monospacedDigit()
-                        .foregroundColor(audioEngine.cpuUsage > 80 ? .red : .primary)
-                }
-
-                LabeledContent("Peak Level") {
-                    Text(String(format: "%.1f dB", audioEngine.peakLevel))
-                        .monospacedDigit()
-                }
-            }
-
-            Section("Tempo") {
-                HStack {
-                    Text("Host Tempo")
-                    Spacer()
-                    TextField("BPM", value: .constant(audioEngine.currentTempo), format: .number)
-                        .frame(width: 80)
-                        .textFieldStyle(.roundedBorder)
-                    Text("BPM")
-                }
-
-                Toggle("Transport Playing", isOn: .constant(audioEngine.isTransportPlaying))
-                    .disabled(true)
-            }
-
-            Section("Channels") {
-                LabeledContent("Active Channels") {
-                    Text("\(audioEngine.channelStrips.count)")
-                }
-
-                Button("Panic (All Notes Off)") {
-                    audioEngine.panicAllNotesOff()
-                }
-            }
-        }
-        .padding()
-    }
-}
-
-// MARK: - Network Settings
-
-struct NetworkSettingsView: View {
+struct NetworkSettingsContent: View {
     @EnvironmentObject var midiEngine: MacMIDIEngine
 
     var body: some View {
-        Form {
-            Section("Network MIDI") {
-                Toggle("Enable Network MIDI Session", isOn: $midiEngine.isNetworkSessionEnabled)
-
-                if midiEngine.isNetworkSessionEnabled {
-                    LabeledContent("Session Name") {
-                        Text(midiEngine.networkSessionName)
-                            .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 24) {
+            // Network MIDI
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Network MIDI")
+                            .font(.headline)
+                        Spacer()
+                        if midiEngine.isNetworkSessionEnabled {
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(Color.green)
+                                    .frame(width: 8, height: 8)
+                                Text("Active")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            }
+                        }
                     }
 
-                    Text("iOS devices can connect to this Mac via Network MIDI to send remote commands.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Toggle("Enable Network MIDI Session", isOn: $midiEngine.isNetworkSessionEnabled)
+                        .toggleStyle(.checkbox)
+
+                    if midiEngine.isNetworkSessionEnabled {
+                        HStack {
+                            Text("Session Name:")
+                                .foregroundColor(.secondary)
+                            Text(midiEngine.networkSessionName)
+                                .fontWeight(.medium)
+                        }
+
+                        Text("iOS devices can connect to this Mac via Network MIDI to send remote control commands.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
+                .padding(4)
             }
 
-            Section("iOS Remote Control") {
-                Text("When an iOS device connects:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            // iOS Remote Control Protocol
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("iOS Remote Control Protocol")
+                        .font(.headline)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("• Program Change on Ch 16 → Select preset")
-                    Text("• CC 1-99 on Ch 16 → Channel volume")
-                    Text("• CC 101-199 on Ch 16 → Channel mute")
-                    Text("• CC 120 value 1 on Ch 16 → Request session sync")
+                    Text("When an iOS device running Keyframe connects via Network MIDI:")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        protocolRow(message: "Program Change on Ch 16", action: "Select preset by index")
+                        protocolRow(message: "CC 1-99 on Ch 16", action: "Set channel volume")
+                        protocolRow(message: "CC 101-199 on Ch 16", action: "Toggle channel mute")
+                        protocolRow(message: "CC 120 value 1 on Ch 16", action: "Request session sync")
+                    }
+                    .padding(8)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .cornerRadius(6)
                 }
+                .padding(4)
+            }
+
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private func protocolRow(message: String, action: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("•")
+                .foregroundColor(.accentColor)
+            Text(message)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundColor(.primary)
+            Text("→")
+                .foregroundColor(.secondary)
+            Text(action)
                 .font(.caption)
                 .foregroundColor(.secondary)
-            }
         }
-        .padding()
     }
 }
 
-// MARK: - MIDI Mappings Settings
+// MARK: - MIDI Mappings Content
 
-struct MIDIMappingsView: View {
+struct MIDIMappingsContent: View {
     @EnvironmentObject var midiEngine: MacMIDIEngine
     @State private var selectedMapping: MIDICCMapping?
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 16) {
             // Header
             HStack {
-                Text("MIDI CC Mappings")
-                    .font(.headline)
-
-                Spacer()
-
-                // Learning indicator
                 if midiEngine.learningTarget != nil {
                     HStack(spacing: 4) {
-                        Circle()
-                            .fill(Color.orange)
-                            .frame(width: 8, height: 8)
+                        ProgressView()
+                            .scaleEffect(0.7)
                         Text("Learning...")
                             .foregroundColor(.orange)
                         Button("Cancel") {
                             midiEngine.cancelMIDILearn()
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
-                    .font(.caption)
                 }
 
-                Button(action: clearAllMappings) {
-                    Text("Clear All")
+                Spacer()
+
+                Button("Clear All") {
+                    clearAllMappings()
                 }
                 .disabled(midiEngine.midiMappings.isEmpty)
             }
-            .padding()
-
-            Divider()
 
             // Mappings list
             if midiEngine.midiMappings.isEmpty {
-                VStack(spacing: 12) {
-                    Spacer()
+                VStack(spacing: 16) {
                     Image(systemName: "slider.horizontal.below.rectangle")
-                        .font(.largeTitle)
+                        .font(.system(size: 48))
                         .foregroundColor(.secondary)
                     Text("No MIDI Mappings")
                         .font(.headline)
                     Text("Right-click a fader or control in the mixer to learn a MIDI CC mapping.")
-                        .font(.caption)
+                        .font(.callout)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
-                    Spacer()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
             } else {
-                List(midiEngine.midiMappings, selection: $selectedMapping) { mapping in
-                    MappingRowView(mapping: mapping) {
-                        midiEngine.removeMapping(mapping)
+                LazyVStack(spacing: 8) {
+                    ForEach(midiEngine.midiMappings) { mapping in
+                        MappingRow(mapping: mapping) {
+                            midiEngine.removeMapping(mapping)
+                        }
                     }
                 }
             }
 
-            Divider()
+            Spacer()
 
-            // Footer with info
+            // Footer
             HStack {
                 Image(systemName: "info.circle")
                     .foregroundColor(.secondary)
@@ -386,13 +687,10 @@ struct MIDIMappingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
         }
     }
 
     private func clearAllMappings() {
-        // Show confirmation
         let alert = NSAlert()
         alert.messageText = "Clear All MIDI Mappings?"
         alert.informativeText = "This will remove all \(midiEngine.midiMappings.count) MIDI CC mappings."
@@ -407,21 +705,24 @@ struct MIDIMappingsView: View {
     }
 }
 
-// MARK: - Mapping Row View
+// MARK: - Mapping Row
 
-struct MappingRowView: View {
+struct MappingRow: View {
     let mapping: MIDICCMapping
     let onDelete: () -> Void
 
     var body: some View {
-        HStack {
-            // CC info
+        HStack(spacing: 12) {
+            // Target icon
+            targetIcon
+                .frame(width: 32)
+
+            // Info
             VStack(alignment: .leading, spacing: 2) {
                 Text(mapping.displayName)
                     .font(.body)
 
                 HStack(spacing: 8) {
-                    // CC number
                     Text("CC \(mapping.cc)")
                         .font(.caption)
                         .padding(.horizontal, 6)
@@ -429,7 +730,6 @@ struct MappingRowView: View {
                         .background(Color.blue.opacity(0.2))
                         .cornerRadius(4)
 
-                    // Channel
                     if let ch = mapping.channel {
                         Text("Ch \(ch)")
                             .font(.caption)
@@ -440,29 +740,27 @@ struct MappingRowView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    // Source
                     if let source = mapping.sourceName {
                         Text(source)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                 }
             }
 
             Spacer()
 
-            // Target type icon
-            targetIcon
-
-            // Delete button
             Button(action: onDelete) {
                 Image(systemName: "trash")
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.borderless)
         }
-        .padding(.vertical, 4)
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(8)
     }
 
     @ViewBuilder
@@ -487,123 +785,112 @@ struct MappingRowView: View {
     }
 }
 
-// MARK: - Preset Trigger Mappings View
+// MARK: - Preset Trigger Mappings Content
 
-struct PresetTriggerMappingsView: View {
+struct PresetTriggerMappingsContent: View {
     @EnvironmentObject var midiEngine: MacMIDIEngine
     @ObservedObject private var sessionStore = MacSessionStore.shared
     @State private var selectedMapping: PresetTriggerMapping?
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 16) {
             // Header
             HStack {
-                Text("Preset Trigger Mappings")
-                    .font(.headline)
-
-                Spacer()
-
-                // Learning indicator
-                if midiEngine.presetTriggerLearnTarget != nil {
+                if let target = midiEngine.presetTriggerLearnTarget {
                     HStack(spacing: 4) {
-                        Circle()
-                            .fill(Color.orange)
-                            .frame(width: 8, height: 8)
-                        Text("Learning '\(midiEngine.presetTriggerLearnTarget!.presetName)'...")
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Learning '\(target.presetName)'...")
                             .foregroundColor(.orange)
                         Button("Cancel") {
                             midiEngine.cancelPresetTriggerLearn()
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
-                    .font(.caption)
                 }
 
-                Button(action: clearAllMappings) {
-                    Text("Clear All")
+                Spacer()
+
+                Button("Clear All") {
+                    clearAllMappings()
                 }
                 .disabled(midiEngine.presetTriggerMappings.isEmpty)
             }
-            .padding()
-
-            Divider()
 
             // Mappings list
             if midiEngine.presetTriggerMappings.isEmpty {
-                VStack(spacing: 12) {
-                    Spacer()
+                VStack(spacing: 16) {
                     Image(systemName: "bolt.circle")
-                        .font(.largeTitle)
+                        .font(.system(size: 48))
                         .foregroundColor(.secondary)
                     Text("No Preset Triggers")
                         .font(.headline)
                     Text("MIDI Learn a preset to trigger it with a Program Change, Control Change, or Note.")
-                        .font(.caption)
+                        .font(.callout)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal)
 
                     Divider()
                         .padding(.vertical, 8)
 
-                    Text("How to add a trigger:")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("How to add a trigger:")
+                            .font(.callout)
+                            .fontWeight(.medium)
                         Text("1. Right-click a preset in the Preset Grid")
                         Text("2. Select \"Learn MIDI Trigger\"")
                         Text("3. Send a MIDI message (PC, CC, or Note)")
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
-
-                    Spacer()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
             } else {
-                List(midiEngine.presetTriggerMappings, selection: $selectedMapping) { mapping in
-                    PresetTriggerMappingRowView(mapping: mapping) {
-                        midiEngine.removePresetTriggerMapping(mapping)
-                    }
-                }
-            }
-
-            Divider()
-
-            // Footer with preset list for learning
-            VStack(spacing: 8) {
-                HStack {
-                    Text("Quick Learn:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(sessionStore.currentSession.presets.enumerated()), id: \.element.id) { index, preset in
-                            Button(action: {
-                                midiEngine.startPresetTriggerLearn(forPresetIndex: index, presetName: preset.name)
-                            }) {
-                                Text(preset.name)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(midiEngine.presetTriggerLearnTarget != nil)
+                LazyVStack(spacing: 8) {
+                    ForEach(midiEngine.presetTriggerMappings) { mapping in
+                        PresetTriggerRow(mapping: mapping) {
+                            midiEngine.removePresetTriggerMapping(mapping)
                         }
                     }
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
 
-            // Info footer
+            Spacer()
+
+            // Quick Learn section
+            if !sessionStore.currentSession.presets.isEmpty {
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Quick Learn")
+                            .font(.headline)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(Array(sessionStore.currentSession.presets.enumerated()), id: \.element.id) { index, preset in
+                                    Button(action: {
+                                        midiEngine.startPresetTriggerLearn(forPresetIndex: index, presetName: preset.name)
+                                    }) {
+                                        Text(preset.name)
+                                            .font(.caption)
+                                            .lineLimit(1)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(midiEngine.presetTriggerLearnTarget != nil)
+                                }
+                            }
+                        }
+                    }
+                    .padding(4)
+                }
+            }
+
+            // Footer
             HStack {
                 Image(systemName: "info.circle")
                     .foregroundColor(.secondary)
-                Text("Mappings are saved with your session. Triggers work with PC, CC (value ≥64), or Note On.")
+                Text("Triggers work with PC, CC (value ≥64), or Note On. Saved with session.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()
@@ -611,8 +898,6 @@ struct PresetTriggerMappingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
         }
     }
 
@@ -631,37 +916,38 @@ struct PresetTriggerMappingsView: View {
     }
 }
 
-// MARK: - Preset Trigger Mapping Row
+// MARK: - Preset Trigger Row
 
-struct PresetTriggerMappingRowView: View {
+struct PresetTriggerRow: View {
     let mapping: PresetTriggerMapping
     let onDelete: () -> Void
 
     var body: some View {
-        HStack {
-            // Trigger info
+        HStack(spacing: 12) {
+            // Trigger type icon
+            Image(systemName: triggerTypeIcon)
+                .foregroundColor(triggerTypeColor)
+                .frame(width: 32)
+
+            // Info
             VStack(alignment: .leading, spacing: 2) {
                 Text(mapping.displayName)
                     .font(.body)
 
                 HStack(spacing: 8) {
-                    // Trigger type badge
-                    HStack(spacing: 2) {
-                        Image(systemName: triggerTypeIcon)
-                        Text(mapping.triggerDescription)
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(triggerTypeColor.opacity(0.2))
-                    .cornerRadius(4)
+                    Text(mapping.triggerDescription)
+                        .font(.caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(triggerTypeColor.opacity(0.2))
+                        .cornerRadius(4)
 
-                    // Source
                     if let source = mapping.sourceName {
                         Text(source)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .lineLimit(1)
+                            .truncationMode(.middle)
                     } else {
                         Text("Any Source")
                             .font(.caption)
@@ -672,19 +958,19 @@ struct PresetTriggerMappingRowView: View {
 
             Spacer()
 
-            // Preset index
             Text("→ Preset \(mapping.presetIndex + 1)")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            // Delete button
             Button(action: onDelete) {
                 Image(systemName: "trash")
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.borderless)
         }
-        .padding(.vertical, 4)
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(8)
     }
 
     private var triggerTypeIcon: String {
@@ -709,3 +995,92 @@ struct PresetTriggerMappingRowView: View {
         }
     }
 }
+
+// MARK: - Appearance Settings Content
+
+struct AppearanceSettingsContent: View {
+    @ObservedObject var appearanceManager = AppearanceManager.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            // Visual Style
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Visual Style")
+                        .font(.headline)
+
+                    Picker("Theme", selection: $appearanceManager.currentTheme) {
+                        ForEach(AppTheme.allCases, id: \.self) { theme in
+                            HStack {
+                                Image(systemName: theme.icon)
+                                Text(theme.displayName)
+                            }
+                            .tag(theme)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+
+                    Text(themeDescription)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    HStack {
+                        Spacer()
+                        AppearancePreview(theme: appearanceManager.currentTheme)
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                }
+                .padding(4)
+            }
+
+            // Light/Dark Mode
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Light/Dark Mode")
+                        .font(.headline)
+
+                    Picker("Mode", selection: $appearanceManager.currentAppearance) {
+                        ForEach(AppAppearance.allCases, id: \.self) { appearance in
+                            HStack {
+                                Image(systemName: appearance.icon)
+                                Text(appearance.displayName)
+                            }
+                            .tag(appearance)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    HStack(spacing: 8) {
+                        Image(systemName: appearanceManager.isDarkMode ? "moon.fill" : "sun.max.fill")
+                            .foregroundColor(appearanceManager.isDarkMode ? .yellow : .orange)
+                        Text(appearanceManager.isDarkMode ? "Dark Mode Active" : "Light Mode Active")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(4)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var themeDescription: String {
+        switch appearanceManager.currentTheme {
+        case .native:
+            return "Uses standard macOS styling with system colors and rounded corners."
+        case .te:
+            return "Teenage Engineering-inspired brutalist design with cream/orange colors and sharp corners."
+        }
+    }
+}
+
+// MARK: - Legacy View Aliases (for compatibility)
+
+typealias MIDISettingsView = MIDISettingsContent
+typealias AudioSettingsView = AudioSettingsContent
+typealias NetworkSettingsView = NetworkSettingsContent
+typealias MIDIMappingsView = MIDIMappingsContent
+typealias PresetTriggerMappingsView = PresetTriggerMappingsContent
+typealias MappingRowView = MappingRow
+typealias PresetTriggerMappingRowView = PresetTriggerRow

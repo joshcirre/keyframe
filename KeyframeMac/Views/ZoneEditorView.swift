@@ -182,34 +182,26 @@ struct ZoneDetailEditor: View {
             }
 
             Section("Note Range") {
-                // Low note picker
-                HStack {
-                    Text("Low Note")
-                    Spacer()
-                    Picker("", selection: $zone.lowNote) {
-                        ForEach(0..<128, id: \.self) { note in
-                            Text(KeyboardZone.noteName(for: note))
-                                .tag(note)
-                        }
+                // Low note picker - using menu picker for 128 items
+                Picker("Low Note", selection: $zone.lowNote) {
+                    ForEach(0..<128, id: \.self) { note in
+                        Text(KeyboardZone.noteName(for: note))
+                            .tag(note)
                     }
-                    .frame(width: 100)
                 }
+                .pickerStyle(.menu)
 
                 // High note picker
-                HStack {
-                    Text("High Note")
-                    Spacer()
-                    Picker("", selection: $zone.highNote) {
-                        ForEach(0..<128, id: \.self) { note in
-                            Text(KeyboardZone.noteName(for: note))
-                                .tag(note)
-                        }
+                Picker("High Note", selection: $zone.highNote) {
+                    ForEach(0..<128, id: \.self) { note in
+                        Text(KeyboardZone.noteName(for: note))
+                            .tag(note)
                     }
-                    .frame(width: 100)
                 }
+                .pickerStyle(.menu)
 
                 // Range display
-                Text("Range: \(zone.highNote - zone.lowNote + 1) notes")
+                Text("Range: \(zone.highNote - zone.lowNote + 1) notes (\(KeyboardZone.noteName(for: zone.lowNote)) → \(KeyboardZone.noteName(for: zone.highNote)))")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
