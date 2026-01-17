@@ -3,14 +3,38 @@ import Network
 import Combine
 
 /// Represents a preset synced from the Mac app
-struct RemotePreset: Codable, Identifiable, Equatable {
+struct RemotePreset: Identifiable, Equatable {
     let id: UUID
     let name: String
     let songName: String?
     let rootNote: Int?
     let scale: String?
-    let bpm: Double?
+    let bpm: Int?
     let order: Int
+
+    /// Initialize from JSON dictionary (handles type mismatches)
+    init?(from dict: [String: Any]) {
+        // ID can be String (from Mac) - convert to UUID
+        guard let idString = dict["id"] as? String,
+              let id = UUID(uuidString: idString) else { return nil }
+        guard let name = dict["name"] as? String else { return nil }
+        guard let order = dict["order"] as? Int else { return nil }
+
+        self.id = id
+        self.name = name
+        self.order = order
+        self.songName = dict["songName"] as? String
+        self.rootNote = dict["rootNote"] as? Int
+        self.scale = dict["scale"] as? String
+        // BPM can be Int or Double from Mac
+        if let bpmInt = dict["bpm"] as? Int {
+            self.bpm = bpmInt
+        } else if let bpmDouble = dict["bpm"] as? Double {
+            self.bpm = Int(bpmDouble)
+        } else {
+            self.bpm = nil
+        }
+    }
 }
 
 /// Connection state for the remote
@@ -311,11 +335,9 @@ final class KeyframeRemote: ObservableObject {
     private func processMessage(_ json: [String: Any]) {
         // Handle preset sync
         if let presetsData = json["presets"] as? [[String: Any]] {
-            let decoder = JSONDecoder()
-            if let data = try? JSONSerialization.data(withJSONObject: presetsData),
-               let decoded = try? decoder.decode([RemotePreset].self, from: data) {
-                presets = decoded.sorted { $0.order < $1.order }
-            }
+            let decoded = presetsData.compactMap { RemotePreset(from: $0) }
+            presets = decoded.sorted { $0.order < $1.order }
+            print("KeyframeRemote: Received \(presets.count) presets")
         }
 
         // Handle active preset update

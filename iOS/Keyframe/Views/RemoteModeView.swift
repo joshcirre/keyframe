@@ -116,7 +116,7 @@ struct RemoteModeView: View {
         GeometryReader { geometry in
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
-                    // Fullscreen preset grid
+                    // Fullscreen preset grid (dark theme)
                     RemotePresetGridView(
                         presets: remote.presets,
                         activeIndex: remote.activePresetIndex,
@@ -127,13 +127,14 @@ struct RemoteModeView: View {
                         }
                     )
                     .padding(.top, 44)  // Room for control buttons overlay
-                    .background(TEColors.cream)
+                    .background(TEColors.black)
 
-                    // Status bar
+                    // Status bar (dark theme)
                     RemoteStatusBar(
                         macName: name,
                         presetCount: remote.presets.count,
-                        activeIndex: remote.activePresetIndex
+                        activeIndex: remote.activePresetIndex,
+                        masterVolume: remote.masterVolume
                     )
                 }
 
@@ -152,12 +153,12 @@ struct RemoteModeView: View {
                     .frame(width: 8, height: 8)
                 Text("LIVE")
                     .font(TEFonts.mono(9, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundColor(TEColors.cream)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(TEColors.cream.opacity(0.9))
-            .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 1))
+            .background(TEColors.darkGray)
+            .overlay(Rectangle().strokeBorder(TEColors.midGray, lineWidth: 1))
 
             // Close button
             Button {
@@ -166,10 +167,10 @@ struct RemoteModeView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundColor(TEColors.cream)
                     .frame(width: 28, height: 28)
-                    .background(TEColors.cream.opacity(0.9))
-                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                    .background(TEColors.darkGray)
+                    .overlay(Rectangle().strokeBorder(TEColors.midGray, lineWidth: 2))
             }
         }
         .padding(.top, 8)
@@ -326,7 +327,7 @@ struct RemotePresetGridView: View {
     }
 }
 
-// MARK: - Remote Preset Grid Button
+// MARK: - Remote Preset Grid Button (Dark Theme)
 
 struct RemotePresetGridButton: View {
     let preset: RemotePreset
@@ -349,7 +350,7 @@ struct RemotePresetGridButton: View {
                         // Preset name (main)
                         Text(preset.name.uppercased())
                             .font(TEFonts.mono(nameFontSize, weight: .black))
-                            .foregroundColor(isActive ? .white : TEColors.black)
+                            .foregroundColor(isActive ? .white : TEColors.cream)
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
                             .minimumScaleFactor(0.5)
@@ -383,11 +384,11 @@ struct RemotePresetGridButton: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: 0)
-                        .fill(isActive ? TEColors.orange : TEColors.warmWhite)
+                        .fill(isActive ? TEColors.orange : TEColors.darkGray.opacity(0.5))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 0)
-                        .strokeBorder(TEColors.black, lineWidth: isActive ? 3 : 2)
+                        .strokeBorder(isActive ? TEColors.cream : TEColors.midGray, lineWidth: isActive ? 3 : 1)
                 )
                 .scaleEffect(isPressed ? 0.96 : 1.0)
                 .animation(.easeOut(duration: 0.1), value: isPressed)
@@ -402,12 +403,13 @@ struct RemotePresetGridButton: View {
     }
 }
 
-// MARK: - Remote Status Bar
+// MARK: - Remote Status Bar (Dark Theme)
 
 struct RemoteStatusBar: View {
     let macName: String
     let presetCount: Int
     let activeIndex: Int?
+    var masterVolume: Float = 1.0
 
     var body: some View {
         HStack(spacing: 16) {
@@ -419,31 +421,41 @@ struct RemoteStatusBar: View {
 
                 Text("REMOTE")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundColor(TEColors.cream)
             }
 
             // Mac name
             Text(macName.uppercased())
                 .font(TEFonts.mono(10, weight: .medium))
-                .foregroundColor(TEColors.darkGray)
+                .foregroundColor(TEColors.midGray)
 
             Spacer()
+
+            // Master volume
+            HStack(spacing: 4) {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(TEColors.midGray)
+                Text("\(Int(masterVolume * 100))")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(TEColors.cream)
+            }
 
             // Preset count
             if let index = activeIndex {
                 Text("\(index + 1)/\(presetCount)")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundColor(TEColors.cream)
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(height: 32)
-        .background(TEColors.warmWhite)
+        .background(TEColors.darkGray)
         .overlay(
             Rectangle()
-                .frame(height: 2)
-                .foregroundColor(TEColors.black),
+                .frame(height: 1)
+                .foregroundColor(TEColors.midGray),
             alignment: .top
         )
     }

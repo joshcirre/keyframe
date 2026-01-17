@@ -42,9 +42,14 @@ final class MacAudioEngine: ObservableObject {
     private let pluginLoadQueue = DispatchQueue(label: "com.keyframe.mac.pluginLoad")
     private let outputDeviceKey = "mac.selectedOutputDevice"
 
+    /// Callback when master volume changes (for iOS sync)
+    var onMasterVolumeChanged: ((Float) -> Void)?
+
     @Published var masterVolume: Float = 1.0 {
         didSet {
             masterMixer.outputVolume = masterVolume
+            // Broadcast to iOS (if callback is set)
+            onMasterVolumeChanged?(masterVolume)
         }
     }
 

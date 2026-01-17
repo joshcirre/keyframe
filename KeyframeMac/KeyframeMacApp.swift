@@ -34,6 +34,16 @@ struct KeyframeMacApp: App {
             KeyframeDiscovery.shared.broadcastActivePreset(presetIndex)
         }
 
+        // Set up master volume broadcast to iOS (when Mac user changes volume)
+        MacAudioEngine.shared.onMasterVolumeChanged = { volume in
+            // Only broadcast if not suppressed (to prevent infinite loops)
+            if !MacSessionStore.shared.suppressBroadcast {
+                KeyframeDiscovery.shared.broadcastMasterVolume(volume)
+                // Also save to session
+                MacSessionStore.shared.currentSession.masterVolume = volume
+            }
+        }
+
         // Set up AU state sync callback - captures instrument/effect presets before saving
         MacSessionStore.shared.onSyncAUState = {
             let audioEngine = MacAudioEngine.shared
@@ -211,10 +221,11 @@ struct KeyframeMacApp: App {
 
         KeyframeDiscovery.shared.onMasterVolumeChanged = { volume in
             DispatchQueue.main.async {
+                // Suppress broadcast to prevent loops (iOS sent this, don't broadcast back)
+                MacSessionStore.shared.suppressBroadcast = true
                 MacAudioEngine.shared.masterVolume = volume
                 MacSessionStore.shared.currentSession.masterVolume = volume
-                // Broadcast back to keep iOS in sync
-                KeyframeDiscovery.shared.broadcastMasterVolume(volume)
+                MacSessionStore.shared.suppressBroadcast = false
             }
         }
 
