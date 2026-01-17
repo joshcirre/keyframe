@@ -50,6 +50,7 @@ struct PerformanceView: View {
     @State private var isChannelsLocked = false
     @State private var isInitializing = true
     @AppStorage("performModeSplitRatio") private var splitRatio: Double = 0.6  // Presets take 60% by default
+    @AppStorage("isPresetsOnlyMode") private var isPresetsOnlyMode = false  // Hide faders, show only presets
     
     var body: some View {
         ZStack {
@@ -184,87 +185,138 @@ struct PerformanceView: View {
         .background(TEColors.warmWhite)
     }
     
-    // MARK: - Perform Mode Content (Fullscreen: adjustable presets/faders split)
+    // MARK: - Perform Mode Content (Fullscreen: adjustable presets/faders split or presets-only)
 
     private var performModeContent: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topTrailing) {
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        // Left: Song Presets as squares (no long-press edit in perform mode)
-                        SongGridView(
-                            songs: sessionStore.currentSession.songs,
-                            activeSongId: sessionStore.currentSession.activeSongId,
-                            isEditMode: false,
-                            onSelectSong: { song in selectSong(song) },
-                            onEditSong: { _ in },
-                            onAddSong: { }
-                        )
-                        .frame(width: geometry.size.width * CGFloat(splitRatio))
-                        .background(TEColors.cream)
-
-                        // Draggable Divider
-                        DraggableDivider(splitRatio: $splitRatio, totalWidth: geometry.size.width)
-
-                        // Right: Channel Faders (aligned to bottom)
-                        VStack {
-                            Spacer()
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(alignment: .bottom, spacing: 8) {
-                                    ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
-                                        PerformChannelStrip(
-                                            channel: channel,
-                                            config: sessionStore.currentSession.channels[safe: index],
-                                            isLocked: isChannelsLocked,
-                                            onEdit: {
-                                                selectedChannelIndex = index
-                                                showingChannelDetail = true
-                                            }
-                                        )
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.bottom, 8)
-                            }
-                        }
-                    }
-
-                    // Minimal status bar
-                    MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine)
+                if isPresetsOnlyMode {
+                    presetsOnlyContent
+                } else {
+                    splitViewContent(geometry: geometry)
                 }
 
-                // Lock and Close buttons (top-right)
-                HStack(spacing: 6) {
-                    // Lock button
-                    Button {
-                        isChannelsLocked.toggle()
-                    } label: {
-                        Image(systemName: isChannelsLocked ? "lock.fill" : "lock.open")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(isChannelsLocked ? .white : TEColors.black)
-                            .frame(width: 28, height: 28)
-                            .background(isChannelsLocked ? TEColors.black : TEColors.cream.opacity(0.9))
-                            .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
-                    }
-
-                    // Close button
-                    Button {
-                        withAnimation(.easeOut(duration: 0.15)) {
-                            viewMode = .edit
-                        }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(TEColors.black)
-                            .frame(width: 28, height: 28)
-                            .background(TEColors.cream.opacity(0.9))
-                            .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
-                    }
-                }
-                .padding(.top, 8)
-                .padding(.trailing, 8)
+                // Control buttons (top-right)
+                performModeButtons
             }
         }
+    }
+
+    // MARK: - Split View Content (Presets + Faders)
+
+    private func splitViewContent(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                // Left: Song Presets as squares (no long-press edit in perform mode)
+                SongGridView(
+                    songs: sessionStore.currentSession.songs,
+                    activeSongId: sessionStore.currentSession.activeSongId,
+                    isEditMode: false,
+                    onSelectSong: { song in selectSong(song) },
+                    onEditSong: { _ in },
+                    onAddSong: { }
+                )
+                .frame(width: geometry.size.width * CGFloat(splitRatio))
+                .background(TEColors.cream)
+
+                // Draggable Divider
+                DraggableDivider(splitRatio: $splitRatio, totalWidth: geometry.size.width)
+
+                // Right: Channel Faders (aligned to bottom)
+                VStack {
+                    Spacer()
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .bottom, spacing: 8) {
+                            ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
+                                PerformChannelStrip(
+                                    channel: channel,
+                                    config: sessionStore.currentSession.channels[safe: index],
+                                    isLocked: isChannelsLocked,
+                                    onEdit: {
+                                        selectedChannelIndex = index
+                                        showingChannelDetail = true
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                    }
+                }
+            }
+
+            // Minimal status bar
+            MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine)
+        }
+    }
+
+    // MARK: - Presets Only Content (Fullscreen presets, no faders)
+
+    private var presetsOnlyContent: some View {
+        VStack(spacing: 0) {
+            SongGridView(
+                songs: sessionStore.currentSession.songs,
+                activeSongId: sessionStore.currentSession.activeSongId,
+                isEditMode: false,
+                onSelectSong: { song in selectSong(song) },
+                onEditSong: { _ in },
+                onAddSong: { }
+            )
+            .background(TEColors.cream)
+
+            // Minimal status bar
+            MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine)
+        }
+    }
+
+    // MARK: - Perform Mode Buttons (top-right overlay)
+
+    private var performModeButtons: some View {
+        HStack(spacing: 6) {
+            // Presets-only toggle
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    isPresetsOnlyMode.toggle()
+                }
+            } label: {
+                Image(systemName: isPresetsOnlyMode ? "slider.horizontal.3" : "square.grid.2x2")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(TEColors.black)
+                    .frame(width: 28, height: 28)
+                    .background(TEColors.cream.opacity(0.9))
+                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+            }
+
+            // Lock button (only visible when faders are shown)
+            if !isPresetsOnlyMode {
+                Button {
+                    isChannelsLocked.toggle()
+                } label: {
+                    Image(systemName: isChannelsLocked ? "lock.fill" : "lock.open")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(isChannelsLocked ? .white : TEColors.black)
+                        .frame(width: 28, height: 28)
+                        .background(isChannelsLocked ? TEColors.black : TEColors.cream.opacity(0.9))
+                        .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                }
+            }
+
+            // Close button
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    viewMode = .edit
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(TEColors.black)
+                    .frame(width: 28, height: 28)
+                    .background(TEColors.cream.opacity(0.9))
+                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+            }
+        }
+        .padding(.top, 8)
+        .padding(.trailing, 8)
     }
     
     // MARK: - Edit Mode Content (Original layout with clickable channels)
