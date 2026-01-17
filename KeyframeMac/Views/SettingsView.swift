@@ -30,7 +30,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .midi: return "MIDI input/output and devices"
         case .audio: return "Audio output and engine"
-        case .network: return "Network MIDI for iOS remote"
+        case .network: return "iOS remote connection"
         case .mappings: return "MIDI CC mappings"
         case .triggers: return "Preset trigger mappings"
         case .appearance: return "Visual style and theme"
@@ -109,7 +109,6 @@ struct SettingsView: View {
                 .environmentObject(audioEngine)
         case .network:
             NetworkSettingsContent()
-                .environmentObject(midiEngine)
         case .mappings:
             MIDIMappingsContent()
                 .environmentObject(midiEngine)
@@ -530,67 +529,80 @@ struct AudioSettingsContent: View {
 // MARK: - Network Settings Content
 
 struct NetworkSettingsContent: View {
-    @EnvironmentObject var midiEngine: MacMIDIEngine
+    @ObservedObject private var discovery = KeyframeDiscovery.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            // Network MIDI
+            // iOS Remote Status
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("Network MIDI")
+                        Text("iOS Remote")
                             .font(.headline)
                         Spacer()
-                        if midiEngine.isNetworkSessionEnabled {
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(Color.green)
-                                    .frame(width: 8, height: 8)
-                                Text("Active")
-                                    .font(.caption)
-                                    .foregroundColor(.green)
-                            }
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(discovery.isAdvertising ? Color.green : Color.orange)
+                                .frame(width: 8, height: 8)
+                            Text(discovery.isAdvertising ? "Ready" : "Starting...")
+                                .font(.caption)
+                                .foregroundColor(discovery.isAdvertising ? .green : .orange)
                         }
                     }
 
-                    Toggle("Enable Network MIDI Session", isOn: $midiEngine.isNetworkSessionEnabled)
-                        .toggleStyle(.checkbox)
-
-                    if midiEngine.isNetworkSessionEnabled {
-                        HStack {
-                            Text("Session Name:")
-                                .foregroundColor(.secondary)
-                            Text(midiEngine.networkSessionName)
-                                .fontWeight(.medium)
-                        }
-
-                        Text("iOS devices can connect to this Mac via Network MIDI to send remote control commands.")
-                            .font(.caption)
+                    if discovery.isAdvertising {
+                        Text("Keyframe is discoverable by iOS devices on your local network.")
+                            .font(.callout)
                             .foregroundColor(.secondary)
+
+                        if discovery.hasConnectediOS {
+                            Divider()
+
+                            HStack(spacing: 8) {
+                                Image(systemName: "iphone")
+                                    .foregroundColor(.green)
+                                Text("iOS Connected")
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.green)
+                            }
+
+                            ForEach(discovery.connectedDevices, id: \.self) { device in
+                                HStack {
+                                    Text("•")
+                                        .foregroundColor(.secondary)
+                                    Text(device)
+                                        .font(.system(.caption, design: .monospaced))
+                                }
+                            }
+                        } else {
+                            HStack(spacing: 8) {
+                                Image(systemName: "iphone.slash")
+                                    .foregroundColor(.secondary)
+                                Text("No iOS devices connected")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
                 }
                 .padding(4)
             }
 
-            // iOS Remote Control Protocol
+            // Instructions
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("iOS Remote Control Protocol")
+                    Text("How to Connect")
                         .font(.headline)
 
-                    Text("When an iOS device running Keyframe connects via Network MIDI:")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        protocolRow(message: "Program Change on Ch 16", action: "Select preset by index")
-                        protocolRow(message: "CC 1-99 on Ch 16", action: "Set channel volume")
-                        protocolRow(message: "CC 101-199 on Ch 16", action: "Toggle channel mute")
-                        protocolRow(message: "CC 120 value 1 on Ch 16", action: "Request session sync")
+                    VStack(alignment: .leading, spacing: 8) {
+                        instructionRow(number: "1", text: "Open Keyframe on your iPhone or iPad")
+                        instructionRow(number: "2", text: "Tap \"Remote Mode\"")
+                        instructionRow(number: "3", text: "Your Mac will appear automatically")
                     }
-                    .padding(8)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(6)
+
+                    Text("Both devices must be on the same Wi-Fi network.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 4)
                 }
                 .padding(4)
             }
@@ -600,18 +612,15 @@ struct NetworkSettingsContent: View {
     }
 
     @ViewBuilder
-    private func protocolRow(message: String, action: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text("•")
-                .foregroundColor(.accentColor)
-            Text(message)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.primary)
-            Text("→")
-                .foregroundColor(.secondary)
-            Text(action)
-                .font(.caption)
-                .foregroundColor(.secondary)
+    private func instructionRow(number: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(number)
+                .font(.system(.caption, design: .rounded).bold())
+                .foregroundColor(.white)
+                .frame(width: 20, height: 20)
+                .background(Circle().fill(Color.accentColor))
+            Text(text)
+                .font(.callout)
         }
     }
 }
