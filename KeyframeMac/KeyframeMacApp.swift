@@ -28,10 +28,16 @@ struct KeyframeMacApp: App {
         MacMIDIEngine.shared.setAudioEngine(MacAudioEngine.shared)
         MacMIDIEngine.shared.setSessionStore(MacSessionStore.shared)
 
-        // Set up preset change broadcast to iOS
+        // Set up preset change broadcast to iOS (legacy)
         MacSessionStore.shared.onPresetChanged = { presetIndex in
             // Broadcast via TCP to connected iOS devices
             KeyframeDiscovery.shared.broadcastActivePreset(presetIndex)
+        }
+
+        // Set up section change broadcast to iOS (new song→section model)
+        MacSessionStore.shared.onSectionChanged = { globalIndex in
+            // Broadcast via TCP to connected iOS devices
+            KeyframeDiscovery.shared.broadcastActivePreset(globalIndex)
         }
 
         // Set up master volume broadcast to iOS (when Mac user changes volume)
@@ -161,26 +167,35 @@ struct KeyframeMacApp: App {
         }
 
         // Set up KeyframeDiscovery callbacks for iOS remote control
-        KeyframeDiscovery.shared.onPresetSelected = { presetIndex in
+        // iOS sends a global section index - convert to song/section
+        KeyframeDiscovery.shared.onPresetSelected = { globalIndex in
             DispatchQueue.main.async {
                 let sessionStore = MacSessionStore.shared
                 let audioEngine = MacAudioEngine.shared
                 let midiEngine = MacMIDIEngine.shared
 
+                // Convert global index to song/section indices
+                guard let (songIndex, sectionIndex) = KeyframeDiscovery.shared.findSongAndSection(at: globalIndex) else {
+                    print("KeyframeMacApp: Invalid section index \(globalIndex)")
+                    return
+                }
+
                 let songs = sessionStore.currentSession.songs
-                guard presetIndex < songs.count else { return }
+                guard songIndex < songs.count else { return }
+                let song = songs[songIndex]
+                guard sectionIndex < song.sections.count else { return }
+                let section = song.sections[sectionIndex]
 
                 // Smooth note-off: release all active notes before switching
                 midiEngine.releaseAllActiveNotes()
 
                 // Suppress broadcast since this change came from iOS
                 sessionStore.suppressBroadcast = true
-                sessionStore.currentSongId = songs[presetIndex].id
+                sessionStore.currentSongId = song.id
+                sessionStore.currentSectionIndex = sectionIndex
                 sessionStore.suppressBroadcast = false
 
-                let song = songs[presetIndex]
-
-                // Apply song settings
+                // Apply song-level settings (BPM, key)
                 if let bpm = song.bpm {
                     audioEngine.setTempo(bpm)
                     midiEngine.currentBPM = Int(bpm)
@@ -192,10 +207,26 @@ struct KeyframeMacApp: App {
                     midiEngine.currentScaleType = scale
                 }
 
-                // Send external MIDI messages
+                // Apply section-level settings (channel states, external MIDI)
+                let spilloverEnabled = sessionStore.currentSession.spilloverEnabled
+                for channelState in section.channelStates {
+                    if let channel = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                        channel.applyStateWithSpillover(
+                            volume: channelState.volume,
+                            pan: channelState.pan,
+                            mute: channelState.isMuted,
+                            spilloverEnabled: spilloverEnabled
+                        )
+                        channel.isSoloed = channelState.isSoloed
+                    }
+                }
+
+                // Send section's external MIDI messages
+                midiEngine.sendExternalMIDIMessages(section.externalMIDIMessages)
+                // Also send song-level external MIDI messages
                 midiEngine.sendExternalMIDIMessages(song.externalMIDIMessages)
 
-                print("KeyframeMacApp: iOS remote selected song '\(song.name)' (index \(presetIndex))")
+                print("KeyframeMacApp: iOS remote selected '\(song.name) > \(section.name)' (global index \(globalIndex))")
             }
         }
 

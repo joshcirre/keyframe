@@ -238,29 +238,10 @@ final class KeyframeDiscovery: ObservableObject {
         })
     }
 
-    /// Send presets (songs) to a specific connection
+    /// Send sections as presets to iOS (flattened from all songs)
     private func sendPresetsToConnection(_ connection: NWConnection) {
         let store = MacSessionStore.shared
-        let songs = store.currentSession.songs
-
-        // Convert songs to preset format for iOS
-        let presetData: [[String: Any]] = songs.enumerated().map { index, song in
-            var data: [String: Any] = [
-                "id": song.id.uuidString,
-                "name": song.name,
-                "order": song.order
-            ]
-            if let rootNote = song.rootNote { data["rootNote"] = rootNote.rawValue }
-            if let scale = song.scale { data["scale"] = scale.rawValue }
-            if let bpm = song.bpm { data["bpm"] = Int(bpm) }
-            return data
-        }
-
-        // Find active song index
-        var activeIndex: Int? = nil
-        if let currentSongId = store.currentSongId {
-            activeIndex = songs.firstIndex { $0.id == currentSongId }
-        }
+        let (presetData, activeIndex) = buildPresetData(store: store)
 
         let message: [String: Any] = [
             "presets": presetData,
@@ -269,7 +250,7 @@ final class KeyframeDiscovery: ObservableObject {
         ]
 
         sendMessage(message, to: connection)
-        print("KeyframeDiscovery: Sent \(songs.count) presets to iOS")
+        print("KeyframeDiscovery: Sent \(presetData.count) sections to iOS")
     }
 
     // MARK: - Broadcast to All Connected Devices
@@ -277,24 +258,7 @@ final class KeyframeDiscovery: ObservableObject {
     /// Broadcast current state to all connected iOS devices
     func broadcastState() {
         let store = MacSessionStore.shared
-        let songs = store.currentSession.songs
-
-        let presetData: [[String: Any]] = songs.enumerated().map { index, song in
-            var data: [String: Any] = [
-                "id": song.id.uuidString,
-                "name": song.name,
-                "order": song.order
-            ]
-            if let rootNote = song.rootNote { data["rootNote"] = rootNote.rawValue }
-            if let scale = song.scale { data["scale"] = scale.rawValue }
-            if let bpm = song.bpm { data["bpm"] = Int(bpm) }
-            return data
-        }
-
-        var activeIndex: Int? = nil
-        if let currentSongId = store.currentSongId {
-            activeIndex = songs.firstIndex { $0.id == currentSongId }
-        }
+        let (presetData, activeIndex) = buildPresetData(store: store)
 
         let message: [String: Any] = [
             "presets": presetData,
@@ -305,6 +269,56 @@ final class KeyframeDiscovery: ObservableObject {
         for connection in connections where connection.state == .ready {
             sendMessage(message, to: connection)
         }
+    }
+
+    /// Build flattened section data for iOS
+    /// Sections are the actual "presets" - songs are just containers with BPM/key
+    private func buildPresetData(store: MacSessionStore) -> (presets: [[String: Any]], activeIndex: Int?) {
+        var presetData: [[String: Any]] = []
+        var globalIndex = 0
+        var activeIndex: Int? = nil
+
+        for song in store.currentSession.songs {
+            for (sectionIndex, section) in song.sections.enumerated() {
+                var data: [String: Any] = [
+                    "id": section.id.uuidString,
+                    "name": section.name,
+                    "order": globalIndex,
+                    "songName": song.name  // Parent song name as secondary title
+                ]
+                // BPM and key come from the parent song
+                if let rootNote = song.rootNote { data["rootNote"] = rootNote.rawValue }
+                if let scale = song.scale { data["scale"] = scale.rawValue }
+                if let bpm = song.bpm { data["bpm"] = Int(bpm) }
+
+                presetData.append(data)
+
+                // Check if this is the active section
+                if store.currentSongId == song.id && store.currentSectionIndex == sectionIndex {
+                    activeIndex = globalIndex
+                }
+
+                globalIndex += 1
+            }
+        }
+
+        return (presetData, activeIndex)
+    }
+
+    /// Convert global preset index to song/section indices
+    func findSongAndSection(at globalIndex: Int) -> (songIndex: Int, sectionIndex: Int)? {
+        let store = MacSessionStore.shared
+        var currentIndex = 0
+
+        for (songIndex, song) in store.currentSession.songs.enumerated() {
+            for sectionIndex in 0..<song.sections.count {
+                if currentIndex == globalIndex {
+                    return (songIndex, sectionIndex)
+                }
+                currentIndex += 1
+            }
+        }
+        return nil
     }
 
     /// Broadcast just the active preset change

@@ -24,13 +24,45 @@ final class MacSessionStore: ObservableObject {
     }
 
     /// Current song ID (for Song→Section model)
-    @Published var currentSongId: UUID?
+    @Published var currentSongId: UUID? {
+        didSet {
+            if !suppressBroadcast {
+                notifySectionChanged()
+            }
+        }
+    }
 
     /// Current section index within the current song
-    @Published var currentSectionIndex: Int?
+    @Published var currentSectionIndex: Int? {
+        didSet {
+            if !suppressBroadcast {
+                notifySectionChanged()
+            }
+        }
+    }
 
     /// Callback when preset index changes - used for iOS sync
     var onPresetChanged: ((Int) -> Void)?
+
+    /// Callback when section changes - used for iOS sync (passes global index)
+    var onSectionChanged: ((Int) -> Void)?
+
+    /// Calculate and broadcast global section index
+    private func notifySectionChanged() {
+        guard let songId = currentSongId,
+              let sectionIndex = currentSectionIndex else { return }
+
+        // Calculate global index
+        var globalIndex = 0
+        for song in currentSession.songs {
+            if song.id == songId {
+                globalIndex += sectionIndex
+                onSectionChanged?(globalIndex)
+                return
+            }
+            globalIndex += song.sections.count
+        }
+    }
 
     /// Callback to sync AudioUnit state before saving - captures instrument/effect presets
     var onSyncAUState: (() -> Void)?
