@@ -23,6 +23,7 @@ struct ExternalMIDIMessageEditorView: View {
                 // Content
                 ScrollView {
                     VStack(spacing: 24) {
+                        nameSection
                         helixPresetsSection
                         typeSection
                         dataSection
@@ -64,12 +65,35 @@ struct ExternalMIDIMessageEditorView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(TEColors.orange)
+                    .background(message.name.isEmpty ? TEColors.midGray : TEColors.orange)
             }
+            .disabled(message.name.isEmpty)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .background(TEColors.warmWhite)
+    }
+
+    // MARK: - Name Section
+
+    private var nameSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("NAME")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+
+            TextField("MESSAGE NAME", text: $message.name)
+                .font(TEFonts.display(20, weight: .black))
+                .foregroundColor(TEColors.black)
+                .textInputAutocapitalization(.characters)
+                .padding(16)
+                .background(
+                    Rectangle()
+                        .strokeBorder(TEColors.black, lineWidth: 2)
+                        .background(TEColors.warmWhite)
+                )
+        }
     }
 
     // MARK: - Helix Presets Section
@@ -92,7 +116,7 @@ struct ExternalMIDIMessageEditorView: View {
                     HStack(spacing: 4) {
                         ForEach(1...8, id: \.self) { preset in
                             Button {
-                                applyHelixPreset(type: .controlChange, data1: 69, data2: preset - 1)
+                                applyHelixPreset(name: "PRESET \(preset)", type: .controlChange, data1: 69, data2: preset - 1)
                             } label: {
                                 Text("\(preset)")
                                     .font(TEFonts.mono(11, weight: .bold))
@@ -115,7 +139,7 @@ struct ExternalMIDIMessageEditorView: View {
                     HStack(spacing: 4) {
                         ForEach(1...8, id: \.self) { fs in
                             Button {
-                                applyHelixPreset(type: .controlChange, data1: 48 + fs, data2: 127)
+                                applyHelixPreset(name: "FS\(fs) TOGGLE", type: .controlChange, data1: 48 + fs, data2: 127)
                             } label: {
                                 Text("FS\(fs)")
                                     .font(TEFonts.mono(9, weight: .bold))
@@ -137,7 +161,10 @@ struct ExternalMIDIMessageEditorView: View {
         }
     }
 
-    private func applyHelixPreset(type: MIDIMessageType, data1: Int, data2: Int) {
+    private func applyHelixPreset(name: String, type: MIDIMessageType, data1: Int, data2: Int) {
+        if message.name.isEmpty {
+            message.name = name
+        }
         message.type = type
         message.data1 = data1
         message.data2 = data2
@@ -246,7 +273,7 @@ struct ExternalMIDIMessageEditorView: View {
 
 #Preview {
     ExternalMIDIMessageEditorView(
-        message: ExternalMIDIMessage(),
+        message: ExternalMIDIMessage(name: "Clean Preset"),
         isNew: true,
         onSave: { _ in }
     )

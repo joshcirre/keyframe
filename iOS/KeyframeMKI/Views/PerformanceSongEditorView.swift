@@ -6,7 +6,7 @@ struct PerformanceSongEditorView: View {
     @StateObject private var sessionStore = SessionStore.shared
     @StateObject private var midiEngine = MIDIEngine.shared
 
-    @State var song: SetlistSong
+    @State var song: PerformanceSong
     let isNew: Bool
     let channels: [ChannelConfiguration]
 
@@ -129,57 +129,25 @@ struct PerformanceSongEditorView: View {
     }
     
     // MARK: - Name Section
-
+    
     private var nameSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Preset Name
-            VStack(alignment: .leading, spacing: 8) {
-                Text("PRESET NAME")
-                    .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.midGray)
-                    .tracking(2)
-
-                TextField("PRESET NAME", text: $song.name)
-                    .font(TEFonts.display(24, weight: .black))
-                    .foregroundColor(TEColors.black)
-                    .textInputAutocapitalization(.characters)
-                    .padding(16)
-                    .background(
-                        Rectangle()
-                            .strokeBorder(TEColors.black, lineWidth: 2)
-                            .background(TEColors.warmWhite)
-                    )
-            }
-
-            // Artist (optional)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("ARTIST")
-                    .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.midGray)
-                    .tracking(2)
-
-                TextField("OPTIONAL", text: artistBinding)
-                    .font(TEFonts.display(18, weight: .bold))
-                    .foregroundColor(TEColors.black)
-                    .textInputAutocapitalization(.characters)
-                    .padding(16)
-                    .background(
-                        Rectangle()
-                            .strokeBorder(TEColors.black, lineWidth: 2)
-                            .background(TEColors.warmWhite)
-                    )
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            Text("NAME")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+            
+            TextField("PRESET NAME", text: $song.name)
+                .font(TEFonts.display(24, weight: .black))
+                .foregroundColor(TEColors.black)
+                .textInputAutocapitalization(.characters)
+                .padding(16)
+                .background(
+                    Rectangle()
+                        .strokeBorder(TEColors.black, lineWidth: 2)
+                        .background(TEColors.warmWhite)
+                )
         }
-    }
-
-    // Helper binding for optional artist
-    private var artistBinding: Binding<String> {
-        Binding(
-            get: { song.artist ?? "" },
-            set: { newValue in
-                song.artist = newValue.isEmpty ? nil : newValue
-            }
-        )
     }
     
     // MARK: - Key Section
@@ -942,11 +910,17 @@ struct ExternalMIDIMessageRow: View {
                 .padding(.vertical, 4)
                 .background(typeColor)
 
-            // Description
-            Text(message.displayDescription.uppercased())
-                .font(TEFonts.mono(12, weight: .bold))
-                .foregroundColor(TEColors.black)
-                .lineLimit(1)
+            // Name and description
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message.name.uppercased())
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .foregroundColor(TEColors.black)
+                    .lineLimit(1)
+
+                Text(message.displayDescription.uppercased())
+                    .font(TEFonts.mono(9, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
+            }
 
             Spacer()
 
@@ -986,10 +960,7 @@ struct ExternalMIDIMessageRow: View {
 
 #Preview {
     PerformanceSongEditorView(
-        song: SetlistSong(
-            name: "Test",
-            presets: [SongPreset(name: "Default", order: 0, isActive: true)]
-        ),
+        song: PerformanceSong(name: "Test"),
         isNew: true,
         channels: []
     )

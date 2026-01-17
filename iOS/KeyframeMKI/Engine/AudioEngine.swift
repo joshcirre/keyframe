@@ -47,10 +47,6 @@ final class AudioEngine: ObservableObject {
     // MARK: - Channel Strips
 
     private(set) var channelStrips: [ChannelStrip] = []
-
-    // MARK: - Looper
-
-    private(set) var looper: LooperEngine?
     
     // MARK: - Metering
 
@@ -103,24 +99,26 @@ final class AudioEngine: ObservableObject {
     private func setupAudioGraph() {
         // Attach master mixer to engine
         engine.attach(masterMixer)
-
+        
         // Connect master mixer to output
         let outputFormat = engine.outputNode.inputFormat(forBus: 0)
         engine.connect(masterMixer, to: engine.outputNode, format: outputFormat)
-
-        // No default channels - they are created dynamically when added or restored from session
-
+        
+        // Create initial channel strips (4 by default)
+        for i in 0..<4 {
+            let channel = ChannelStrip(engine: engine, index: i)
+            channelStrips.append(channel)
+            
+            // Connect channel output to master mixer
+            connectChannelToMaster(channel)
+        }
+        
         // Enable metering on master mixer
         masterMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, time in
             self?.processMeterData(buffer: buffer)
         }
-
-        // Set up looper (records from and plays into master mixer)
-        let looperEngine = LooperEngine(engine: engine)
-        looperEngine.setup(masterMixer: masterMixer)
-        self.looper = looperEngine
-
-        print("AudioEngine: Audio graph configured with looper (no default channels)")
+        
+        print("AudioEngine: Audio graph configured with \(channelStrips.count) channels")
     }
     
     private func connectChannelToMaster(_ channel: ChannelStrip) {
@@ -237,35 +235,20 @@ final class AudioEngine: ObservableObject {
     }
     
     func removeChannel(at index: Int) {
-        guard index < channelStrips.count else { return }
-
+        guard index < channelStrips.count && channelStrips.count > 1 else { return }
+        
         let wasRunning = isRunning
         if wasRunning { stop() }
-
+        
         let channel = channelStrips.remove(at: index)
         channel.cleanup()
-
+        
         // Re-index remaining channels
         for (i, ch) in channelStrips.enumerated() {
             ch.index = i
         }
-
+        
         if wasRunning { start() }
-        print("AudioEngine: Removed channel at index \(index), \(channelStrips.count) remaining")
-    }
-
-    /// Remove all channels (for session reset)
-    func removeAllChannels() {
-        let wasRunning = isRunning
-        if wasRunning { stop() }
-
-        for channel in channelStrips {
-            channel.cleanup()
-        }
-        channelStrips.removeAll()
-
-        if wasRunning { start() }
-        print("AudioEngine: Removed all channels")
     }
     
     func channel(at index: Int) -> ChannelStrip? {
@@ -275,18 +258,11 @@ final class AudioEngine: ObservableObject {
 
     /// Restore instruments and effects from saved channel configurations
     func restorePlugins(from configs: [ChannelConfiguration], completion: (() -> Void)? = nil) {
-        print("AudioEngine: Restoring plugins from \(configs.count) channel configs, \(channelStrips.count) strips exist")
+        print("AudioEngine: Restoring plugins from \(configs.count) channel configs")
 
-        // Ensure we have enough channel strips for all configs
-        while channelStrips.count < configs.count {
-            print("AudioEngine: Adding channel strip to match config count")
-            _ = addChannel()
-        }
-
-        // Count total plugins to load (only for channels that exist)
+        // Count total plugins to load
         var totalPlugins = 0
-        for (index, config) in configs.enumerated() {
-            guard index < channelStrips.count else { continue }
+        for config in configs {
             if config.instrument != nil { totalPlugins += 1 }
             totalPlugins += config.effects.count
         }
@@ -439,9 +415,6 @@ final class AudioEngine: ObservableObject {
     
     private func processMeterData(buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
-
-        // Feed buffer to looper if it's recording
-        looper?.feedRecordingBuffer(buffer)
 
         let channelCount = Int(buffer.format.channelCount)
         let frameCount = Int(buffer.frameLength)

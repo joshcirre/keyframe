@@ -49,19 +49,6 @@ final class MIDIEngine: ObservableObject {
     var onNoteLearn: ((Int, Int, String?) -> Void)?  // (note, channel, sourceName)
     var onCCLearn: ((Int, Int, String?) -> Void)?    // (cc, channel, sourceName)
 
-    // MARK: - MIDI Freeze/Hold
-
-    @Published var isFreezeActive = false
-    @Published var freezeMode: FreezeMode = .sustain
-    private var frozenNotes: [Int: [UUID: [UInt8]]] = [:]
-
-    // Freeze trigger mapping (learnable)
-    var freezeTriggerCC: Int? = 64  // Default: sustain pedal (CC 64)
-    var freezeTriggerChannel: Int? = nil  // nil = any channel
-    var freezeTriggerSourceName: String? = nil  // nil = any source
-    @Published var isFreezeLearnMode = false
-    var onFreezeLearn: ((Int, Int, String?) -> Void)?  // (cc, channel, sourceName)
-
     // MARK: - Control Callbacks
 
     var onSongTrigger: ((Int, Int, String?) -> Void)?       // (note, channel, sourceName) - for triggering songs
@@ -89,8 +76,7 @@ final class MIDIEngine: ObservableObject {
     @Published var externalMIDIChannel: Int = 1 {  // 1-16
         didSet { saveOutputSettings() }
     }
-    /// Network MIDI for Mac connection - enabled by default for seamless remote mode
-    @Published var isNetworkSessionEnabled: Bool = true {
+    @Published var isNetworkSessionEnabled: Bool = false {
         didSet {
             configureNetworkSession()
             saveOutputSettings()
@@ -111,62 +97,13 @@ final class MIDIEngine: ObservableObject {
         didSet { saveOutputSettings() }
     }
 
-    /// Current session BPM for display purposes (default 90, updated when presets with BPM are selected)
-    @Published var currentBPM: Int = 90
-
-    // MARK: - Remote Mode (connects to Mac as controller-only)
-
-    @Published var isRemoteMode: Bool = false {
-        didSet { saveOutputSettings() }
-    }
-
-    /// Separate MIDI destination for Mac remote host (Network MIDI)
-    /// This allows Helix output and Mac output to be different devices
-    @Published var remoteHostEndpoint: MIDIEndpointRef? = nil {
-        didSet {
-            if !isRestoringDestination {
-                saveOutputSettings()
-            }
-        }
-    }
-    private var savedRemoteHostName: String?
-
-    // Remote mode channel - used for sending preset changes to Mac
-    // Uses channel 16 by convention (0-indexed = 15)
-    private let remoteMIDIChannel: UInt8 = 15
-    private let remoteHostKey = "remoteHostDestination"
-
-    // MARK: - Remote Presets (synced from Mac)
-
-    /// Presets pulled from Mac, with locally-added external MIDI messages
-    @Published var remotePresets: [RemotePreset] = []
-    @Published var isPullingPresets: Bool = false
-    private let remotePresetsKey = "remotePresets"
-
-    /// Currently selected preset index on Mac (synced via SysEx)
-    @Published var remoteSelectedPresetIndex: Int?
-
-    /// Flag to suppress broadcasting when update came from Mac
-    var suppressRemotePresetBroadcast = false
-
-    /// Callbacks for channel state changes from Mac
-    var onRemoteChannelVolumeChanged: ((Int, Float) -> Void)?
-    var onRemoteChannelMuteChanged: ((Int, Bool) -> Void)?
-
-    // SysEx buffer for multi-packet messages
-    private var sysexBuffer: [UInt8] = []
-
     // Persistence keys for output settings
     private let selectedDestinationKey = "midiOutputDestination"
     private let externalMIDIChannelKey = "externalMIDIChannel"
     private let networkSessionEnabledKey = "midiNetworkSessionEnabled"
     private let externalTempoSyncEnabledKey = "externalTempoSyncEnabled"
     private let tapTempoCCKey = "tapTempoCC"
-    private let remoteModeKey = "remoteMode"
-
-    // Track last sent tempo to avoid duplicate sends
-    private var lastSentTempo: Int?
-
+    
     // Track active notes for proper note-off handling
     // Key: sourceHash ^ channel ^ note, Value: Dictionary of channelStripId -> processed notes sent
     private var activeNotes: [Int: [UUID: [UInt8]]] = [:]
@@ -186,7 +123,6 @@ final class MIDIEngine: ObservableObject {
     private init() {
         loadChordPadSettings()
         loadOutputSettings()
-        loadRemotePresets()
         setupMIDI()
     }
 
@@ -228,14 +164,8 @@ final class MIDIEngine: ObservableObject {
     private func loadOutputSettings() {
         let defaults = UserDefaults.standard
 
-        // Network MIDI: default to true (enabled) for seamless Mac connection
-        // Only disable if user explicitly turned it off
-        if defaults.object(forKey: networkSessionEnabledKey) != nil {
-            isNetworkSessionEnabled = defaults.bool(forKey: networkSessionEnabledKey)
-        } else {
-            // First launch: auto-enable network MIDI
-            isNetworkSessionEnabled = true
-        }
+        // Load network session state (but don't trigger didSet yet)
+        let networkEnabled = defaults.bool(forKey: networkSessionEnabledKey)
 
         // Load channel
         if defaults.object(forKey: externalMIDIChannelKey) != nil {
@@ -248,11 +178,12 @@ final class MIDIEngine: ObservableObject {
             tapTempoCC = defaults.integer(forKey: tapTempoCCKey)
         }
 
-        // Load remote mode
-        isRemoteMode = defaults.bool(forKey: remoteModeKey)
-        savedRemoteHostName = defaults.string(forKey: remoteHostKey)
+        // Configure network session before refreshing destinations
+        if networkEnabled {
+            isNetworkSessionEnabled = networkEnabled
+        }
 
-        print("MIDIEngine: Loaded output settings - channel: \(externalMIDIChannel), network: \(isNetworkSessionEnabled), tempoSync: \(isExternalTempoSyncEnabled), tapCC: \(tapTempoCC), remoteMode: \(isRemoteMode), savedDest: \(defaults.string(forKey: selectedDestinationKey) ?? "none"), remoteHost: \(savedRemoteHostName ?? "none")")
+        print("MIDIEngine: Loaded output settings - channel: \(externalMIDIChannel), network: \(isNetworkSessionEnabled), tempoSync: \(isExternalTempoSyncEnabled)")
     }
 
     private func saveOutputSettings() {
@@ -262,7 +193,6 @@ final class MIDIEngine: ObservableObject {
         defaults.set(isNetworkSessionEnabled, forKey: networkSessionEnabledKey)
         defaults.set(isExternalTempoSyncEnabled, forKey: externalTempoSyncEnabledKey)
         defaults.set(tapTempoCC, forKey: tapTempoCCKey)
-        defaults.set(isRemoteMode, forKey: remoteModeKey)
 
         // Save selected destination by name (endpoints can change between launches)
         if let endpoint = selectedDestinationEndpoint,
@@ -273,18 +203,7 @@ final class MIDIEngine: ObservableObject {
             // Only clear if we don't have a saved name (device might just be offline)
             defaults.removeObject(forKey: selectedDestinationKey)
         }
-
-        // Save remote host destination by name
-        if let endpoint = remoteHostEndpoint,
-           let dest = availableDestinations.first(where: { $0.endpoint == endpoint }) {
-            savedRemoteHostName = dest.name
-            defaults.set(dest.name, forKey: remoteHostKey)
-        } else if savedRemoteHostName == nil {
-            defaults.removeObject(forKey: remoteHostKey)
-        }
-
-        // Force immediate write to disk
-        defaults.synchronize()
+        // If savedDestinationName is set but endpoint is nil, keep the saved name for later
     }
 
     private func restoreSelectedDestination() {
@@ -294,32 +213,17 @@ final class MIDIEngine: ObservableObject {
         if savedDestinationName == nil {
             savedDestinationName = defaults.string(forKey: selectedDestinationKey)
         }
-        if savedRemoteHostName == nil {
-            savedRemoteHostName = defaults.string(forKey: remoteHostKey)
-        }
 
+        guard let savedName = savedDestinationName else { return }
+
+        // Try to find the device - it might not be discovered yet (especially Bluetooth)
         isRestoringDestination = true
-
-        // Restore external MIDI destination (Helix)
-        if let savedName = savedDestinationName {
-            if let dest = availableDestinations.first(where: { $0.name == savedName }) {
-                selectedDestinationEndpoint = dest.endpoint
-                print("MIDIEngine: Restored destination '\(savedName)'")
-            } else {
-                print("MIDIEngine: Saved destination '\(savedName)' not found yet (will retry on refresh)")
-            }
+        if let dest = availableDestinations.first(where: { $0.name == savedName }) {
+            selectedDestinationEndpoint = dest.endpoint
+            print("MIDIEngine: Restored destination '\(savedName)'")
+        } else {
+            print("MIDIEngine: Saved destination '\(savedName)' not found yet (will retry on refresh)")
         }
-
-        // Restore remote host destination (Mac)
-        if let savedName = savedRemoteHostName {
-            if let dest = availableDestinations.first(where: { $0.name == savedName }) {
-                remoteHostEndpoint = dest.endpoint
-                print("MIDIEngine: Restored remote host '\(savedName)'")
-            } else {
-                print("MIDIEngine: Saved remote host '\(savedName)' not found yet (will retry on refresh)")
-            }
-        }
-
         isRestoringDestination = false
     }
 
@@ -568,18 +472,10 @@ final class MIDIEngine: ObservableObject {
 
     /// Send tap tempo to external device (e.g., Helix) via CC messages
     /// Sends multiple taps at the correct interval for Helix to average
-    /// Skips sending if the tempo is the same as the last sent tempo
     func sendTapTempo(bpm: Int) {
         guard isExternalTempoSyncEnabled else { return }
         guard let destination = selectedDestinationEndpoint else { return }
         guard outputPort != 0 else { return }
-
-        // Skip if tempo hasn't changed
-        if let lastTempo = lastSentTempo, lastTempo == bpm {
-            print("MIDIEngine: Skipping tap tempo (already at \(bpm) BPM)")
-            return
-        }
-        lastSentTempo = bpm
 
         let channel = UInt8(externalMIDIChannel - 1)
         let ccNumber = UInt8(tapTempoCC)
@@ -608,176 +504,6 @@ final class MIDIEngine: ObservableObject {
 
         MIDISend(outputPort, destination, packetListPtr)
         print("MIDIEngine: Sent tap tempo at \(bpm) BPM")
-    }
-
-    /// Reset the last sent tempo tracking (call when loading a new session)
-    func resetTempoTracking() {
-        lastSentTempo = nil
-    }
-
-    // MARK: - Remote Mode (Mac control)
-
-    /// Send a preset change to the Mac app in remote mode
-    /// Uses the separate remoteHostEndpoint (not the Helix destination)
-    /// The Mac receives Program Change on channel 16 and applies the preset locally
-    func sendRemotePresetChange(presetIndex: Int) {
-        guard isRemoteMode else { return }
-        guard let destination = remoteHostEndpoint else {
-            print("MIDIEngine: Remote mode - no remote host configured (select Mac in settings)")
-            return
-        }
-        guard outputPort != 0 else {
-            print("MIDIEngine: Remote mode - output port not initialized")
-            return
-        }
-        guard presetIndex >= 0 && presetIndex < 128 else {
-            print("MIDIEngine: Remote mode - preset index \(presetIndex) out of range")
-            return
-        }
-
-        // Program Change on channel 16 (0-indexed = 15)
-        let midiBytes: [UInt8] = [0xC0 | remoteMIDIChannel, UInt8(presetIndex)]
-
-        var packetList = MIDIPacketList()
-        var packet = MIDIPacketListInit(&packetList)
-        packet = MIDIPacketListAdd(&packetList, 1024, packet, 0, midiBytes.count, midiBytes)
-
-        let status = MIDISend(outputPort, destination, &packetList)
-        if status == noErr {
-            print("MIDIEngine: Remote mode - sent preset change to Mac (index \(presetIndex))")
-        } else {
-            print("MIDIEngine: Remote mode - failed to send preset change: \(status)")
-        }
-    }
-
-    /// Send a channel volume change to the Mac in remote mode
-    /// CC 1-99 on channel 16 maps to channel volumes
-    func sendRemoteVolumeChange(channelIndex: Int, volume: Float) {
-        guard isRemoteMode else { return }
-        guard let destination = remoteHostEndpoint else { return }
-        guard outputPort != 0 else { return }
-        guard channelIndex >= 0 && channelIndex < 99 else { return }
-
-        let ccNumber = UInt8(channelIndex + 1) // CC 1-99
-        let ccValue = UInt8(min(127, max(0, Int(volume * 127))))
-        let midiBytes: [UInt8] = [0xB0 | remoteMIDIChannel, ccNumber, ccValue]
-
-        var packetList = MIDIPacketList()
-        var packet = MIDIPacketListInit(&packetList)
-        packet = MIDIPacketListAdd(&packetList, 1024, packet, 0, midiBytes.count, midiBytes)
-
-        MIDISend(outputPort, destination, &packetList)
-    }
-
-    /// Send a channel mute toggle to the Mac in remote mode
-    /// CC 101-199 on channel 16 maps to channel mute (0=unmute, 127=mute)
-    func sendRemoteMuteChange(channelIndex: Int, isMuted: Bool) {
-        guard isRemoteMode else { return }
-        guard let destination = remoteHostEndpoint else { return }
-        guard outputPort != 0 else { return }
-        guard channelIndex >= 0 && channelIndex < 99 else { return }
-
-        let ccNumber = UInt8(channelIndex + 101) // CC 101-199
-        let ccValue: UInt8 = isMuted ? 127 : 0
-        let midiBytes: [UInt8] = [0xB0 | remoteMIDIChannel, ccNumber, ccValue]
-
-        var packetList = MIDIPacketList()
-        var packet = MIDIPacketListInit(&packetList)
-        packet = MIDIPacketListAdd(&packetList, 1024, packet, 0, midiBytes.count, midiBytes)
-
-        MIDISend(outputPort, destination, &packetList)
-    }
-
-    // MARK: - Remote Preset Management
-
-    /// Request presets from Mac by sending CC 121 value 1 on channel 16
-    func pullPresetsFromMac() {
-        guard isRemoteMode else {
-            print("MIDIEngine: Cannot pull presets - not in remote mode")
-            return
-        }
-        guard let destination = remoteHostEndpoint else {
-            print("MIDIEngine: Cannot pull presets - no Mac host configured")
-            return
-        }
-        guard outputPort != 0 else {
-            print("MIDIEngine: Cannot pull presets - output port not initialized")
-            return
-        }
-
-        isPullingPresets = true
-
-        // CC 121 value 1 on channel 16 = request preset pull
-        let midiBytes: [UInt8] = [0xB0 | remoteMIDIChannel, 121, 1]
-
-        var packetList = MIDIPacketList()
-        var packet = MIDIPacketListInit(&packetList)
-        packet = MIDIPacketListAdd(&packetList, 1024, packet, 0, midiBytes.count, midiBytes)
-
-        let status = MIDISend(outputPort, destination, &packetList)
-        if status == noErr {
-            print("MIDIEngine: Sent preset pull request to Mac")
-        } else {
-            print("MIDIEngine: Failed to send preset pull request: \(status)")
-            isPullingPresets = false
-        }
-
-        // Timeout after 5 seconds if no response
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-            if self?.isPullingPresets == true {
-                self?.isPullingPresets = false
-                print("MIDIEngine: Preset pull timed out")
-            }
-        }
-    }
-
-    /// Process received preset data from Mac
-    private func receiveRemotePresets(_ presetData: [RemotePresetData]) {
-        isPullingPresets = false
-
-        // Merge with existing presets to preserve locally-added external MIDI messages
-        var updatedPresets: [RemotePreset] = []
-
-        for data in presetData {
-            // Check if we already have this preset (by index)
-            if let existing = remotePresets.first(where: { $0.index == data.index }) {
-                // Preserve local external MIDI messages, update remote data
-                var updated = existing
-                updated.remoteData = data
-                updatedPresets.append(updated)
-            } else {
-                // New preset
-                updatedPresets.append(RemotePreset(remoteData: data))
-            }
-        }
-
-        remotePresets = updatedPresets
-        saveRemotePresets()
-
-        print("MIDIEngine: Received \(presetData.count) presets from Mac")
-    }
-
-    /// Update external MIDI messages for a remote preset
-    func updateRemotePresetMIDI(index: Int, messages: [ExternalMIDIMessage]) {
-        guard let presetIndex = remotePresets.firstIndex(where: { $0.index == index }) else { return }
-        remotePresets[presetIndex].externalMIDIMessages = messages
-        saveRemotePresets()
-    }
-
-    /// Save remote presets to UserDefaults
-    private func saveRemotePresets() {
-        if let data = try? JSONEncoder().encode(remotePresets) {
-            UserDefaults.standard.set(data, forKey: remotePresetsKey)
-        }
-    }
-
-    /// Load remote presets from UserDefaults
-    private func loadRemotePresets() {
-        if let data = UserDefaults.standard.data(forKey: remotePresetsKey),
-           let presets = try? JSONDecoder().decode([RemotePreset].self, from: data) {
-            remotePresets = presets
-            print("MIDIEngine: Loaded \(presets.count) remote presets")
-        }
     }
 
     /// Convert seconds to host time units (mach_absolute_time)
@@ -841,166 +567,9 @@ final class MIDIEngine: ObservableObject {
             
         case 0xE0: // Pitch Bend
             processPitchBend(lsb: data1, msb: data2, channel: channel, sourceName: sourceName)
-
-        case 0xF0: // System Exclusive start
-            processSysEx(words: [packet.words.0, packet.words.1, packet.words.2, packet.words.3])
-
+            
         default:
             break
-        }
-    }
-
-    // MARK: - SysEx Processing
-
-    private func processSysEx(words: [UInt32]) {
-        // Extract bytes from Universal MIDI Packet words
-        // For MIDI 1.0 SysEx in UMP, data is packed into the words
-        // Byte 0 = status (0xF0), remaining bytes are SysEx data
-
-        // Simple extraction - just get bytes from first word
-        let byte0 = UInt8((words[0] >> 24) & 0xFF)
-        let byte1 = UInt8((words[0] >> 16) & 0xFF)
-        let byte2 = UInt8((words[0] >> 8) & 0xFF)
-        let byte3 = UInt8(words[0] & 0xFF)
-
-        // Start accumulating SysEx if we see F0
-        if byte0 == 0xF0 {
-            sysexBuffer = [byte0]
-            if byte1 != 0xF7 { sysexBuffer.append(byte1) }
-            if byte2 != 0xF7 { sysexBuffer.append(byte2) }
-            if byte3 != 0xF7 { sysexBuffer.append(byte3) }
-        } else {
-            // Continue accumulating
-            sysexBuffer.append(byte0)
-            if byte1 != 0xF7 { sysexBuffer.append(byte1) }
-            if byte2 != 0xF7 { sysexBuffer.append(byte2) }
-            if byte3 != 0xF7 { sysexBuffer.append(byte3) }
-        }
-
-        // Check for SysEx end (0xF7)
-        if sysexBuffer.last == 0xF7 || byte1 == 0xF7 || byte2 == 0xF7 || byte3 == 0xF7 {
-            // Ensure we have the end marker
-            if sysexBuffer.last != 0xF7 {
-                sysexBuffer.append(0xF7)
-            }
-            handleCompleteSysEx(sysexBuffer)
-            sysexBuffer = []
-        }
-    }
-
-    /// SysEx command bytes for Keyframe protocol (must match Mac)
-    private enum SysExCommand: UInt8 {
-        case presetData = 0x01        // Full preset list (response to pull request)
-        case presetChanged = 0x02     // Current preset index changed on Mac
-        case channelVolume = 0x03     // Channel volume changed on Mac
-        case channelMute = 0x04       // Channel mute state changed on Mac
-    }
-
-    private func handleCompleteSysEx(_ data: [UInt8]) {
-        // Check for Keyframe SysEx: F0 7D 4B 46 <command> <data...> F7
-        // 7D = non-commercial, 4B 46 = "KF" (Keyframe)
-        guard data.count >= 6,
-              data[0] == 0xF0,
-              data[1] == 0x7D,
-              data[2] == 0x4B,
-              data[3] == 0x46 else {
-            return
-        }
-
-        let command = data[4]
-
-        switch command {
-        case SysExCommand.presetData.rawValue:
-            // Full preset list from Mac (response to pull request)
-            handlePresetDataSysEx(data)
-
-        case SysExCommand.presetChanged.rawValue:
-            // Preset index changed on Mac - sync iOS display
-            handlePresetChangedSysEx(data)
-
-        case SysExCommand.channelVolume.rawValue:
-            // Channel volume changed on Mac
-            handleChannelVolumeSysEx(data)
-
-        case SysExCommand.channelMute.rawValue:
-            // Channel mute changed on Mac
-            handleChannelMuteSysEx(data)
-
-        default:
-            print("MIDIEngine: Unknown Keyframe SysEx command: \(command)")
-        }
-    }
-
-    /// Handle full preset list from Mac (command 0x01)
-    private func handlePresetDataSysEx(_ data: [UInt8]) {
-        print("MIDIEngine: Received Keyframe preset SysEx (\(data.count) bytes)")
-
-        // Extract JSON data (nibble-encoded, skip header and end marker)
-        var jsonBytes: [UInt8] = []
-        var i = 5
-        while i + 1 < data.count - 1 {  // Skip F7 at end
-            let highNibble = data[i]
-            let lowNibble = data[i + 1]
-            let byte = (highNibble << 4) | lowNibble
-            jsonBytes.append(byte)
-            i += 2
-        }
-
-        // Decode preset data
-        guard let presetData = try? JSONDecoder().decode([RemotePresetData].self, from: Data(jsonBytes)) else {
-            print("MIDIEngine: Failed to decode preset JSON")
-            return
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            self?.receiveRemotePresets(presetData)
-        }
-    }
-
-    /// Handle preset index change from Mac (command 0x02)
-    private func handlePresetChangedSysEx(_ data: [UInt8]) {
-        // Format: F0 7D 4B 46 02 <index> F7
-        guard data.count >= 7 else { return }
-
-        let presetIndex = Int(data[5])
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-
-            // Update the selected preset in remote mode without sending back to Mac
-            self.suppressRemotePresetBroadcast = true
-            self.remoteSelectedPresetIndex = presetIndex
-            self.suppressRemotePresetBroadcast = false
-
-            print("MIDIEngine: Mac preset changed to index \(presetIndex)")
-        }
-    }
-
-    /// Handle channel volume change from Mac (command 0x03)
-    private func handleChannelVolumeSysEx(_ data: [UInt8]) {
-        // Format: F0 7D 4B 46 03 <channelIndex> <volume 0-127> F7
-        guard data.count >= 8 else { return }
-
-        let channelIndex = Int(data[5])
-        let volumeValue = Float(data[6]) / 127.0
-
-        DispatchQueue.main.async { [weak self] in
-            self?.onRemoteChannelVolumeChanged?(channelIndex, volumeValue)
-            print("MIDIEngine: Mac channel \(channelIndex) volume: \(volumeValue)")
-        }
-    }
-
-    /// Handle channel mute change from Mac (command 0x04)
-    private func handleChannelMuteSysEx(_ data: [UInt8]) {
-        // Format: F0 7D 4B 46 04 <channelIndex> <muted 0/1> F7
-        guard data.count >= 8 else { return }
-
-        let channelIndex = Int(data[5])
-        let isMuted = data[6] != 0
-
-        DispatchQueue.main.async { [weak self] in
-            self?.onRemoteChannelMuteChanged?(channelIndex, isMuted)
-            print("MIDIEngine: Mac channel \(channelIndex) muted: \(isMuted)")
         }
     }
     
@@ -1092,24 +661,17 @@ final class MIDIEngine: ObservableObject {
         let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
 
         // Look up which notes were actually sent to each channel for this input note
-        guard let channelMappings = activeNotes[sourceKey] else { return }
-
-        // If freeze is active, move notes to frozenNotes instead of releasing
-        if isFreezeActive {
-            frozenNotes[sourceKey] = channelMappings
-            activeNotes.removeValue(forKey: sourceKey)
-            return
-        }
-
-        // Normal release - send note-off to all target channels
-        for (channelId, processedNotes) in channelMappings {
-            if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
-                for processedNote in processedNotes {
-                    targetChannel.sendMIDI(noteOff: processedNote)
+        if let channelMappings = activeNotes[sourceKey] {
+            for (channelId, processedNotes) in channelMappings {
+                // Find the channel strip by ID
+                if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
+                    for processedNote in processedNotes {
+                        targetChannel.sendMIDI(noteOff: processedNote)
+                    }
                 }
             }
+            activeNotes.removeValue(forKey: sourceKey)
         }
-        activeNotes.removeValue(forKey: sourceKey)
     }
     
     private func processCC(cc: UInt8, value: UInt8, channel: UInt8, sourceName: String?) {
@@ -1121,26 +683,6 @@ final class MIDIEngine: ObservableObject {
                 self?.onCCLearn?(Int(cc), midiChannel, sourceName)
             }
             return
-        }
-
-        // Freeze Learn mode - intercept CC for freeze trigger assignment
-        if isFreezeLearnMode {
-            DispatchQueue.main.async { [weak self] in
-                self?.onFreezeLearn?(Int(cc), midiChannel, sourceName)
-                self?.isFreezeLearnMode = false
-            }
-            return
-        }
-
-        // Check for freeze trigger CC
-        if let triggerCC = freezeTriggerCC, Int(cc) == triggerCC {
-            let channelMatch = freezeTriggerChannel == nil || freezeTriggerChannel == midiChannel
-            let sourceMatch = freezeTriggerSourceName == nil || freezeTriggerSourceName == sourceName
-
-            if channelMatch && sourceMatch {
-                handleFreezeTrigger(value: value)
-                return  // Don't pass freeze CC to instruments
-            }
         }
 
         // Fader control callback (for mapped CC controls)
@@ -1165,60 +707,7 @@ final class MIDIEngine: ObservableObject {
     private func processPitchBend(lsb: UInt8, msb: UInt8, channel: UInt8, sourceName: String?) {
         // TODO: Implement pitch bend forwarding
     }
-
-    // MARK: - Freeze/Hold
-
-    private func handleFreezeTrigger(value: UInt8) {
-        switch freezeMode {
-        case .sustain:
-            // Sustain mode: active while pedal pressed (value > 63)
-            let wasActive = isFreezeActive
-            isFreezeActive = value > 63
-            if wasActive && !isFreezeActive {
-                releaseFrozenNotes()
-            }
-        case .toggle:
-            // Toggle mode: latch on/off with each press (only on press, not release)
-            if value > 63 {
-                isFreezeActive.toggle()
-                if !isFreezeActive {
-                    releaseFrozenNotes()
-                }
-            }
-        }
-    }
-
-    /// Release all frozen notes by sending note-off to their target channels
-    func releaseFrozenNotes() {
-        guard let audioEngine = audioEngine else { return }
-
-        for (_, channelMappings) in frozenNotes {
-            for (channelId, processedNotes) in channelMappings {
-                if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
-                    for note in processedNotes {
-                        targetChannel.sendMIDI(noteOff: note)
-                    }
-                }
-            }
-        }
-        frozenNotes.removeAll()
-    }
-
-    /// Manually toggle freeze state (for UI button)
-    func toggleFreeze() {
-        isFreezeActive.toggle()
-        if !isFreezeActive {
-            releaseFrozenNotes()
-        }
-    }
-
-    /// Clear freeze trigger mapping
-    func clearFreezeTrigger() {
-        freezeTriggerCC = nil
-        freezeTriggerChannel = nil
-        freezeTriggerSourceName = nil
-    }
-
+    
     // MARK: - Scale Filtering
     
     private func applyScaleFilter(note: UInt8) -> [UInt8] {

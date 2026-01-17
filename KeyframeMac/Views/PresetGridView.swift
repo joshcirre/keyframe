@@ -801,10 +801,10 @@ struct SongEditorSheet: View {
 
                                 if useBpm {
                                     HStack(spacing: 12) {
-                                        TEHorizontalSlider(value: $bpm, range: 40...240, colors: colors)
+                                        TEHorizontalSlider(value: $bpm, range: 40...240, colors: colors, step: 1)
                                             .frame(height: 24)
 
-                                        TextField("", value: $bpm, format: .number)
+                                        TextField("", value: $bpm, format: .number.precision(.fractionLength(0)))
                                             .font(TEFonts.mono(14, weight: .bold))
                                             .textFieldStyle(.plain)
                                             .frame(width: 50)
@@ -1659,9 +1659,12 @@ struct TEHorizontalSlider: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
     let colors: ThemeColors
+    var step: Double? = nil  // Optional step for snapping to whole numbers
 
     var body: some View {
         GeometryReader { geometry in
+            let width = max(1, geometry.size.width)
+
             ZStack(alignment: .leading) {
                 // Track
                 Rectangle()
@@ -1670,14 +1673,21 @@ struct TEHorizontalSlider: View {
                 // Fill
                 Rectangle()
                     .fill(colors.accent)
-                    .frame(width: geometry.size.width * normalizedValue)
+                    .frame(width: max(0, width * normalizedValue))
             }
             .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
-                        let newValue = Double(gesture.location.x / geometry.size.width)
-                        value = range.lowerBound + (range.upperBound - range.lowerBound) * max(0, min(1, newValue))
+                        let normalized = Double(gesture.location.x / width)
+                        var newValue = range.lowerBound + (range.upperBound - range.lowerBound) * max(0, min(1, normalized))
+
+                        // Snap to step if provided
+                        if let step = step {
+                            newValue = (newValue / step).rounded() * step
+                        }
+
+                        value = max(range.lowerBound, min(range.upperBound, newValue))
                     }
             )
         }

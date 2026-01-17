@@ -44,32 +44,15 @@ enum ScaleType: String, Codable, CaseIterable, Identifiable {
 enum FilterMode: String, Codable, CaseIterable, Identifiable {
     case block = "Block"
     case snap = "Snap"
-
+    
     var id: String { rawValue }
-
+    
     var description: String {
         switch self {
         case .block:
             return "Block notes outside scale"
         case .snap:
             return "Snap to nearest scale note"
-        }
-    }
-}
-
-// MARK: - Freeze Mode
-enum FreezeMode: String, Codable, CaseIterable, Identifiable {
-    case sustain = "Sustain"  // Hold while pedal/button pressed
-    case toggle = "Toggle"    // Latch on/off with each press
-
-    var id: String { rawValue }
-
-    var description: String {
-        switch self {
-        case .sustain:
-            return "Hold notes while pedal pressed"
-        case .toggle:
-            return "Toggle freeze on/off"
         }
     }
 }

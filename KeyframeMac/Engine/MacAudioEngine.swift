@@ -19,6 +19,14 @@ final class MacAudioEngine: ObservableObject {
     @Published private(set) var isRestoringPlugins = false
     @Published private(set) var restorationProgress: String = ""
 
+    /// Set restoration state (for external progress tracking)
+    func setRestorationState(_ isRestoring: Bool, progress: String) {
+        DispatchQueue.main.async {
+            self.isRestoringPlugins = isRestoring
+            self.restorationProgress = progress
+        }
+    }
+
     // Audio Device Selection
     @Published private(set) var availableOutputDevices: [AudioDeviceInfo] = []
     @Published var selectedOutputDeviceID: AudioDeviceID? {

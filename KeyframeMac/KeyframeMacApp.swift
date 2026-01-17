@@ -382,6 +382,34 @@ struct KeyframeMacApp: App {
     private func restoreSession() {
         let session = sessionStore.currentSession
 
+        // Count total plugins for progress tracking
+        var totalPlugins = 0
+        for config in session.channels {
+            if config.instrument != nil { totalPlugins += 1 }
+            totalPlugins += config.effects.count
+        }
+
+        // Set loading state
+        if totalPlugins > 0 {
+            audioEngine.setRestorationState(true, progress: "Loading plugins...")
+        }
+
+        var loadedCount = 0
+        let pluginLoadQueue = DispatchQueue(label: "com.keyframe.pluginLoad")
+
+        let markPluginLoaded: (String) -> Void = { [weak audioEngine] name in
+            pluginLoadQueue.sync { loadedCount += 1 }
+            let current = pluginLoadQueue.sync { loadedCount }
+
+            DispatchQueue.main.async {
+                if current < totalPlugins {
+                    audioEngine?.setRestorationState(true, progress: "Loaded \(current)/\(totalPlugins): \(name)")
+                } else {
+                    audioEngine?.setRestorationState(false, progress: "")
+                }
+            }
+        }
+
         // Recreate channel strips from session
         for (index, config) in session.channels.enumerated() {
             guard index >= audioEngine.channelStrips.count else { continue }
@@ -398,6 +426,8 @@ struct KeyframeMacApp: App {
 
                 // Load instrument if configured
                 if let instrument = config.instrument {
+                    audioEngine.setRestorationState(true, progress: "Loading \(instrument.name)...")
+
                     channel.loadInstrument(instrument.audioComponentDescription) { success, error in
                         if success {
                             channel.instrumentInfo = MacAUInfo(
@@ -413,6 +443,7 @@ struct KeyframeMacApp: App {
                                 channel.restoreInstrumentState(presetData)
                             }
                         }
+                        markPluginLoaded(instrument.name)
                     }
                 }
 
@@ -433,6 +464,7 @@ struct KeyframeMacApp: App {
                                 channel.restoreEffectState(presetData, at: effectIndex)
                             }
                         }
+                        markPluginLoaded(effect.name)
                     }
                 }
             }
@@ -446,6 +478,11 @@ struct KeyframeMacApp: App {
 
         // Start audio engine
         audioEngine.start()
+
+        // Clear loading state if no plugins
+        if totalPlugins == 0 {
+            audioEngine.setRestorationState(false, progress: "")
+        }
 
         print("KeyframeMacApp: Session '\(session.name)' restored with \(session.channels.count) channels, \(session.midiMappings.count) mappings")
     }

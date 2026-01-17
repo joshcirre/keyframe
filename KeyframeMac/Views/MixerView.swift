@@ -18,43 +18,51 @@ struct MixerView: View {
     private var colors: ThemeColors { themeProvider.colors }
 
     var body: some View {
-        HSplitView {
-            // Left: Mixer or Preset Grid
-            VStack(spacing: 0) {
-                // Header
-                headerView
-
+        ZStack {
+            if audioEngine.isRestoringPlugins {
+                // Loading screen while restoring plugins
+                LoadingScreen(progress: audioEngine.restorationProgress, colors: colors)
+            } else {
                 // Main content
-                if showPresetGrid {
-                    PresetGridView()
-                        .background(colors.windowBackground)
-                } else {
-                    GeometryReader { geometry in
-                        HStack(spacing: 0) {
-                            // Channel strips
-                            channelStripsContent(height: geometry.size.height)
+                HSplitView {
+                    // Left: Mixer or Preset Grid
+                    VStack(spacing: 0) {
+                        // Header
+                        headerView
 
-                            // Master section
-                            masterSection(height: geometry.size.height)
+                        // Main content
+                        if showPresetGrid {
+                            PresetGridView()
+                                .background(colors.windowBackground)
+                        } else {
+                            GeometryReader { geometry in
+                                HStack(spacing: 0) {
+                                    // Channel strips
+                                    channelStripsContent(height: geometry.size.height)
+
+                                    // Master section
+                                    masterSection(height: geometry.size.height)
+                                }
+                            }
+                            .background(colors.windowBackground)
                         }
+
+                        // Status bar
+                        statusBarView
                     }
                     .background(colors.windowBackground)
+
+                    // Right: Channel detail (when selected)
+                    if let selectedIndex = selectedChannelIndex,
+                       selectedIndex < audioEngine.channelStrips.count {
+                        ChannelDetailView(
+                            channel: audioEngine.channelStrips[selectedIndex],
+                            config: binding(for: selectedIndex),
+                            colors: colors
+                        )
+                        .background(colors.windowBackground)
+                    }
                 }
-
-                // Status bar
-                statusBarView
-            }
-            .background(colors.windowBackground)
-
-            // Right: Channel detail (when selected)
-            if let selectedIndex = selectedChannelIndex,
-               selectedIndex < audioEngine.channelStrips.count {
-                ChannelDetailView(
-                    channel: audioEngine.channelStrips[selectedIndex],
-                    config: binding(for: selectedIndex),
-                    colors: colors
-                )
-                .background(colors.windowBackground)
             }
         }
         .background(colors.windowBackground)
@@ -1022,5 +1030,74 @@ struct CompactSaveButton: View {
         }
         .buttonStyle(.plain)
         .help(isDirty ? "Save Session (unsaved changes)" : "Save Session")
+    }
+}
+
+// MARK: - Loading Screen
+
+/// Loading screen displayed during app startup while plugins are being restored
+struct LoadingScreen: View {
+    let progress: String
+    let colors: ThemeColors
+
+    @State private var dotCount = 0
+    @State private var logoScale: CGFloat = 0.8
+    @State private var timer: Timer?
+
+    var body: some View {
+        ZStack {
+            colors.windowBackground.ignoresSafeArea()
+
+            VStack(spacing: 32) {
+                // Logo
+                VStack(spacing: 8) {
+                    Text("KEYFRAME")
+                        .font(TEFonts.display(32, weight: .black))
+                        .foregroundColor(colors.primaryText)
+                        .tracking(6)
+                        .scaleEffect(logoScale)
+
+                    Rectangle()
+                        .fill(colors.accent)
+                        .frame(width: 120, height: 4)
+                }
+
+                // Loading indicator
+                VStack(spacing: 16) {
+                    // Animated dots
+                    HStack(spacing: 8) {
+                        ForEach(0..<3, id: \.self) { index in
+                            Circle()
+                                .fill(index <= dotCount ? colors.accent : colors.secondaryText.opacity(0.3))
+                                .frame(width: 10, height: 10)
+                        }
+                    }
+
+                    // Progress text
+                    Text(progress.isEmpty ? "INITIALIZING" : progress.uppercased())
+                        .font(TEFonts.mono(11, weight: .medium))
+                        .foregroundColor(colors.secondaryText)
+                        .lineLimit(1)
+                        .frame(maxWidth: 280)
+                }
+            }
+        }
+        .onAppear {
+            // Animate logo scale
+            withAnimation(.easeOut(duration: 0.5)) {
+                logoScale = 1.0
+            }
+
+            // Animate loading dots
+            timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    dotCount = (dotCount + 1) % 4
+                }
+            }
+        }
+        .onDisappear {
+            timer?.invalidate()
+            timer = nil
+        }
     }
 }
