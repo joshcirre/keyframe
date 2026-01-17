@@ -813,9 +813,6 @@ struct PerformanceSettingsView: View {
         // Clear current audio engine channels
         audioEngine.removeAllChannels()
 
-        // Reset tempo tracking so new session can send its tempo
-        midiEngine.resetTempoTracking()
-
         // Load the session into the store
         sessionStore.loadSession(session)
 

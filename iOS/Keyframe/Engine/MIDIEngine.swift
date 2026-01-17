@@ -97,6 +97,9 @@ final class MIDIEngine: ObservableObject {
         didSet { saveOutputSettings() }
     }
 
+    /// Current session BPM for display purposes (default 90, updated when presets with BPM are selected)
+    @Published var currentBPM: Int = 90
+
     // Persistence keys for output settings
     private let selectedDestinationKey = "midiOutputDestination"
     private let externalMIDIChannelKey = "externalMIDIChannel"

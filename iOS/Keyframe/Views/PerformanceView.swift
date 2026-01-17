@@ -78,7 +78,7 @@ struct PerformanceView: View {
                     editModeContent
 
                     // Status Bar (only in edit mode)
-                    PerformanceStatusBar(audioEngine: audioEngine, midiEngine: midiEngine)
+                    PerformanceStatusBar(audioEngine: audioEngine, midiEngine: midiEngine, bpm: midiEngine.currentBPM)
                 }
             }
         }
@@ -246,7 +246,7 @@ struct PerformanceView: View {
             }
 
             // Minimal status bar
-            MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine)
+            MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine, bpm: midiEngine.currentBPM)
         }
     }
 
@@ -265,7 +265,7 @@ struct PerformanceView: View {
             .background(TEColors.cream)
 
             // Minimal status bar
-            MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine)
+            MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine, bpm: midiEngine.currentBPM)
         }
     }
 
@@ -382,6 +382,11 @@ struct PerformanceView: View {
         midiEngine.setAudioEngine(audioEngine)
         syncChannelConfigs()
 
+        // Initialize currentBPM from active song if it has one
+        if let activeSong = sessionStore.currentSession.activeSong, let bpm = activeSong.bpm {
+            midiEngine.currentBPM = bpm
+        }
+
         // Restore instruments and effects from saved session
         audioEngine.restorePlugins(from: sessionStore.currentSession.channels) { [weak audioEngine, weak sessionStore, weak midiEngine] in
             guard let audioEngine = audioEngine,
@@ -393,6 +398,7 @@ struct PerformanceView: View {
                     midiEngine.applySongSettings(self.convertToLegacySong(activeSong))
                     // Set initial tempo for hosted plugins
                     if let bpm = activeSong.bpm {
+                        midiEngine.currentBPM = bpm
                         audioEngine.setTempo(Double(bpm))
                     }
                 }
@@ -522,6 +528,7 @@ struct PerformanceView: View {
 
         // Set tempo for hosted plugins (arpeggiators, tempo-synced effects, etc.)
         if let bpm = song.bpm {
+            midiEngine.currentBPM = bpm
             audioEngine.setTempo(Double(bpm))
             // Send tap tempo to external devices (e.g., Helix)
             midiEngine.sendTapTempo(bpm: bpm)
@@ -1160,7 +1167,8 @@ struct SongGridButton: View {
 struct PerformanceStatusBar: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var midiEngine: MIDIEngine
-    
+    var bpm: Int = 90
+
     var body: some View {
         HStack(spacing: 20) {
             // Engine status
@@ -1168,25 +1176,30 @@ struct PerformanceStatusBar: View {
                 Circle()
                     .fill(audioEngine.isRunning ? TEColors.green : TEColors.red)
                     .frame(width: 8, height: 8)
-                
+
                 Text(audioEngine.isRunning ? "RUN" : "OFF")
                     .font(TEFonts.mono(10, weight: .bold))
                     .foregroundColor(TEColors.black)
             }
-            
+
             // MIDI
             HStack(spacing: 6) {
                 Rectangle()
                     .fill(midiEngine.lastActivity != nil ? TEColors.orange : TEColors.lightGray)
                     .frame(width: 8, height: 8)
-                
+
                 Text("MIDI \(midiEngine.connectedSources.count)")
                     .font(TEFonts.mono(10, weight: .medium))
                     .foregroundColor(TEColors.darkGray)
             }
-            
+
+            // BPM
+            Text("\(bpm) BPM")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.orange)
+
             Spacer()
-            
+
             // DSP Load
             Text("DSP \(Int(audioEngine.cpuUsage))%")
                 .font(TEFonts.mono(10, weight: .medium))
@@ -1203,6 +1216,7 @@ struct PerformanceStatusBar: View {
 struct MinimalStatusBar: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var midiEngine: MIDIEngine
+    var bpm: Int = 90
 
     var body: some View {
         HStack(spacing: 16) {
@@ -1216,6 +1230,11 @@ struct MinimalStatusBar: View {
                     .font(TEFonts.mono(9, weight: .medium))
                     .foregroundColor(TEColors.darkGray)
             }
+
+            // BPM
+            Text("\(bpm) BPM")
+                .font(TEFonts.mono(9, weight: .bold))
+                .foregroundColor(TEColors.orange)
 
             Spacer()
 

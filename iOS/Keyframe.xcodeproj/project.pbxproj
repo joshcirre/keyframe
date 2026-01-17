@@ -32,6 +32,7 @@
 		8A1B2C3D4E5F6060 /* KeyframeRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6060 /* KeyframeRemote.swift */; };
 		8A1B2C3D4E5F6061 /* RemoteModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6061 /* RemoteModeView.swift */; };
 		8A1B2C3D4E5F6062 /* ModeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6062 /* ModeSelectionView.swift */; };
+		8A1B2C3D4E5F6052 /* AppearanceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6052 /* AppearanceManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -59,6 +60,7 @@
 		9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothMIDIView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessageEditorView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessage.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6052 /* AppearanceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceManager.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6060 /* KeyframeRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeRemote.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6061 /* RemoteModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteModeView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6062 /* ModeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeSelectionView.swift; sourceTree = "<group>"; };
@@ -121,6 +123,7 @@
 		GA1B2C3D4E5F6003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				9A1B2C3D4E5F6052 /* AppearanceManager.swift */,
 				9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */,
 				9A1B2C3D4E5F6050 /* Session.swift */,
 			);
@@ -251,6 +254,7 @@
 				8A1B2C3D4E5F6033 /* PerformanceSongEditorView.swift in Sources */,
 				8A1B2C3D4E5F6034 /* PerformanceSettingsView.swift in Sources */,
 				8A1B2C3D4E5F6050 /* Session.swift in Sources */,
+				8A1B2C3D4E5F6052 /* AppearanceManager.swift in Sources */,
 				8A1B2C3D4E5F6040 /* AudioEngine.swift in Sources */,
 				8A1B2C3D4E5F6041 /* ChannelStrip.swift in Sources */,
 				8A1B2C3D4E5F6042 /* MIDIEngine.swift in Sources */,

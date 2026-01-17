@@ -246,7 +246,7 @@ struct ExternalMIDIMessageEditorView: View {
 
 #Preview {
     ExternalMIDIMessageEditorView(
-        message: ExternalMIDIMessage(name: "Clean Preset"),
+        message: ExternalMIDIMessage(),
         isNew: true,
         onSave: { _ in }
     )
