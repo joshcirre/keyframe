@@ -167,55 +167,35 @@ struct KeyframeMacApp: App {
                 let audioEngine = MacAudioEngine.shared
                 let midiEngine = MacMIDIEngine.shared
 
-                guard presetIndex < sessionStore.currentSession.presets.count else { return }
+                let songs = sessionStore.currentSession.songs
+                guard presetIndex < songs.count else { return }
 
                 // Smooth note-off: release all active notes before switching
                 midiEngine.releaseAllActiveNotes()
 
                 // Suppress broadcast since this change came from iOS
                 sessionStore.suppressBroadcast = true
-                sessionStore.currentPresetIndex = presetIndex
+                sessionStore.currentSongId = songs[presetIndex].id
                 sessionStore.suppressBroadcast = false
 
-                let preset = sessionStore.currentSession.presets[presetIndex]
+                let song = songs[presetIndex]
 
-                // Apply preset settings
-                if let bpm = preset.bpm {
+                // Apply song settings
+                if let bpm = song.bpm {
                     audioEngine.setTempo(bpm)
                     midiEngine.currentBPM = Int(bpm)
                     midiEngine.sendTapTempo(bpm: Int(bpm))
                 }
 
-                if let scale = preset.scale, let rootNote = preset.rootNote {
+                if let scale = song.scale, let rootNote = song.rootNote {
                     midiEngine.currentRootNote = rootNote.midiValue
                     midiEngine.currentScaleType = scale
                 }
 
-                // Apply channel states with spillover
-                let spilloverEnabled = sessionStore.currentSession.spilloverEnabled
-                for channelState in preset.channelStates {
-                    if let channel = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
-                        channel.applyStateWithSpillover(
-                            volume: channelState.volume,
-                            pan: channelState.pan,
-                            mute: channelState.isMuted,
-                            spilloverEnabled: spilloverEnabled
-                        )
-                        channel.isSoloed = channelState.isSoloed
-                    }
-                }
-
                 // Send external MIDI messages
-                midiEngine.sendExternalMIDIMessages(preset.externalMIDIMessages)
+                midiEngine.sendExternalMIDIMessages(song.externalMIDIMessages)
 
-                // Handle backing track
-                if let backingTrack = preset.backingTrack, backingTrack.autoStart {
-                    audioEngine.loadAndPlayBackingTrack(backingTrack)
-                } else {
-                    audioEngine.stopBackingTrack()
-                }
-
-                print("KeyframeMacApp: iOS remote selected preset '\(preset.name)' (index \(presetIndex))")
+                print("KeyframeMacApp: iOS remote selected song '\(song.name)' (index \(presetIndex))")
             }
         }
 

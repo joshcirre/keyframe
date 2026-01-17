@@ -238,32 +238,38 @@ final class KeyframeDiscovery: ObservableObject {
         })
     }
 
-    /// Send presets to a specific connection
+    /// Send presets (songs) to a specific connection
     private func sendPresetsToConnection(_ connection: NWConnection) {
         let store = MacSessionStore.shared
-        let presets = store.currentSession.presets
+        let songs = store.currentSession.songs
 
-        // Convert to simple format for iOS
-        let presetData: [[String: Any]] = presets.enumerated().map { index, preset in
+        // Convert songs to preset format for iOS
+        let presetData: [[String: Any]] = songs.enumerated().map { index, song in
             var data: [String: Any] = [
-                "id": preset.id.uuidString,
-                "name": preset.name,
-                "order": index
+                "id": song.id.uuidString,
+                "name": song.name,
+                "order": song.order
             ]
-            if let songName = preset.songName { data["songName"] = songName }
-            if let rootNote = preset.rootNote { data["rootNote"] = rootNote.rawValue }
-            if let scale = preset.scale { data["scale"] = scale.rawValue }
-            if let bpm = preset.bpm { data["bpm"] = bpm }
+            if let rootNote = song.rootNote { data["rootNote"] = rootNote.rawValue }
+            if let scale = song.scale { data["scale"] = scale.rawValue }
+            if let bpm = song.bpm { data["bpm"] = Int(bpm) }
             return data
+        }
+
+        // Find active song index
+        var activeIndex: Int? = nil
+        if let currentSongId = store.currentSongId {
+            activeIndex = songs.firstIndex { $0.id == currentSongId }
         }
 
         let message: [String: Any] = [
             "presets": presetData,
-            "activePresetIndex": store.currentPresetIndex as Any,
+            "activePresetIndex": activeIndex as Any,
             "masterVolume": Double(store.currentSession.masterVolume)
         ]
 
         sendMessage(message, to: connection)
+        print("KeyframeDiscovery: Sent \(songs.count) presets to iOS")
     }
 
     // MARK: - Broadcast to All Connected Devices
@@ -271,24 +277,28 @@ final class KeyframeDiscovery: ObservableObject {
     /// Broadcast current state to all connected iOS devices
     func broadcastState() {
         let store = MacSessionStore.shared
-        let presets = store.currentSession.presets
+        let songs = store.currentSession.songs
 
-        let presetData: [[String: Any]] = presets.enumerated().map { index, preset in
+        let presetData: [[String: Any]] = songs.enumerated().map { index, song in
             var data: [String: Any] = [
-                "id": preset.id.uuidString,
-                "name": preset.name,
-                "order": index
+                "id": song.id.uuidString,
+                "name": song.name,
+                "order": song.order
             ]
-            if let songName = preset.songName { data["songName"] = songName }
-            if let rootNote = preset.rootNote { data["rootNote"] = rootNote.rawValue }
-            if let scale = preset.scale { data["scale"] = scale.rawValue }
-            if let bpm = preset.bpm { data["bpm"] = bpm }
+            if let rootNote = song.rootNote { data["rootNote"] = rootNote.rawValue }
+            if let scale = song.scale { data["scale"] = scale.rawValue }
+            if let bpm = song.bpm { data["bpm"] = Int(bpm) }
             return data
+        }
+
+        var activeIndex: Int? = nil
+        if let currentSongId = store.currentSongId {
+            activeIndex = songs.firstIndex { $0.id == currentSongId }
         }
 
         let message: [String: Any] = [
             "presets": presetData,
-            "activePresetIndex": store.currentPresetIndex as Any,
+            "activePresetIndex": activeIndex as Any,
             "masterVolume": Double(store.currentSession.masterVolume)
         ]
 

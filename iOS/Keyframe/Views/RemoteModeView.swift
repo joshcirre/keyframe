@@ -114,67 +114,128 @@ struct RemoteModeView: View {
 
     private func connectedView(name: String) -> some View {
         GeometryReader { geometry in
-            ZStack(alignment: .topTrailing) {
-                VStack(spacing: 0) {
-                    // Fullscreen preset grid (dark theme)
-                    RemotePresetGridView(
-                        presets: remote.presets,
-                        activeIndex: remote.activePresetIndex,
-                        onSelectPreset: { index in
-                            let generator = UIImpactFeedbackGenerator(style: .medium)
-                            generator.impactOccurred()
-                            remote.selectPreset(at: index)
-                        }
-                    )
-                    .padding(.top, 44)  // Room for control buttons overlay
-                    .background(TEColors.black)
+            VStack(spacing: 0) {
+                // Header
+                remoteHeader(name: name)
 
-                    // Status bar (dark theme)
-                    RemoteStatusBar(
-                        macName: name,
-                        presetCount: remote.presets.count,
-                        activeIndex: remote.activePresetIndex,
-                        masterVolume: remote.masterVolume
-                    )
+                // Main content
+                HStack(spacing: 0) {
+                    // Preset Grid
+                    presetGrid
+                        .frame(width: geometry.size.width * 0.75)
+
+                    // Master Fader
+                    masterFaderPanel
+                        .frame(width: geometry.size.width * 0.25)
                 }
-
-                // Control buttons (top-right)
-                remoteControlButtons
             }
         }
     }
 
-    private var remoteControlButtons: some View {
-        HStack(spacing: 6) {
-            // Connection indicator
-            HStack(spacing: 4) {
+    private func remoteHeader(name: String) -> some View {
+        HStack {
+            // Connection status
+            HStack(spacing: 8) {
                 Circle()
                     .fill(TEColors.green)
-                    .frame(width: 8, height: 8)
-                Text("LIVE")
-                    .font(TEFonts.mono(9, weight: .bold))
+                    .frame(width: 10, height: 10)
+
+                Text("CONNECTED TO")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(TEColors.midGray)
+
+                Text(name.uppercased())
+                    .font(TEFonts.mono(12, weight: .bold))
                     .foregroundColor(TEColors.cream)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(TEColors.darkGray)
-            .overlay(Rectangle().strokeBorder(TEColors.midGray, lineWidth: 1))
 
-            // Close button
+            Spacer()
+
+            // Disconnect button
             Button {
                 remote.disconnect()
                 dismiss()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(TEColors.cream)
-                    .frame(width: 28, height: 28)
-                    .background(TEColors.darkGray)
-                    .overlay(Rectangle().strokeBorder(TEColors.midGray, lineWidth: 2))
+                HStack(spacing: 6) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("EXIT")
+                        .font(TEFonts.mono(10, weight: .bold))
+                }
+                .foregroundColor(TEColors.cream)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(TEColors.darkGray)
+                .overlay(Rectangle().strokeBorder(TEColors.midGray, lineWidth: 1))
             }
         }
-        .padding(.top, 8)
-        .padding(.trailing, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.black.opacity(0.5))
+    }
+
+    private var presetGrid: some View {
+        ScrollView {
+            if remote.presets.isEmpty {
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: TEColors.orange))
+                    Text("Loading presets...")
+                        .font(TEFonts.mono(12, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, 100)
+            } else {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.adaptive(minimum: 120, maximum: 200), spacing: 12)
+                    ],
+                    spacing: 12
+                ) {
+                    ForEach(Array(remote.presets.enumerated()), id: \.element.id) { index, preset in
+                        RemotePresetButton(
+                            preset: preset,
+                            isActive: remote.activePresetIndex == index,
+                            onTap: {
+                                let generator = UIImpactFeedbackGenerator(style: .medium)
+                                generator.impactOccurred()
+                                remote.selectPreset(at: index)
+                            }
+                        )
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(TEColors.black)
+    }
+
+    private var masterFaderPanel: some View {
+        VStack(spacing: 16) {
+            Text("MASTER")
+                .font(TEFonts.mono(12, weight: .bold))
+                .foregroundColor(TEColors.cream)
+
+            Spacer()
+
+            // Large vertical fader
+            RemoteFader(value: Binding(
+                get: { remote.masterVolume },
+                set: { remote.setMasterVolume($0) }
+            ))
+            .frame(width: 60, height: 200)
+
+            // Volume display
+            Text("\(Int(remote.masterVolume * 100))")
+                .font(TEFonts.mono(24, weight: .bold))
+                .foregroundColor(TEColors.cream)
+
+            Spacer()
+        }
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity)
+        .background(TEColors.darkGray.opacity(0.3))
     }
 
     // MARK: - Error View
@@ -458,6 +519,88 @@ struct RemoteStatusBar: View {
                 .foregroundColor(TEColors.midGray),
             alignment: .top
         )
+    }
+}
+
+// MARK: - Remote Preset Button (Simple)
+
+struct RemotePresetButton: View {
+    let preset: RemotePreset
+    let isActive: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 6) {
+                Spacer(minLength: 8)
+
+                Text(preset.name.uppercased())
+                    .font(TEFonts.mono(14, weight: .bold))
+                    .foregroundColor(isActive ? .white : TEColors.cream)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+
+                if let songName = preset.songName, !songName.isEmpty {
+                    Text(songName.uppercased())
+                        .font(TEFonts.mono(11, weight: .medium))
+                        .foregroundColor(isActive ? .white.opacity(0.8) : TEColors.midGray)
+                }
+
+                if let bpm = preset.bpm {
+                    Text("\(bpm) BPM")
+                        .font(TEFonts.mono(10, weight: .regular))
+                        .foregroundColor(isActive ? .white.opacity(0.6) : TEColors.darkGray)
+                }
+
+                Spacer(minLength: 8)
+            }
+            .frame(maxWidth: .infinity, minHeight: 80)
+            .background(isActive ? TEColors.orange : TEColors.darkGray.opacity(0.5))
+            .overlay(
+                Rectangle()
+                    .strokeBorder(isActive ? TEColors.cream : TEColors.midGray, lineWidth: isActive ? 3 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Remote Fader
+
+struct RemoteFader: View {
+    @Binding var value: Float
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                // Track background
+                Rectangle()
+                    .fill(TEColors.black)
+
+                // Fill
+                Rectangle()
+                    .fill(TEColors.orange)
+                    .frame(height: geometry.size.height * CGFloat(value))
+
+                // Border
+                Rectangle()
+                    .strokeBorder(TEColors.cream, lineWidth: 2)
+
+                // Handle
+                Rectangle()
+                    .fill(TEColors.cream)
+                    .frame(height: 6)
+                    .offset(y: -geometry.size.height * CGFloat(value) + 3)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        let percent = 1.0 - Float(gesture.location.y / geometry.size.height)
+                        value = min(max(percent, 0), 1)
+                    }
+            )
+        }
     }
 }
 
