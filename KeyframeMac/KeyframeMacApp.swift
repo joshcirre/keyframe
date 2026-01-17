@@ -33,6 +33,29 @@ struct KeyframeMacApp: App {
             MacMIDIEngine.shared.broadcastPresetChange(index: presetIndex)
         }
 
+        // Set up AU state sync callback - captures instrument/effect presets before saving
+        MacSessionStore.shared.onSyncAUState = {
+            let audioEngine = MacAudioEngine.shared
+            let sessionStore = MacSessionStore.shared
+
+            for (index, channel) in audioEngine.channelStrips.enumerated() {
+                guard index < sessionStore.currentSession.channels.count else { continue }
+
+                // Capture instrument state
+                if let instrumentState = channel.saveInstrumentState() {
+                    sessionStore.currentSession.channels[index].instrument?.presetData = instrumentState
+                }
+
+                // Capture effect states
+                for effectIndex in 0..<channel.effects.count {
+                    if effectIndex < sessionStore.currentSession.channels[index].effects.count,
+                       let effectState = channel.saveEffectState(at: effectIndex) {
+                        sessionStore.currentSession.channels[index].effects[effectIndex].presetData = effectState
+                    }
+                }
+            }
+        }
+
         // Set up external MIDI controller preset trigger handler
         MacMIDIEngine.shared.onExternalPresetTrigger = { presetIndex in
             DispatchQueue.main.async {

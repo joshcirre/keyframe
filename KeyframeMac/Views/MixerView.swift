@@ -738,6 +738,9 @@ struct TEVerticalFader: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let height = max(1, geometry.size.height)  // Avoid division by zero
+            let safeValue = value.isFinite ? value : 0
+
             ZStack(alignment: .bottom) {
                 // Track background
                 Rectangle()
@@ -746,20 +749,20 @@ struct TEVerticalFader: View {
                 // Fill
                 Rectangle()
                     .fill(colors.accent)
-                    .frame(height: geometry.size.height * CGFloat(value))
+                    .frame(height: max(0, height * CGFloat(safeValue)))
 
                 // Handle line
                 Rectangle()
                     .fill(colors.border)
                     .frame(height: 4)
-                    .offset(y: -geometry.size.height * CGFloat(value) + 2)
+                    .offset(y: -height * CGFloat(safeValue) + 2)
             }
             .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
                         isDragging = true
-                        let newValue = 1.0 - Float(gesture.location.y / geometry.size.height)
+                        let newValue = 1.0 - Float(gesture.location.y / height)
                         value = max(0, min(1, newValue))
                     }
                     .onEnded { _ in
@@ -780,14 +783,17 @@ struct TEMeterView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let height = max(1, geometry.size.height)  // Avoid division by zero
+            let safeLevel = level.isFinite ? level : 0
+
             VStack(spacing: 1) {
                 ForEach((0..<segmentCount).reversed(), id: \.self) { index in
                     let segmentDB = dBForSegment(index)
-                    let isLit = Double(level) >= segmentDB
+                    let isLit = Double(safeLevel) >= segmentDB
 
                     Rectangle()
                         .fill(colorForSegment(index, isLit: isLit))
-                        .frame(height: geometry.size.height / CGFloat(segmentCount) - 1)
+                        .frame(height: max(0, height / CGFloat(segmentCount) - 1))
                 }
             }
             .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))

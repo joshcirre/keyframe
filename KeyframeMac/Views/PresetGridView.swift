@@ -107,13 +107,7 @@ struct PresetGridView: View {
 
     private var headerView: some View {
         HStack(spacing: 12) {
-            Text("SONGS")
-                .font(TEFonts.display(16, weight: .bold))
-                .foregroundColor(colors.primaryText)
-
-            Spacer()
-
-            // Current song/section info
+            // Current song/section info (takes full width)
             if let songId = sessionStore.currentSongId,
                let song = sessionStore.currentSession.songs.first(where: { $0.id == songId }) {
                 HStack(spacing: 8) {

@@ -32,6 +32,9 @@ final class MacSessionStore: ObservableObject {
     /// Callback when preset index changes - used for iOS sync
     var onPresetChanged: ((Int) -> Void)?
 
+    /// Callback to sync AudioUnit state before saving - captures instrument/effect presets
+    var onSyncAUState: (() -> Void)?
+
     /// Set to true to suppress broadcasting (e.g., when change came from iOS)
     var suppressBroadcast = false
 
@@ -55,6 +58,9 @@ final class MacSessionStore: ObservableObject {
     // MARK: - Session Management
 
     func saveCurrentSession() {
+        // Sync AU state before saving (captures instrument/effect presets)
+        onSyncAUState?()
+
         let defaults = UserDefaults.standard
 
         if let data = try? JSONEncoder().encode(currentSession) {
