@@ -216,6 +216,7 @@ struct PerformanceView: View {
                     onEditSong: { _ in },
                     onAddSong: { }
                 )
+                .padding(.top, 44)  // Room for control buttons overlay
                 .frame(width: geometry.size.width * CGFloat(splitRatio))
                 .background(TEColors.cream)
 
@@ -262,6 +263,7 @@ struct PerformanceView: View {
                 onEditSong: { _ in },
                 onAddSong: { }
             )
+            .padding(.top, 44)  // Room for control buttons overlay
             .background(TEColors.cream)
 
             // Minimal status bar
@@ -806,6 +808,9 @@ struct MeterView: View {
     var segments: Int = 8
 
     private var normalizedLevel: CGFloat {
+        // Guard against NaN and infinite values
+        guard level.isFinite else { return 0 }
+
         let minDb: Float = -60
         let maxDb: Float = 0
         let clamped = min(max(level, minDb), maxDb)
@@ -936,62 +941,59 @@ struct SongGridView: View {
             // Grid content
             GeometryReader { geometry in
                 let itemCount = songs.count
-                let spacing: CGFloat = 8
-                let padding: CGFloat = 16
+                let spacing: CGFloat = 6  // Minimal spacing between items
+                let padding: CGFloat = 6  // Minimal outer margin
                 let availableWidth = geometry.size.width - (padding * 2)
                 let availableHeight = geometry.size.height - (padding * 2)
 
                 // Calculate optimal grid dimensions
                 let (columns, rows) = calculateGrid(itemCount: max(1, itemCount), availableWidth: availableWidth, availableHeight: availableHeight)
 
-                let itemWidth = (availableWidth - (spacing * CGFloat(columns - 1))) / CGFloat(columns)
-                let calculatedItemHeight = (availableHeight - (spacing * CGFloat(rows - 1))) / CGFloat(rows)
-
-                // Ensure minimum height for readability, especially in landscape
-                let minItemHeight: CGFloat = 70
-                let itemHeight = max(calculatedItemHeight, minItemHeight)
+                // Calculate item sizes to fill the space exactly
+                let totalHorizontalSpacing = spacing * CGFloat(columns - 1)
+                let totalVerticalSpacing = spacing * CGFloat(rows - 1)
+                let itemWidth = (availableWidth - totalHorizontalSpacing) / CGFloat(columns)
+                let itemHeight = (availableHeight - totalVerticalSpacing) / CGFloat(rows)
 
                 let gridColumns = Array(repeating: GridItem(.fixed(itemWidth), spacing: spacing), count: columns)
 
-                ScrollView {
-                    LazyVGrid(columns: gridColumns, spacing: spacing) {
-                        ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                            SongGridButton(
-                                song: song,
-                                isActive: song.id == activeSongId,
-                                isDragging: draggingSongId == song.id,
-                                isReorderMode: isReorderMode,
-                                onTap: {
-                                    if !isReorderMode {
-                                        onSelectSong(song)
-                                    }
-                                },
-                                onLongPress: {
-                                    if !isReorderMode {
-                                        onEditSong(song)
-                                    }
+                LazyVGrid(columns: gridColumns, spacing: spacing) {
+                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                        SongGridButton(
+                            song: song,
+                            isActive: song.id == activeSongId,
+                            isDragging: draggingSongId == song.id,
+                            isReorderMode: isReorderMode,
+                            isLargeText: !isEditMode,  // Large text only in perform mode
+                            onTap: {
+                                if !isReorderMode {
+                                    onSelectSong(song)
                                 }
-                            )
-                            .frame(height: itemHeight)
-                            .onDrag {
-                                if isReorderMode {
-                                    draggingSongId = song.id
-                                    return NSItemProvider(object: song.id.uuidString as NSString)
+                            },
+                            onLongPress: {
+                                if !isReorderMode {
+                                    onEditSong(song)
                                 }
-                                return NSItemProvider()
                             }
-                            .onDrop(of: [.text], delegate: SongDropDelegate(
-                                song: song,
-                                songs: songs,
-                                draggingSongId: $draggingSongId,
-                                isReorderMode: isReorderMode,
-                                onMoveSong: onMoveSong
-                            ))
+                        )
+                        .frame(height: itemHeight)
+                        .onDrag {
+                            if isReorderMode {
+                                draggingSongId = song.id
+                                return NSItemProvider(object: song.id.uuidString as NSString)
+                            }
+                            return NSItemProvider()
                         }
+                        .onDrop(of: [.text], delegate: SongDropDelegate(
+                            song: song,
+                            songs: songs,
+                            draggingSongId: $draggingSongId,
+                            isReorderMode: isReorderMode,
+                            onMoveSong: onMoveSong
+                        ))
                     }
-                    .padding(padding)
-                    .padding(.bottom, 20) // Extra bottom padding for scroll room
                 }
+                .padding(padding)
             }
         }
     }
@@ -1073,76 +1075,101 @@ struct SongGridButton: View {
     let isActive: Bool
     var isDragging: Bool = false
     var isReorderMode: Bool = false
+    var isLargeText: Bool = false  // Use large dynamic text (for perform mode)
     let onTap: () -> Void
     let onLongPress: () -> Void
 
     @State private var isPressed = false
 
     var body: some View {
-        Button(action: onTap) {
-            ZStack {
-                VStack(spacing: 4) {
-                    Spacer(minLength: 4)
+        GeometryReader { geometry in
+            // Calculate font sizes - large dynamic sizing for perform mode, fixed for edit mode
+            let minDimension = min(geometry.size.width, geometry.size.height)
+            let nameFontSize: CGFloat = isLargeText
+                ? max(16, min(minDimension * 0.35, 48))  // 35% of cell, clamped 16-48
+                : 14
+            let songNameFontSize: CGFloat = isLargeText ? max(12, nameFontSize * 0.5) : 11
 
-                    Text(song.name.uppercased())
-                        .font(TEFonts.mono(14, weight: .bold))
-                        .foregroundColor(isActive ? .white : TEColors.black)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
+            Button(action: onTap) {
+                ZStack {
+                    VStack(spacing: isLargeText ? minDimension * 0.03 : 4) {
+                        Spacer(minLength: 4)
 
-                    Text(song.keyShortName.uppercased())
-                        .font(TEFonts.mono(12, weight: .medium))
-                        .foregroundColor(isActive ? .white.opacity(0.8) : TEColors.midGray)
+                        // Preset name (main)
+                        Text(song.name.uppercased())
+                            .font(TEFonts.mono(nameFontSize, weight: isLargeText ? .black : .bold))
+                            .foregroundColor(isActive ? .white : TEColors.black)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .minimumScaleFactor(isLargeText ? 0.5 : 1.0)
 
-                    if let bpm = song.bpm {
-                        Text("\(bpm) BPM")
-                            .font(TEFonts.mono(11, weight: .regular))
-                            .foregroundColor(isActive ? .white.opacity(0.6) : TEColors.midGray)
-                    }
-
-                    Spacer(minLength: 4)
-                }
-
-                // Drag handle indicator in reorder mode
-                if isReorderMode {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Image(systemName: "line.3.horizontal")
-                                .font(.system(size: 14, weight: .bold))
+                        // Song name (if set)
+                        if let songName = song.songName, !songName.isEmpty {
+                            Text(songName.uppercased())
+                                .font(TEFonts.mono(songNameFontSize, weight: .medium))
                                 .foregroundColor(isActive ? .white.opacity(0.7) : TEColors.midGray)
-                                .padding(6)
+                                .lineLimit(1)
                         }
-                        Spacer()
+
+                        Spacer(minLength: 4)
+                    }
+                    .padding(.horizontal, isLargeText ? 8 : 4)
+
+                    // BPM indicator (top-left orange dot if BPM is set)
+                    if song.bpm != nil {
+                        VStack {
+                            HStack {
+                                Circle()
+                                    .fill(TEColors.orange)
+                                    .frame(width: isLargeText ? 10 : 8, height: isLargeText ? 10 : 8)
+                                    .padding(6)
+                                Spacer()
+                            }
+                            Spacer()
+                        }
+                    }
+
+                    // Drag handle indicator in reorder mode
+                    if isReorderMode {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "line.3.horizontal")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(isActive ? .white.opacity(0.7) : TEColors.midGray)
+                                    .padding(6)
+                            }
+                            Spacer()
+                        }
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 0)
+                        .fill(isActive ? TEColors.orange : TEColors.warmWhite)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 0)
+                        .strokeBorder(
+                            isDragging ? TEColors.orange : (isReorderMode ? TEColors.darkGray : TEColors.black),
+                            lineWidth: isDragging ? 4 : (isActive ? 3 : 2)
+                        )
+                )
+                .overlay(
+                    // Dashed border in reorder mode
+                    RoundedRectangle(cornerRadius: 0)
+                        .strokeBorder(TEColors.orange, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                        .opacity(isReorderMode && !isDragging ? 1 : 0)
+                )
+                .scaleEffect(isPressed && !isReorderMode ? 0.96 : 1.0)
+                .opacity(isDragging ? 0.6 : 1.0)
+                .animation(.easeOut(duration: 0.1), value: isPressed)
+                .animation(.easeOut(duration: 0.15), value: isDragging)
+                .animation(.easeOut(duration: 0.15), value: isReorderMode)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 0)
-                    .fill(isActive ? TEColors.orange : TEColors.warmWhite)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 0)
-                    .strokeBorder(
-                        isDragging ? TEColors.orange : (isReorderMode ? TEColors.darkGray : TEColors.black),
-                        lineWidth: isDragging ? 4 : (isActive ? 3 : 2)
-                    )
-            )
-            .overlay(
-                // Dashed border in reorder mode
-                RoundedRectangle(cornerRadius: 0)
-                    .strokeBorder(TEColors.orange, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                    .opacity(isReorderMode && !isDragging ? 1 : 0)
-            )
-            .scaleEffect(isPressed && !isReorderMode ? 0.96 : 1.0)
-            .opacity(isDragging ? 0.6 : 1.0)
-            .animation(.easeOut(duration: 0.1), value: isPressed)
-            .animation(.easeOut(duration: 0.15), value: isDragging)
-            .animation(.easeOut(duration: 0.15), value: isReorderMode)
+            .buttonStyle(.plain)
+            .disabled(isReorderMode)
         }
-        .buttonStyle(.plain)
-        .disabled(isReorderMode)
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5)
                 .onEnded { _ in
