@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		8A1B2C3D4E5F6001 /* KeyframeMKIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6001 /* KeyframeMKIApp.swift */; };
+		8A1B2C3D4E5F6001 /* KeyframeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6001 /* KeyframeApp.swift */; };
 		8A1B2C3D4E5F6005 /* ChordMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6005 /* ChordMapView.swift */; };
 		8A1B2C3D4E5F600B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F600B /* Assets.xcassets */; };
 		8A1B2C3D4E5F6020 /* ScaleEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6020 /* ScaleEngine.swift */; };
@@ -29,14 +29,17 @@
 		8A1B2C3D4E5F6035 /* BluetoothMIDIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */; };
 		8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */; };
 		8A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */; };
+		8A1B2C3D4E5F6060 /* KeyframeRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6060 /* KeyframeRemote.swift */; };
+		8A1B2C3D4E5F6061 /* RemoteModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6061 /* RemoteModeView.swift */; };
+		8A1B2C3D4E5F6062 /* ModeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6062 /* ModeSelectionView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		9A1B2C3D4E5F6001 /* KeyframeMKIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeMKIApp.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6001 /* KeyframeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeApp.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6005 /* ChordMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordMapView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F600B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9A1B2C3D4E5F600C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		9A1B2C3D4E5F600D /* KeyframeMKI.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KeyframeMKI.entitlements; sourceTree = "<group>"; };
+		9A1B2C3D4E5F600D /* Keyframe.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Keyframe.entitlements; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6020 /* ScaleEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScaleEngine.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6021 /* ChordEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordEngine.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6023 /* ChordMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordMapping.swift; sourceTree = "<group>"; };
@@ -56,7 +59,10 @@
 		9A1B2C3D4E5F6035 /* BluetoothMIDIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothMIDIView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessageEditorView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessage.swift; sourceTree = "<group>"; };
-		CA1B2C3D4E5F6000 /* KeyframeMKI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeyframeMKI.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9A1B2C3D4E5F6060 /* KeyframeRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeRemote.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6061 /* RemoteModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteModeView.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6062 /* ModeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeSelectionView.swift; sourceTree = "<group>"; };
+		CA1B2C3D4E5F6000 /* Keyframe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Keyframe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,25 +79,26 @@
 		GA1B2C3D4E5F6000 = {
 			isa = PBXGroup;
 			children = (
-				GA1B2C3D4E5F6001 /* KeyframeMKI */,
+				GA1B2C3D4E5F6001 /* Keyframe */,
 				GA3B2C3D4E5F6001 /* Shared */,
 				GA4B2C3D4E5F6001 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		GA1B2C3D4E5F6001 /* KeyframeMKI */ = {
+		GA1B2C3D4E5F6001 /* Keyframe */ = {
 			isa = PBXGroup;
 			children = (
-				9A1B2C3D4E5F6001 /* KeyframeMKIApp.swift */,
+				9A1B2C3D4E5F6001 /* KeyframeApp.swift */,
 				GA1B2C3D4E5F6002 /* Views */,
 				GA1B2C3D4E5F6003 /* Models */,
 				GA1B2C3D4E5F6004 /* Services */,
 				GA1B2C3D4E5F6005 /* Engine */,
+				GA1B2C3D4E5F6006 /* Network */,
 				9A1B2C3D4E5F600B /* Assets.xcassets */,
 				9A1B2C3D4E5F600C /* Info.plist */,
-				9A1B2C3D4E5F600D /* KeyframeMKI.entitlements */,
+				9A1B2C3D4E5F600D /* Keyframe.entitlements */,
 			);
-			path = KeyframeMKI;
+			path = Keyframe;
 			sourceTree = "<group>";
 		};
 		GA1B2C3D4E5F6002 /* Views */ = {
@@ -105,6 +112,8 @@
 				9A1B2C3D4E5F6034 /* PerformanceSettingsView.swift */,
 				9A1B2C3D4E5F6033 /* PerformanceSongEditorView.swift */,
 				9A1B2C3D4E5F6032 /* PluginBrowserView.swift */,
+				9A1B2C3D4E5F6061 /* RemoteModeView.swift */,
+				9A1B2C3D4E5F6062 /* ModeSelectionView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -136,6 +145,14 @@
 			path = Engine;
 			sourceTree = "<group>";
 		};
+		GA1B2C3D4E5F6006 /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				9A1B2C3D4E5F6060 /* KeyframeRemote.swift */,
+			);
+			path = Network;
+			sourceTree = "<group>";
+		};
 		GA3B2C3D4E5F6001 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
@@ -152,7 +169,7 @@
 		GA4B2C3D4E5F6001 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				CA1B2C3D4E5F6000 /* KeyframeMKI.app */,
+				CA1B2C3D4E5F6000 /* Keyframe.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -160,9 +177,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		TA1B2C3D4E5F6000 /* KeyframeMKI */ = {
+		TA1B2C3D4E5F6000 /* Keyframe */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = XA1B2C3D4E5F6001 /* Build configuration list for PBXNativeTarget "KeyframeMKI" */;
+			buildConfigurationList = XA1B2C3D4E5F6001 /* Build configuration list for PBXNativeTarget "Keyframe" */;
 			buildPhases = (
 				SA1B2C3D4E5F6001 /* Sources */,
 				FA2B2C3D4E5F6001 /* Frameworks */,
@@ -172,9 +189,9 @@
 			);
 			dependencies = (
 			);
-			name = KeyframeMKI;
-			productName = KeyframeMKI;
-			productReference = CA1B2C3D4E5F6000 /* KeyframeMKI.app */;
+			name = Keyframe;
+			productName = Keyframe;
+			productReference = CA1B2C3D4E5F6000 /* Keyframe.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -192,7 +209,7 @@
 					};
 				};
 			};
-			buildConfigurationList = XA0B2C3D4E5F6001 /* Build configuration list for PBXProject "KeyframeMKI" */;
+			buildConfigurationList = XA0B2C3D4E5F6001 /* Build configuration list for PBXProject "Keyframe" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -205,7 +222,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				TA1B2C3D4E5F6000 /* KeyframeMKI */,
+				TA1B2C3D4E5F6000 /* Keyframe */,
 			);
 		};
 /* End PBXProject section */
@@ -226,7 +243,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8A1B2C3D4E5F6001 /* KeyframeMKIApp.swift in Sources */,
+				8A1B2C3D4E5F6001 /* KeyframeApp.swift in Sources */,
 				8A1B2C3D4E5F6005 /* ChordMapView.swift in Sources */,
 				8A1B2C3D4E5F6030 /* PerformanceView.swift in Sources */,
 				8A1B2C3D4E5F6031 /* ChannelDetailView.swift in Sources */,
@@ -247,6 +264,9 @@
 				8A1B2C3D4E5F6035 /* BluetoothMIDIView.swift in Sources */,
 				8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */,
 				8A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift in Sources */,
+				8A1B2C3D4E5F6060 /* KeyframeRemote.swift in Sources */,
+				8A1B2C3D4E5F6061 /* RemoteModeView.swift in Sources */,
+				8A1B2C3D4E5F6062 /* ModeSelectionView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -379,12 +399,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = KeyframeMKI/KeyframeMKI.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Keyframe/Keyframe.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = KeyframeMKI/Info.plist;
+				INFOPLIST_FILE = Keyframe/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Keyframe MK I";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -410,12 +430,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = KeyframeMKI/KeyframeMKI.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Keyframe/Keyframe.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = KeyframeMKI/Info.plist;
+				INFOPLIST_FILE = Keyframe/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Keyframe MK I";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -439,7 +459,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		XA0B2C3D4E5F6001 /* Build configuration list for PBXProject "KeyframeMKI" */ = {
+		XA0B2C3D4E5F6001 /* Build configuration list for PBXProject "Keyframe" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				YA0B2C3D4E5F6001 /* Debug */,
@@ -448,7 +468,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		XA1B2C3D4E5F6001 /* Build configuration list for PBXNativeTarget "KeyframeMKI" */ = {
+		XA1B2C3D4E5F6001 /* Build configuration list for PBXNativeTarget "Keyframe" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				YA1B2C3D4E5F6001 /* Debug */,

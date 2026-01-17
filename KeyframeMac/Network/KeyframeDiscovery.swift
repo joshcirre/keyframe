@@ -9,9 +9,6 @@ final class KeyframeDiscovery: ObservableObject {
 
     // MARK: - Service Configuration
 
-    /// Keyframe uses channel 16 for iOS remote control - won't conflict with instruments on 1-15
-    static let remoteControlChannel: UInt8 = 16
-
     /// Bonjour service type for Keyframe discovery
     private let serviceType = "_keyframe._tcp"
 
@@ -24,6 +21,15 @@ final class KeyframeDiscovery: ObservableObject {
 
     @Published var isAdvertising = false
     @Published var connectedDevices: [String] = []
+    @Published var hasConnectediOS = false
+
+    // MARK: - Callbacks
+
+    /// Called when iOS requests to select a preset
+    var onPresetSelected: ((Int) -> Void)?
+
+    /// Called when iOS changes master volume
+    var onMasterVolumeChanged: ((Float) -> Void)?
 
     // MARK: - Private State
 
@@ -95,6 +101,7 @@ final class KeyframeDiscovery: ObservableObject {
         connections.forEach { $0.cancel() }
         connections.removeAll()
         isAdvertising = false
+        hasConnectediOS = false
     }
 
     // MARK: - Connection Handling
@@ -108,10 +115,8 @@ final class KeyframeDiscovery: ObservableObject {
                        case .hostPort(let host, _) = endpoint {
                         let deviceName = "\(host)"
                         self?.connectedDevices.append(deviceName)
+                        self?.hasConnectediOS = true
                         print("KeyframeDiscovery: iOS device connected - \(deviceName)")
-
-                        // Send welcome message with MIDI channel info
-                        self?.sendWelcome(to: connection)
                     }
                 case .failed, .cancelled:
                     self?.removeConnection(connection)
@@ -124,8 +129,8 @@ final class KeyframeDiscovery: ObservableObject {
         connections.append(connection)
         connection.start(queue: .main)
 
-        // Start receiving data
-        receiveData(from: connection)
+        // Start receiving length-prefixed messages
+        receiveMessage(from: connection)
     }
 
     private func removeConnection(_ connection: NWConnection) {
@@ -138,82 +143,173 @@ final class KeyframeDiscovery: ObservableObject {
             }
             return nil
         }
+        hasConnectediOS = !connections.isEmpty
     }
 
-    // MARK: - Data Exchange
+    // MARK: - Length-Prefixed Message Protocol
 
-    private func sendWelcome(to connection: NWConnection) {
-        // Send configuration info to iOS
-        let info: [String: Any] = [
-            "version": 1,
-            "name": serviceName,
-            "midiChannel": Int(KeyframeDiscovery.remoteControlChannel),
-            "capabilities": ["presets", "faders", "mutes"]
-        ]
+    private func receiveMessage(from connection: NWConnection) {
+        // Read 4-byte length prefix
+        connection.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] data, _, isComplete, error in
+            guard let self = self else { return }
 
-        if let data = try? JSONSerialization.data(withJSONObject: info) {
-            connection.send(content: data, completion: .contentProcessed { error in
-                if let error = error {
-                    print("KeyframeDiscovery: Send error - \(error)")
+            if let data = data, data.count == 4 {
+                let length = data.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+                self.receiveMessageBody(length: Int(length), from: connection)
+            } else if isComplete || error != nil {
+                DispatchQueue.main.async {
+                    self.removeConnection(connection)
                 }
-            })
+            } else {
+                self.receiveMessage(from: connection)
+            }
         }
     }
 
-    private func receiveData(from connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+    private func receiveMessageBody(length: Int, from connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: length, maximumLength: length) { [weak self] data, _, isComplete, error in
+            guard let self = self else { return }
+
             if let data = data, !data.isEmpty {
-                self?.handleData(data, from: connection)
+                self.handleMessage(data, from: connection)
             }
 
             if isComplete || error != nil {
-                connection.cancel()
+                DispatchQueue.main.async {
+                    self.removeConnection(connection)
+                }
             } else {
-                // Continue receiving
-                self?.receiveData(from: connection)
+                self.receiveMessage(from: connection)
             }
         }
     }
 
-    private func handleData(_ data: Data, from connection: NWConnection) {
-        // Parse JSON messages from iOS
+    private func handleMessage(_ data: Data, from connection: NWConnection) {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let command = json["command"] as? String else {
             return
         }
 
+        DispatchQueue.main.async { [weak self] in
+            self?.processCommand(command, json: json, from: connection)
+        }
+    }
+
+    private func processCommand(_ command: String, json: [String: Any], from connection: NWConnection) {
         switch command {
         case "requestPresets":
-            // iOS is requesting preset list
             print("KeyframeDiscovery: iOS requested presets")
-            // This would trigger MacMIDIEngine.sendPresetsToiOS()
-            NotificationCenter.default.post(name: .keyframePresetSyncRequested, object: nil)
+            sendPresetsToConnection(connection)
+
+        case "selectPreset":
+            if let index = json["index"] as? Int {
+                print("KeyframeDiscovery: iOS selected preset \(index)")
+                onPresetSelected?(index)
+            }
+
+        case "setMasterVolume":
+            if let value = json["value"] as? Double {
+                print("KeyframeDiscovery: iOS set master volume to \(value)")
+                onMasterVolumeChanged?(Float(value))
+            }
 
         case "ping":
-            // Respond with pong
-            let response = ["response": "pong"]
-            if let data = try? JSONSerialization.data(withJSONObject: response) {
-                connection.send(content: data, completion: .idempotent)
-            }
+            sendMessage(["response": "pong"], to: connection)
 
         default:
             print("KeyframeDiscovery: Unknown command - \(command)")
         }
     }
 
+    // MARK: - Sending Messages
+
+    private func sendMessage(_ message: [String: Any], to connection: NWConnection) {
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: message) else { return }
+
+        // Add length prefix
+        var length = UInt32(jsonData.count).bigEndian
+        var framedData = Data(bytes: &length, count: 4)
+        framedData.append(jsonData)
+
+        connection.send(content: framedData, completion: .contentProcessed { error in
+            if let error = error {
+                print("KeyframeDiscovery: Send error - \(error)")
+            }
+        })
+    }
+
+    /// Send presets to a specific connection
+    private func sendPresetsToConnection(_ connection: NWConnection) {
+        let store = MacSessionStore.shared
+        let presets = store.currentSession.presets
+
+        // Convert to simple format for iOS
+        let presetData: [[String: Any]] = presets.enumerated().map { index, preset in
+            var data: [String: Any] = [
+                "id": preset.id.uuidString,
+                "name": preset.name,
+                "order": index
+            ]
+            if let songName = preset.songName { data["songName"] = songName }
+            if let rootNote = preset.rootNote { data["rootNote"] = rootNote.rawValue }
+            if let scale = preset.scale { data["scale"] = scale.rawValue }
+            if let bpm = preset.bpm { data["bpm"] = bpm }
+            return data
+        }
+
+        let message: [String: Any] = [
+            "presets": presetData,
+            "activePresetIndex": store.currentPresetIndex as Any,
+            "masterVolume": Double(store.currentSession.masterVolume)
+        ]
+
+        sendMessage(message, to: connection)
+    }
+
     // MARK: - Broadcast to All Connected Devices
 
-    func broadcastMessage(_ message: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
+    /// Broadcast current state to all connected iOS devices
+    func broadcastState() {
+        let store = MacSessionStore.shared
+        let presets = store.currentSession.presets
 
-        for connection in connections {
-            connection.send(content: data, completion: .idempotent)
+        let presetData: [[String: Any]] = presets.enumerated().map { index, preset in
+            var data: [String: Any] = [
+                "id": preset.id.uuidString,
+                "name": preset.name,
+                "order": index
+            ]
+            if let songName = preset.songName { data["songName"] = songName }
+            if let rootNote = preset.rootNote { data["rootNote"] = rootNote.rawValue }
+            if let scale = preset.scale { data["scale"] = scale.rawValue }
+            if let bpm = preset.bpm { data["bpm"] = bpm }
+            return data
+        }
+
+        let message: [String: Any] = [
+            "presets": presetData,
+            "activePresetIndex": store.currentPresetIndex as Any,
+            "masterVolume": Double(store.currentSession.masterVolume)
+        ]
+
+        for connection in connections where connection.state == .ready {
+            sendMessage(message, to: connection)
         }
     }
-}
 
-// MARK: - Notification Names
+    /// Broadcast just the active preset change
+    func broadcastActivePreset(_ index: Int) {
+        let message: [String: Any] = ["activePresetIndex": index]
+        for connection in connections where connection.state == .ready {
+            sendMessage(message, to: connection)
+        }
+    }
 
-extension Notification.Name {
-    static let keyframePresetSyncRequested = Notification.Name("keyframePresetSyncRequested")
+    /// Broadcast master volume change
+    func broadcastMasterVolume(_ volume: Float) {
+        let message: [String: Any] = ["masterVolume": Double(volume)]
+        for connection in connections where connection.state == .ready {
+            sendMessage(message, to: connection)
+        }
+    }
 }
