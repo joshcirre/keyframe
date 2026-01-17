@@ -14,6 +14,7 @@ struct MixerView: View {
     @State private var showPresetGrid = false
     @State private var showingRenamePopover = false
     @State private var editingSessionName = ""
+    @State private var showChannelSettings = true  // Collapsible channel settings
 
     private var colors: ThemeColors { themeProvider.colors }
 
@@ -23,45 +24,50 @@ struct MixerView: View {
                 // Loading screen while restoring plugins
                 LoadingScreen(progress: audioEngine.restorationProgress, colors: colors)
             } else {
-                // Main content
-                HSplitView {
-                    // Left: Mixer or Preset Grid
-                    VStack(spacing: 0) {
-                        // Header
-                        headerView
+                // Main content: channels + settings panel + master (always visible)
+                HStack(spacing: 0) {
+                    // Left: Mixer/Presets + optional channel settings
+                    HSplitView {
+                        // Main mixer area
+                        VStack(spacing: 0) {
+                            // Header
+                            headerView
 
-                        // Main content
-                        if showPresetGrid {
-                            PresetGridView()
-                                .background(colors.windowBackground)
-                        } else {
-                            GeometryReader { geometry in
-                                HStack(spacing: 0) {
-                                    // Channel strips
+                            // Main content
+                            if showPresetGrid {
+                                PresetGridView()
+                                    .background(colors.windowBackground)
+                            } else {
+                                GeometryReader { geometry in
+                                    // Just channel strips (master moved to right)
                                     channelStripsContent(height: geometry.size.height)
-
-                                    // Master section
-                                    masterSection(height: geometry.size.height)
                                 }
+                                .background(colors.windowBackground)
                             }
+
+                            // Status bar
+                            statusBarView
+                        }
+                        .background(colors.windowBackground)
+
+                        // Channel detail (collapsible)
+                        if showChannelSettings,
+                           let selectedIndex = selectedChannelIndex,
+                           selectedIndex < audioEngine.channelStrips.count {
+                            ChannelDetailView(
+                                channel: audioEngine.channelStrips[selectedIndex],
+                                config: binding(for: selectedIndex),
+                                colors: colors
+                            )
                             .background(colors.windowBackground)
                         }
-
-                        // Status bar
-                        statusBarView
                     }
-                    .background(colors.windowBackground)
 
-                    // Right: Channel detail (when selected)
-                    if let selectedIndex = selectedChannelIndex,
-                       selectedIndex < audioEngine.channelStrips.count {
-                        ChannelDetailView(
-                            channel: audioEngine.channelStrips[selectedIndex],
-                            config: binding(for: selectedIndex),
-                            colors: colors
-                        )
-                        .background(colors.windowBackground)
+                    // Right: Master section (always visible)
+                    GeometryReader { geometry in
+                        masterSection(height: geometry.size.height)
                     }
+                    .frame(width: 80)
                 }
             }
         }
@@ -213,6 +219,18 @@ struct MixerView: View {
                 .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
                 .help("Add Channel")
             }
+
+            // Toggle channel settings sidebar
+            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showChannelSettings.toggle() } }) {
+                Image(systemName: "sidebar.trailing")
+                    .font(TEFonts.mono(14, weight: .bold))
+                    .frame(width: 32, height: 28)
+                    .foregroundColor(showChannelSettings ? colors.accent : colors.secondaryText)
+            }
+            .buttonStyle(.plain)
+            .background(showChannelSettings ? colors.accent.opacity(0.15) : colors.controlBackground)
+            .overlay(Rectangle().strokeBorder(showChannelSettings ? colors.accent : colors.border, lineWidth: colors.borderWidth))
+            .help(showChannelSettings ? "Hide Channel Settings" : "Show Channel Settings")
 
             // Engine toggle
             Button(action: toggleEngine) {

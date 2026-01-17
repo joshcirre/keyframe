@@ -175,7 +175,7 @@ struct RemoteModeView: View {
     }
 
     private var presetGrid: some View {
-        ScrollView {
+        GeometryReader { geometry in
             if remote.presets.isEmpty {
                 VStack(spacing: 16) {
                     ProgressView()
@@ -185,14 +185,23 @@ struct RemoteModeView: View {
                         .foregroundColor(TEColors.midGray)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.top, 100)
             } else {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.adaptive(minimum: 120, maximum: 200), spacing: 12)
-                    ],
-                    spacing: 12
-                ) {
+                let itemCount = remote.presets.count
+                let spacing: CGFloat = 6
+                let padding: CGFloat = 6
+                let availableWidth = geometry.size.width - (padding * 2)
+                let availableHeight = geometry.size.height - (padding * 2)
+
+                let (columns, rows) = calculateRemoteGrid(itemCount: itemCount, availableWidth: availableWidth, availableHeight: availableHeight)
+
+                let totalHorizontalSpacing = spacing * CGFloat(columns - 1)
+                let totalVerticalSpacing = spacing * CGFloat(rows - 1)
+                let itemWidth = (availableWidth - totalHorizontalSpacing) / CGFloat(columns)
+                let itemHeight = (availableHeight - totalVerticalSpacing) / CGFloat(rows)
+
+                let gridColumns = Array(repeating: GridItem(.fixed(itemWidth), spacing: spacing), count: columns)
+
+                LazyVGrid(columns: gridColumns, spacing: spacing) {
                     ForEach(Array(remote.presets.enumerated()), id: \.element.id) { index, preset in
                         RemotePresetButton(
                             preset: preset,
@@ -203,12 +212,44 @@ struct RemoteModeView: View {
                                 remote.selectPreset(at: index)
                             }
                         )
+                        .frame(height: itemHeight)
                     }
                 }
-                .padding(16)
+                .padding(padding)
             }
         }
         .background(TEColors.black)
+    }
+
+    private func calculateRemoteGrid(itemCount: Int, availableWidth: CGFloat, availableHeight: CGFloat) -> (columns: Int, rows: Int) {
+        guard itemCount > 0 else { return (1, 1) }
+
+        var bestColumns = 1
+        var bestScore: CGFloat = 0
+
+        for cols in 1...max(1, itemCount) {
+            let rows = Int(ceil(Double(itemCount) / Double(cols)))
+            let cellWidth = availableWidth / CGFloat(cols)
+            let cellHeight = availableHeight / CGFloat(rows)
+
+            let cellAspect = cellWidth / cellHeight
+            let targetAspect: CGFloat = 1.5
+            let aspectScore = 1.0 / (1.0 + abs(cellAspect - targetAspect))
+
+            let usedCells = itemCount
+            let totalCells = cols * rows
+            let fillScore = CGFloat(usedCells) / CGFloat(totalCells)
+
+            let score = aspectScore * 0.6 + fillScore * 0.4
+
+            if score > bestScore {
+                bestScore = score
+                bestColumns = cols
+            }
+        }
+
+        let bestRows = Int(ceil(Double(itemCount) / Double(bestColumns)))
+        return (bestColumns, bestRows)
     }
 
     private var masterFaderPanel: some View {
