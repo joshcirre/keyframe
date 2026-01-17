@@ -167,9 +167,12 @@ final class KeyframeRemote: ObservableObject {
             switch result.endpoint {
             case .service(let name, _, _, _):
                 discoveredEndpoint = result.endpoint
-                connectionState = .found(name: name)
                 macName = name
-                print("KeyframeRemote: Found '\(name)'")
+                print("KeyframeRemote: Found '\(name)' - auto-connecting...")
+
+                // Auto-connect immediately when Mac is found
+                connectionState = .connecting(name: name)
+                connect()
             default:
                 break
             }

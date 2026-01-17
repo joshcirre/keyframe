@@ -13,11 +13,8 @@ struct RemoteModeView: View {
             case .disconnected:
                 disconnectedView
 
-            case .searching:
+            case .searching, .found:
                 searchingView
-
-            case .found(let name):
-                foundView(name: name)
 
             case .connecting(let name):
                 connectingView(name: name)
@@ -89,39 +86,6 @@ struct RemoteModeView: View {
             Text("Make sure Keyframe is running on your Mac")
                 .font(TEFonts.mono(11, weight: .regular))
                 .foregroundColor(TEColors.darkGray)
-
-            exitButton
-        }
-    }
-
-    // MARK: - Found View
-
-    private func foundView(name: String) -> some View {
-        VStack(spacing: 24) {
-            Image(systemName: "desktopcomputer")
-                .font(.system(size: 48, weight: .light))
-                .foregroundColor(TEColors.orange)
-
-            Text("FOUND")
-                .font(TEFonts.display(20, weight: .black))
-                .foregroundColor(TEColors.cream)
-                .tracking(4)
-
-            Text(name)
-                .font(TEFonts.mono(16, weight: .bold))
-                .foregroundColor(TEColors.cream)
-
-            Button {
-                remote.connect()
-            } label: {
-                Text("CONNECT")
-                    .font(TEFonts.mono(14, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 14)
-                    .background(TEColors.orange)
-                    .overlay(Rectangle().strokeBorder(TEColors.cream, lineWidth: 2))
-            }
 
             exitButton
         }
