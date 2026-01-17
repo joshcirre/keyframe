@@ -7,12 +7,17 @@ struct PerformanceSettingsView: View {
     @StateObject private var midiEngine = MIDIEngine.shared
     @StateObject private var sessionStore = SessionStore.shared
     @StateObject private var pluginManager = AUv3HostManager.shared
-    
+    @StateObject private var appearanceManager = AppearanceManager.shared
+
     @State private var showingSaveAs = false
     @State private var newSessionName = ""
-    @State private var showingResetConfirmation = false
+    @State private var showingResetChannelsConfirmation = false
+    @State private var showingResetPresetsConfirmation = false
     @State private var showingChordMap = false
     @State private var showingBluetoothMIDI = false
+    @State private var showingSessionList = false
+    @State private var sessionToDelete: Session?
+    @State private var toastMessage: String?
     
     var body: some View {
         ZStack {
@@ -34,39 +39,89 @@ struct PerformanceSettingsView: View {
                         midiOutputSection
                         scaleFilterSection
                         pluginsSection
+                        appearanceSection
                         sessionSection
                         aboutSection
                     }
                     .padding(20)
                 }
             }
-        }
-        .preferredColorScheme(.light)
-        .alert("SAVE SESSION", isPresented: $showingSaveAs) {
-            TextField("Session Name", text: $newSessionName)
-                .textInputAutocapitalization(.characters)
-            Button("SAVE") {
-                sessionStore.saveSessionAs(newSessionName)
-                newSessionName = ""
+
+            // Toast notification
+            if let message = toastMessage {
+                VStack {
+                    Spacer()
+                    ToastView(message: message)
+                        .padding(.bottom, 40)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .animation(.spring(response: 0.3), value: toastMessage)
             }
-            Button("CANCEL", role: .cancel) {
-                newSessionName = ""
+        }
+        .preferredColorScheme(appearanceManager.colorScheme)
+        .sheet(isPresented: $showingSaveAs) {
+            SaveSessionSheet(
+                sessionName: $newSessionName,
+                onSave: {
+                    if !newSessionName.isEmpty {
+                        let name = newSessionName
+                        sessionStore.saveSessionAs(name)
+                        newSessionName = ""
+                        showingSaveAs = false
+                        showToast("SAVED AS '\(name.uppercased())'")
+                    }
+                },
+                onCancel: {
+                    newSessionName = ""
+                    showingSaveAs = false
+                }
+            )
+            .presentationDetents([.height(220)])
+        }
+        .confirmationDialog("RESET CHANNELS", isPresented: $showingResetChannelsConfirmation, titleVisibility: .visible) {
+            Button("Reset All Channels", role: .destructive) {
+                resetChannels()
             }
         } message: {
-            Text("Enter a name for this session")
+            Text("This will remove all channels and their instruments. This cannot be undone.")
         }
-        .confirmationDialog("RESET SESSION", isPresented: $showingResetConfirmation, titleVisibility: .visible) {
-            Button("RESET", role: .destructive) {
-                sessionStore.loadSession(Session.defaultSession())
+        .confirmationDialog("RESET PRESETS", isPresented: $showingResetPresetsConfirmation, titleVisibility: .visible) {
+            Button("Reset All Presets", role: .destructive) {
+                resetPresets()
             }
         } message: {
-            Text("This will reset to the default session. All changes will be lost.")
+            Text("This will remove all presets and create a single default preset. This cannot be undone.")
         }
         .sheet(isPresented: $showingChordMap) {
             ChordMapView()
         }
         .sheet(isPresented: $showingBluetoothMIDI) {
             BluetoothMIDIView()
+        }
+        .sheet(isPresented: $showingSessionList) {
+            SessionListView(
+                sessions: sessionStore.savedSessions,
+                onLoad: { session in
+                    loadSession(session)
+                    showingSessionList = false
+                },
+                onDelete: { session in
+                    sessionToDelete = session
+                }
+            )
+        }
+        .confirmationDialog("DELETE SESSION", isPresented: .init(
+            get: { sessionToDelete != nil },
+            set: { if !$0 { sessionToDelete = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let session = sessionToDelete {
+                    sessionStore.deleteSession(session)
+                    sessionToDelete = nil
+                }
+            }
+        } message: {
+            Text("Delete '\(sessionToDelete?.name ?? "")'? This cannot be undone.")
         }
     }
     
@@ -576,8 +631,44 @@ struct PerformanceSettingsView: View {
         }
     }
     
+    // MARK: - Appearance Section
+
+    private var appearanceSection: some View {
+        TESettingsSection(title: "APPEARANCE") {
+            VStack(spacing: 16) {
+                HStack {
+                    Text("THEME")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+
+                    Spacer()
+
+                    HStack(spacing: 0) {
+                        ForEach(AppAppearance.allCases, id: \.self) { appearance in
+                            Button {
+                                appearanceManager.currentAppearance = appearance
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: appearance.icon)
+                                        .font(.system(size: 10, weight: .bold))
+                                    Text(appearance.displayName)
+                                        .font(TEFonts.mono(9, weight: .bold))
+                                }
+                                .foregroundColor(appearanceManager.currentAppearance == appearance ? .white : TEColors.black)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(appearanceManager.currentAppearance == appearance ? TEColors.orange : TEColors.cream)
+                            }
+                        }
+                    }
+                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                }
+            }
+        }
+    }
+
     // MARK: - Session Section
-    
+
     private var sessionSection: some View {
         TESettingsSection(title: "SESSION") {
             VStack(spacing: 16) {
@@ -586,13 +677,36 @@ struct PerformanceSettingsView: View {
                         .font(TEFonts.mono(12, weight: .bold))
                         .foregroundColor(TEColors.black)
                 }
-                
-                TESettingsRow(label: "SONGS") {
+
+                TESettingsRow(label: "PRESETS") {
                     Text("\(sessionStore.currentSession.songs.count)")
                         .font(TEFonts.mono(12, weight: .bold))
                         .foregroundColor(TEColors.black)
                 }
-                
+
+                TESettingsRow(label: "CHANNELS") {
+                    Text("\(sessionStore.currentSession.channels.count)")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                }
+
+                // Save button (updates existing saved session or prompts for new name)
+                Button {
+                    if sessionStore.updateSavedSession() {
+                        showToast("SESSION SAVED")
+                    } else {
+                        showingSaveAs = true
+                    }
+                } label: {
+                    Text("SAVE")
+                        .font(TEFonts.mono(11, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(TEColors.orange)
+                        .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                }
+
                 HStack(spacing: 12) {
                     Button {
                         showingSaveAs = true
@@ -607,11 +721,43 @@ struct PerformanceSettingsView: View {
                                     .strokeBorder(TEColors.black, lineWidth: 2)
                             )
                     }
-                    
+
                     Button {
-                        showingResetConfirmation = true
+                        showingSessionList = true
                     } label: {
-                        Text("RESET")
+                        Text("LOAD")
+                            .font(TEFonts.mono(11, weight: .bold))
+                            .foregroundColor(TEColors.black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(
+                                Rectangle()
+                                    .strokeBorder(TEColors.black, lineWidth: 2)
+                            )
+                    }
+                    .disabled(sessionStore.savedSessions.isEmpty)
+                    .opacity(sessionStore.savedSessions.isEmpty ? 0.5 : 1)
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        showingResetChannelsConfirmation = true
+                    } label: {
+                        Text("RESET CHANNELS")
+                            .font(TEFonts.mono(11, weight: .bold))
+                            .foregroundColor(TEColors.red)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(
+                                Rectangle()
+                                    .strokeBorder(TEColors.red, lineWidth: 2)
+                            )
+                    }
+
+                    Button {
+                        showingResetPresetsConfirmation = true
+                    } label: {
+                        Text("RESET PRESETS")
                             .font(TEFonts.mono(11, weight: .bold))
                             .foregroundColor(TEColors.red)
                             .frame(maxWidth: .infinity)
@@ -641,6 +787,107 @@ struct PerformanceSettingsView: View {
                     .font(TEFonts.mono(9, weight: .medium))
                     .foregroundColor(TEColors.midGray)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - Reset Functions
+
+    private func resetChannels() {
+        // Remove all channel strips from audio engine
+        audioEngine.removeAllChannels()
+        // Clear channels from session
+        sessionStore.currentSession.channels.removeAll()
+        sessionStore.saveCurrentSession()
+    }
+
+    private func resetPresets() {
+        // Reset to single default preset
+        let defaultPreset = PerformanceSong(name: "DEFAULT", rootNote: 0, scaleType: .major, bpm: 120, order: 0)
+        sessionStore.currentSession.songs = [defaultPreset]
+        sessionStore.currentSession.activeSongId = defaultPreset.id
+        sessionStore.saveCurrentSession()
+    }
+
+    private func loadSession(_ session: Session) {
+        // Clear current audio engine channels
+        audioEngine.removeAllChannels()
+
+        // Reset tempo tracking so new session can send its tempo
+        midiEngine.resetTempoTracking()
+
+        // Load the session into the store
+        sessionStore.loadSession(session)
+
+        // Capture references to the shared singletons (they're classes, safe to capture)
+        let audioEngine = self.audioEngine
+        let sessionStore = self.sessionStore
+        let midiEngine = self.midiEngine
+        let sessionName = session.name
+
+        // Restore plugins from the loaded session
+        audioEngine.restorePlugins(from: session.channels) {
+            DispatchQueue.main.async {
+                // Sync channel configs (MIDI routing, volume, etc.)
+                for (index, config) in sessionStore.currentSession.channels.enumerated() {
+                    if index < audioEngine.channelStrips.count {
+                        let strip = audioEngine.channelStrips[index]
+                        strip.midiChannel = config.midiChannel
+                        strip.midiSourceName = config.midiSourceName
+                        strip.scaleFilterEnabled = config.scaleFilterEnabled
+                        strip.isChordPadTarget = config.isChordPadTarget
+                        strip.volume = config.volume
+                        strip.pan = config.pan
+                        strip.isMuted = config.isMuted
+                    }
+                }
+
+                // Apply active song settings (scale, BPM)
+                if let activeSong = sessionStore.currentSession.activeSong {
+                    let legacySong = Song(
+                        name: activeSong.name,
+                        rootNote: activeSong.rootNote,
+                        scaleType: activeSong.scaleType,
+                        filterMode: activeSong.filterMode,
+                        preset: .empty,
+                        bpm: activeSong.bpm
+                    )
+                    midiEngine.applySongSettings(legacySong)
+
+                    // Set tempo for hosted plugins
+                    if let bpm = activeSong.bpm {
+                        audioEngine.setTempo(Double(bpm))
+                    }
+                }
+
+                // Start audio engine if not running
+                if !audioEngine.isRunning {
+                    audioEngine.start()
+                }
+
+                print("SessionStore: Loaded session '\(sessionName)' - plugins ready")
+            }
+        }
+
+        // Show toast immediately (loading happens in background with progress indicator)
+        showToast("LOADING '\(session.name.uppercased())'...")
+    }
+
+    private func showToast(_ message: String) {
+        // Haptic feedback
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+
+        withAnimation {
+            toastMessage = message
+        }
+
+        // Auto-dismiss after 2 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation {
+                if toastMessage == message {
+                    toastMessage = nil
+                }
             }
         }
     }
@@ -700,6 +947,224 @@ struct TESettingsRow<Content: View>: View {
             
             content
         }
+    }
+}
+
+// MARK: - Toast View
+
+struct ToastView: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(TEColors.green)
+
+            Text(message)
+                .font(TEFonts.mono(12, weight: .bold))
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(
+            Capsule()
+                .fill(TEColors.black)
+        )
+        .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+    }
+}
+
+// MARK: - Session List View
+
+struct SessionListView: View {
+    @Environment(\.dismiss) private var dismiss
+    let sessions: [Session]
+    let onLoad: (Session) -> Void
+    let onDelete: (Session) -> Void
+
+    var body: some View {
+        ZStack {
+            TEColors.cream.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Text("SAVED SESSIONS")
+                        .font(TEFonts.display(16, weight: .black))
+                        .foregroundColor(TEColors.black)
+                        .tracking(2)
+
+                    Spacer()
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("CLOSE")
+                            .font(TEFonts.mono(11, weight: .bold))
+                            .foregroundColor(TEColors.darkGray)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(TEColors.warmWhite)
+
+                Rectangle()
+                    .fill(TEColors.black)
+                    .frame(height: 2)
+
+                if sessions.isEmpty {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 40, weight: .light))
+                            .foregroundColor(TEColors.midGray)
+                        Text("NO SAVED SESSIONS")
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundColor(TEColors.midGray)
+                        Text("Use 'Save As' to save your current session")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundColor(TEColors.midGray)
+                    }
+                    Spacer()
+                } else {
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            ForEach(sessions) { session in
+                                SessionRow(
+                                    session: session,
+                                    onLoad: { onLoad(session) },
+                                    onDelete: { onDelete(session) }
+                                )
+                            }
+                        }
+                        .padding(20)
+                    }
+                }
+            }
+        }
+        .preferredColorScheme(AppearanceManager.shared.colorScheme)
+    }
+}
+
+struct SessionRow: View {
+    let session: Session
+    let onLoad: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(session.name.uppercased())
+                    .font(TEFonts.mono(14, weight: .bold))
+                    .foregroundColor(TEColors.black)
+
+                HStack(spacing: 12) {
+                    Text("\(session.channels.count) CH")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+
+                    Text("\(session.songs.count) PRESETS")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundColor(TEColors.midGray)
+                }
+            }
+
+            Spacer()
+
+            HStack(spacing: 8) {
+                Button(action: onLoad) {
+                    Text("LOAD")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(TEColors.orange)
+                }
+
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(TEColors.red)
+                        .padding(8)
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            Rectangle()
+                .strokeBorder(TEColors.black, lineWidth: 2)
+                .background(TEColors.warmWhite)
+        )
+    }
+}
+
+// MARK: - Save Session Sheet
+
+struct SaveSessionSheet: View {
+    @Binding var sessionName: String
+    let onSave: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            TEColors.cream.ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                // Header
+                Text("SAVE SESSION")
+                    .font(TEFonts.display(18, weight: .black))
+                    .foregroundColor(TEColors.black)
+                    .tracking(2)
+
+                // Text field
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("SESSION NAME")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(TEColors.midGray)
+
+                    TextField("Enter name", text: $sessionName)
+                        .font(TEFonts.mono(14, weight: .bold))
+                        .foregroundColor(TEColors.black)
+                        .textInputAutocapitalization(.characters)
+                        .padding(12)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: 2)
+                                .background(TEColors.warmWhite)
+                        )
+                }
+
+                // Buttons
+                HStack(spacing: 12) {
+                    Button(action: onCancel) {
+                        Text("CANCEL")
+                            .font(TEFonts.mono(11, weight: .bold))
+                            .foregroundColor(TEColors.darkGray)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                Rectangle()
+                                    .strokeBorder(TEColors.darkGray, lineWidth: 2)
+                            )
+                    }
+
+                    Button(action: onSave) {
+                        Text("SAVE")
+                            .font(TEFonts.mono(11, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(TEColors.orange)
+                            .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                    }
+                    .disabled(sessionName.isEmpty)
+                    .opacity(sessionName.isEmpty ? 0.5 : 1)
+                }
+            }
+            .padding(20)
+        }
+        .preferredColorScheme(AppearanceManager.shared.colorScheme)
     }
 }
 
