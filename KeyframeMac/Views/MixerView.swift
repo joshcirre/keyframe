@@ -29,12 +29,14 @@ struct MixerView: View {
                     PresetGridView()
                         .background(colors.windowBackground)
                 } else {
-                    HStack(spacing: 0) {
-                        // Channel strips
-                        channelStripsView
+                    GeometryReader { geometry in
+                        HStack(spacing: 0) {
+                            // Channel strips
+                            channelStripsContent(height: geometry.size.height)
 
-                        // Master section
-                        masterSection
+                            // Master section
+                            masterSection(height: geometry.size.height)
+                        }
                     }
                     .background(colors.windowBackground)
                 }
@@ -49,7 +51,8 @@ struct MixerView: View {
                selectedIndex < audioEngine.channelStrips.count {
                 ChannelDetailView(
                     channel: audioEngine.channelStrips[selectedIndex],
-                    config: binding(for: selectedIndex)
+                    config: binding(for: selectedIndex),
+                    colors: colors
                 )
                 .background(colors.windowBackground)
             }
@@ -94,20 +97,20 @@ struct MixerView: View {
             .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
 
             // Session name (clickable to rename) with save button
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Button(action: {
                     editingSessionName = sessionStore.currentSession.name
                     showingRenamePopover = true
                 }) {
                     HStack(spacing: 6) {
-                        Text(sessionStore.currentSession.name)
-                            .font(TEFonts.display(14, weight: .bold))
+                        Text(sessionStore.currentSession.name.uppercased())
+                            .font(TEFonts.mono(12, weight: .bold))
                             .foregroundColor(colors.primaryText)
 
                         if sessionStore.isDocumentDirty {
                             Circle()
                                 .fill(colors.accent)
-                                .frame(width: 8, height: 8)
+                                .frame(width: 6, height: 6)
                         }
                     }
                 }
@@ -125,6 +128,12 @@ struct MixerView: View {
                             .frame(width: 200)
                             .background(colors.controlBackground)
                             .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+                            .onChange(of: editingSessionName) { _, newValue in
+                                let uppercased = newValue.uppercased()
+                                if uppercased != newValue {
+                                    editingSessionName = uppercased
+                                }
+                            }
 
                         HStack(spacing: 8) {
                             Button("CANCEL") {
@@ -154,14 +163,12 @@ struct MixerView: View {
                     .background(colors.windowBackground)
                 }
 
-                // Save button
-                Button(action: { sessionStore.saveCurrentSession() }) {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(sessionStore.isDocumentDirty ? colors.accent : colors.secondaryText)
-                }
-                .buttonStyle(.plain)
-                .help("Save Session")
+                // Compact save button
+                CompactSaveButton(
+                    isDirty: sessionStore.isDocumentDirty,
+                    colors: colors,
+                    onSave: { sessionStore.saveCurrentSession() }
+                )
             }
 
             Spacer()
@@ -174,7 +181,7 @@ struct MixerView: View {
                     Circle()
                         .fill(colors.accent)
                         .frame(width: 8, height: 8)
-                    Text(preset.name)
+                    Text(preset.name.uppercased())
                         .font(TEFonts.mono(12, weight: .medium))
                         .foregroundColor(colors.primaryText)
                 }
@@ -219,30 +226,29 @@ struct MixerView: View {
 
     // MARK: - Channel Strips
 
-    private var channelStripsView: some View {
-        GeometryReader { geometry in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
-                        TEChannelStripView(
-                            channel: channel,
-                            config: binding(for: index),
-                            isSelected: selectedChannelIndex == index,
-                            onSelect: { selectedChannelIndex = index },
-                            onRemove: { removeChannel(at: index) },
-                            colors: colors
-                        )
-                    }
-
-                    // Add channel placeholder
-                    if audioEngine.channelStrips.isEmpty {
-                        emptyStateView
-                    }
+    private func channelStripsContent(height: CGFloat) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
+                    TEChannelStripView(
+                        channel: channel,
+                        config: binding(for: index),
+                        isSelected: selectedChannelIndex == index,
+                        onSelect: { selectedChannelIndex = index },
+                        onRemove: { removeChannel(at: index) },
+                        colors: colors,
+                        containerHeight: height - 24  // Account for padding
+                    )
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(minHeight: geometry.size.height, alignment: .top)
+
+                // Add channel placeholder
+                if audioEngine.channelStrips.isEmpty {
+                    emptyStateView
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(minHeight: height)
         }
     }
 
@@ -286,65 +292,70 @@ struct MixerView: View {
         midiEngine.midiMappings.contains { $0.target == .masterVolume }
     }
 
-    private var masterSection: some View {
-        VStack(spacing: 8) {
+    private func masterSection(height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            // Top section (fixed)
             Text("MASTER")
                 .font(TEFonts.mono(10, weight: .bold))
                 .foregroundColor(colors.secondaryText)
+                .padding(.bottom, 8)
 
-            // Level meter
+            // Level meter (stretches)
             TEMeterView(level: audioEngine.peakLevel, colors: colors)
-                .frame(width: 24, height: 160)
+                .frame(width: 24)
+                .frame(maxHeight: .infinity)
 
-            // Master fader - vertical
-            TEVerticalFader(value: $audioEngine.masterVolume, colors: colors)
-                .frame(width: 44, height: 160)
-                .overlay(
-                    Rectangle()
-                        .strokeBorder(isLearningMaster ? colors.accent : (hasMasterMapping ? Color.blue : Color.clear), lineWidth: 2)
-                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isLearningMaster)
-                )
-                .contextMenu {
-                    if isLearningMaster {
-                        Button("Cancel Learn") {
-                            midiEngine.cancelMIDILearn()
-                        }
-                    } else {
-                        Button("MIDI Learn Master Volume") {
-                            midiEngine.startMIDILearn(for: .masterVolume)
-                        }
+            // Bottom section (fixed)
+            VStack(spacing: 8) {
+                // Master fader - vertical
+                TEVerticalFader(value: $audioEngine.masterVolume, colors: colors)
+                    .frame(width: 44, height: 160)
+                    .overlay(
+                        Rectangle()
+                            .strokeBorder(isLearningMaster ? colors.accent : (hasMasterMapping ? Color.blue : Color.clear), lineWidth: 2)
+                            .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isLearningMaster)
+                    )
+                    .contextMenu {
+                        if isLearningMaster {
+                            Button("Cancel Learn") {
+                                midiEngine.cancelMIDILearn()
+                            }
+                        } else {
+                            Button("MIDI Learn Master Volume") {
+                                midiEngine.startMIDILearn(for: .masterVolume)
+                            }
 
-                        if hasMasterMapping {
-                            Button("Clear Master Mapping") {
-                                if let mapping = midiEngine.midiMappings.first(where: { $0.target == .masterVolume }) {
-                                    midiEngine.removeMapping(mapping)
+                            if hasMasterMapping {
+                                Button("Clear Master Mapping") {
+                                    if let mapping = midiEngine.midiMappings.first(where: { $0.target == .masterVolume }) {
+                                        midiEngine.removeMapping(mapping)
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-            // Volume label
-            Text("\(Int(audioEngine.masterVolume * 100))")
-                .font(TEFonts.mono(12, weight: .bold))
-                .foregroundColor(colors.primaryText)
-                .monospacedDigit()
-
-            Spacer()
-
-            // CPU load
-            VStack(spacing: 2) {
-                Text("CPU")
-                    .font(TEFonts.mono(9, weight: .medium))
-                    .foregroundColor(colors.secondaryText)
-                Text("\(Int(audioEngine.cpuUsage))%")
-                    .font(TEFonts.mono(11, weight: .bold))
+                // Volume label
+                Text("\(Int(audioEngine.masterVolume * 100))")
+                    .font(TEFonts.mono(12, weight: .bold))
+                    .foregroundColor(colors.primaryText)
                     .monospacedDigit()
-                    .foregroundColor(audioEngine.cpuUsage > 80 ? colors.error : colors.primaryText)
+
+                // CPU load
+                VStack(spacing: 2) {
+                    Text("CPU")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundColor(colors.secondaryText)
+                    Text("\(Int(audioEngine.cpuUsage))%")
+                        .font(TEFonts.mono(11, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundColor(audioEngine.cpuUsage > 80 ? colors.error : colors.primaryText)
+                }
             }
+            .padding(.top, 8)
         }
-        .frame(width: 80)
-        .padding(.vertical, 16)
+        .frame(width: 80, height: height - 24)  // Account for padding
+        .padding(.vertical, 12)
         .padding(.horizontal, 8)
         .background(colors.sectionBackground)
         .overlay(Rectangle().frame(width: colors.borderWidth).foregroundColor(colors.border), alignment: .leading)
@@ -496,6 +507,7 @@ struct TEChannelStripView: View {
     var onSelect: () -> Void
     var onRemove: () -> Void
     let colors: ThemeColors
+    var containerHeight: CGFloat? = nil  // Optional height to stretch to
 
     @State private var showingPluginBrowser = false
 
@@ -519,22 +531,42 @@ struct TEChannelStripView: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
-            channelNameView
-            instrumentSlotView
-            meterView
-            volumeFaderView
-            volumeValueView
-            muteSoloButtons
-            removeButton
+        VStack(spacing: 0) {
+            // Top section (fixed height)
+            VStack(spacing: 6) {
+                channelNameView
+                instrumentSlotView
+            }
+            .padding(.bottom, 6)
+
+            // Meter section (stretches to fill available space)
+            stretchingMeterView
+
+            // Bottom section (fixed height)
+            VStack(spacing: 6) {
+                volumeFaderView
+                volumeValueView
+                muteSoloButtons
+                removeButton
+            }
+            .padding(.top, 6)
         }
         .padding(8)
-        .frame(width: 72)
+        .frame(width: 72, height: containerHeight)
         .background(isSelected ? colors.accent.opacity(0.1) : colors.controlBackground)
         .overlay(Rectangle().strokeBorder(isSelected ? colors.accent : colors.border, lineWidth: colors.borderWidth))
         .onTapGesture { onSelect() }
         .sheet(isPresented: $showingPluginBrowser) {
             PluginBrowserView(channel: channel, config: $config)
+        }
+    }
+
+    // Meter that stretches to fill available space
+    private var stretchingMeterView: some View {
+        GeometryReader { geometry in
+            TEMeterView(level: channel.peakLevel, colors: colors)
+                .frame(width: 20, height: geometry.size.height)
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -549,7 +581,7 @@ struct TEChannelStripView: View {
     }
 
     private var instrumentSlotView: some View {
-        Button(action: { showingPluginBrowser = true }) {
+        Button(action: instrumentSlotAction) {
             VStack(spacing: 2) {
                 if let info = channel.instrumentInfo {
                     Text(info.name)
@@ -573,9 +605,14 @@ struct TEChannelStripView: View {
         .buttonStyle(.plain)
     }
 
-    private var meterView: some View {
-        TEMeterView(level: channel.peakLevel, colors: colors)
-            .frame(width: 20, height: 120)
+    private func instrumentSlotAction() {
+        if channel.isInstrumentLoaded {
+            // Open plugin editor window
+            PluginWindowManager.shared.openInstrumentEditor(for: channel, channelName: config.name)
+        } else {
+            // Show plugin browser to add instrument
+            showingPluginBrowser = true
+        }
     }
 
     private var volumeFaderView: some View {
@@ -945,5 +982,39 @@ struct PluginBrowserView: View {
         }
 
         dismiss()
+    }
+}
+
+// MARK: - Compact Save Button (for header)
+
+struct CompactSaveButton: View {
+    let isDirty: Bool
+    let colors: ThemeColors
+    let onSave: () -> Void
+
+    @State private var showSavedFeedback = false
+
+    var body: some View {
+        Button(action: {
+            onSave()
+
+            // Show "saved" feedback
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showSavedFeedback = true
+            }
+
+            // Reset after delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    showSavedFeedback = false
+                }
+            }
+        }) {
+            Image(systemName: showSavedFeedback ? "checkmark" : "square.and.arrow.down")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(showSavedFeedback ? colors.success : (isDirty ? colors.accent : colors.secondaryText))
+        }
+        .buttonStyle(.plain)
+        .help(isDirty ? "Save Session (unsaved changes)" : "Save Session")
     }
 }

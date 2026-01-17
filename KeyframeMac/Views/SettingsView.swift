@@ -999,6 +999,8 @@ struct PresetTriggerRow: View {
 // MARK: - Appearance Settings Content
 
 struct AppearanceSettingsContent: View {
+    @ObservedObject private var themeProvider = ThemeProvider.shared
+
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             GroupBox {
@@ -1013,19 +1015,36 @@ struct AppearanceSettingsContent: View {
                         VStack(alignment: .leading) {
                             Text("Keyframe Theme")
                                 .font(.body.bold())
-                            Text("Teenage Engineering-inspired brutalist design with cream background, orange accents, and sharp corners.")
+                            Text("Teenage Engineering-inspired brutalist design with orange accents and sharp corners.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
                     .padding(.vertical, 8)
+                }
+                .padding(4)
+            }
 
-                    HStack(spacing: 8) {
-                        Image(systemName: "sun.max.fill")
-                            .foregroundColor(.orange)
-                        Text("Light Mode")
-                            .foregroundColor(.secondary)
+            // Dark Mode Toggle
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Appearance")
+                        .font(.headline)
+
+                    Toggle(isOn: $themeProvider.isDarkMode) {
+                        HStack(spacing: 8) {
+                            Image(systemName: themeProvider.isDarkMode ? "moon.fill" : "sun.max.fill")
+                                .foregroundColor(themeProvider.isDarkMode ? .purple : .orange)
+                            Text(themeProvider.isDarkMode ? "Dark Mode" : "Light Mode")
+                        }
                     }
+                    .toggleStyle(.switch)
+
+                    Text(themeProvider.isDarkMode
+                         ? "Dark theme with muted backgrounds for low-light environments."
+                         : "Light cream theme for bright environments.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 .padding(4)
             }

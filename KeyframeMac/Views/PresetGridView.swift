@@ -32,6 +32,8 @@ struct PresetGridView: View {
                             currentSectionIndex: sessionStore.currentSongId == song.id ? sessionStore.currentSectionIndex : nil,
                             colors: colors,
                             midiEngine: midiEngine,
+                            sessionStore: sessionStore,
+                            audioEngine: audioEngine,
                             existingMappings: midiEngine.songTriggerMappings,
                             onToggleExpand: { toggleExpand(song) },
                             onSelectSong: { selectSong(song) },
@@ -39,8 +41,8 @@ struct PresetGridView: View {
                             onEdit: { editingSong = song },
                             onDelete: { songToDelete = song },
                             onAddSection: { addSection(to: song) },
-                            onMIDILearn: { startMIDILearnForSong(song) },
-                            onMIDILearnSection: { sectionIndex in startMIDILearnForSection(song: song, sectionIndex: sectionIndex) }
+                            onMIDILearnSection: { sectionIndex in startMIDILearnForSection(song: song, sectionIndex: sectionIndex) },
+                            onUpdateSection: { sectionIndex, updatedSection in updateSection(song: song, sectionIndex: sectionIndex, section: updatedSection) }
                         )
                     }
 
@@ -115,7 +117,7 @@ struct PresetGridView: View {
             if let songId = sessionStore.currentSongId,
                let song = sessionStore.currentSession.songs.first(where: { $0.id == songId }) {
                 HStack(spacing: 8) {
-                    Text(song.name)
+                    Text(song.name.uppercased())
                         .font(TEFonts.mono(12, weight: .bold))
                         .foregroundColor(colors.primaryText)
 
@@ -123,7 +125,7 @@ struct PresetGridView: View {
                        sectionIndex < song.sections.count {
                         Text("›")
                             .foregroundColor(colors.secondaryText)
-                        Text(song.sections[sectionIndex].name)
+                        Text(song.sections[sectionIndex].name.uppercased())
                             .font(TEFonts.mono(11))
                             .foregroundColor(colors.secondaryText)
                     }
@@ -244,23 +246,23 @@ struct PresetGridView: View {
     }
 
     private func applySongSettings(_ song: MacSong) {
-        // Set BPM
+        // Set BPM (song level controls tempo for all sections)
         if let bpm = song.bpm {
             audioEngine.setTempo(bpm)
             midiEngine.currentBPM = Int(bpm)
             midiEngine.sendTapTempo(bpm: Int(bpm))
         }
 
-        // Set scale/key
+        // Set scale/key (song level defines the key signature)
         if let scale = song.scale, let rootNote = song.rootNote {
             midiEngine.currentRootNote = rootNote.midiValue
             midiEngine.currentScaleType = scale
         }
 
-        // Send song's external MIDI (e.g., Helix preset)
-        midiEngine.sendExternalMIDIMessages(song.externalMIDIMessages)
+        // NOTE: External MIDI messages are now handled at section/preset level only
+        // Song level only controls BPM and key signature
 
-        print("PresetGridView: Applied song settings for '\(song.name)'")
+        print("PresetGridView: Applied song settings for '\(song.name)' (BPM + key only)")
     }
 
     private func applySectionSettings(_ section: SongSection) {
@@ -297,6 +299,19 @@ struct PresetGridView: View {
         sessionStore.saveCurrentSession()
     }
 
+    private func updateSection(song: MacSong, sectionIndex: Int, section: SongSection) {
+        guard let songIndex = sessionStore.currentSession.songs.firstIndex(where: { $0.id == song.id }),
+              sectionIndex < song.sections.count else { return }
+
+        var updatedSong = song
+        updatedSong.sections[sectionIndex] = section
+
+        var session = sessionStore.currentSession
+        session.songs[songIndex] = updatedSong
+        sessionStore.currentSession = session
+        sessionStore.saveCurrentSession()
+    }
+
     private func captureCurrentChannelStates() -> [MacChannelState] {
         audioEngine.channelStrips.map { channel in
             MacChannelState(
@@ -320,22 +335,7 @@ struct PresetGridView: View {
         sessionStore.saveCurrentSession()
     }
 
-    // MARK: - MIDI Learn
-
-    private func startMIDILearnForSong(_ song: MacSong) {
-        // Toggle: if already learning this song, cancel
-        if midiEngine.songTriggerLearnTarget?.songId == song.id &&
-           midiEngine.songTriggerLearnTarget?.sectionIndex == nil {
-            midiEngine.cancelSongTriggerLearn()
-        } else {
-            // Set up the callback to save the mapping when learned
-            midiEngine.onSongTriggerLearned = { [weak sessionStore] mapping in
-                guard let store = sessionStore else { return }
-                store.addSongTriggerMapping(mapping)
-            }
-            midiEngine.startSongTriggerLearn(songId: song.id, songName: song.name)
-        }
-    }
+    // MARK: - MIDI Learn (Section/Preset Level Only)
 
     private func startMIDILearnForSection(song: MacSong, sectionIndex: Int) {
         guard sectionIndex < song.sections.count else { return }
@@ -373,7 +373,7 @@ struct PresetGridView: View {
                 store.currentSongId = songId
                 store.currentSectionIndex = sectionIndex ?? (song.sections.isEmpty ? nil : 0)
 
-                // Apply song-level settings if song changed
+                // Apply song-level settings if song changed (BPM and key only)
                 if previousSongId != songId {
                     if let bpm = song.bpm {
                         audio.setTempo(bpm)
@@ -384,10 +384,10 @@ struct PresetGridView: View {
                         midi.currentRootNote = rootNote.midiValue
                         midi.currentScaleType = scale
                     }
-                    midi.sendExternalMIDIMessages(song.externalMIDIMessages)
+                    // NOTE: External MIDI is now section-level only
                 }
 
-                // Apply section settings
+                // Apply section settings (includes external MIDI)
                 let actualSectionIndex = sectionIndex ?? 0
                 if actualSectionIndex < song.sections.count {
                     let section = song.sections[actualSectionIndex]
@@ -400,7 +400,7 @@ struct PresetGridView: View {
                             channel.isSoloed = channelState.isSoloed
                         }
                     }
-                    // Send section MIDI
+                    // Send section MIDI (external MIDI messages)
                     midi.sendExternalMIDIMessages(section.externalMIDIMessages)
                 }
 
@@ -422,6 +422,8 @@ struct SongRow: View {
     let currentSectionIndex: Int?
     let colors: ThemeColors
     let midiEngine: MacMIDIEngine
+    let sessionStore: MacSessionStore
+    let audioEngine: MacAudioEngine
     let existingMappings: [SongTriggerMapping]
     let onToggleExpand: () -> Void
     let onSelectSong: () -> Void
@@ -429,34 +431,28 @@ struct SongRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onAddSection: () -> Void
-    let onMIDILearn: () -> Void
     let onMIDILearnSection: (Int) -> Void
+    let onUpdateSection: (Int, SongSection) -> Void
 
     @State private var isHovering = false
-
-    private var isLearning: Bool {
-        midiEngine.songTriggerLearnTarget?.songId == song.id &&
-        midiEngine.songTriggerLearnTarget?.sectionIndex == nil
-    }
-
-    private var songMappings: [SongTriggerMapping] {
-        existingMappings.filter { $0.targetSongId == song.id && $0.targetSectionIndex == nil }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
             // Song header row
-            HStack(spacing: 12) {
-                // Expand/collapse button
+            HStack(spacing: 0) {
+                // Expand/collapse button - larger click area
                 Button(action: onToggleExpand) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(TEFonts.mono(10, weight: .bold))
-                        .foregroundColor(colors.secondaryText)
-                        .frame(width: 20)
+                    HStack {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .foregroundColor(colors.secondaryText)
+                    }
+                    .frame(width: 36, height: 44)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
-                // Song name and info
+                // Song name and info - larger click area
                 Button(action: onSelectSong) {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -483,45 +479,14 @@ struct SongRow: View {
 
                         Spacer()
                     }
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-
-                // MIDI mapping indicator
-                if !songMappings.isEmpty {
-                    Text(songMappings.first!.triggerDescription)
-                        .font(TEFonts.mono(9))
-                        .foregroundColor(colors.accent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(colors.accent.opacity(0.1))
-                        .overlay(Rectangle().strokeBorder(colors.accent.opacity(0.3), lineWidth: 1))
-                }
-
-                // Learning indicator
-                if isLearning {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 6, height: 6)
-                        Text("LEARNING...")
-                            .font(TEFonts.mono(9, weight: .bold))
-                            .foregroundColor(.red)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                }
 
                 // Action buttons (show on hover)
                 if isHovering {
                     HStack(spacing: 8) {
-                        Button(action: onMIDILearn) {
-                            Image(systemName: isLearning ? "stop.circle" : "antenna.radiowaves.left.and.right")
-                                .font(TEFonts.mono(12))
-                                .foregroundColor(isLearning ? .red : colors.accent)
-                        }
-                        .buttonStyle(.plain)
-                        .help(isLearning ? "Cancel MIDI Learn" : "MIDI Learn")
-
                         Button(action: onAddSection) {
                             Image(systemName: "plus.circle")
                                 .font(TEFonts.mono(12))
@@ -558,17 +523,6 @@ struct SongRow: View {
                     Label("Select Song", systemImage: "play.circle")
                 }
                 Divider()
-                Button(action: onMIDILearn) {
-                    Label(isLearning ? "Cancel MIDI Learn" : "MIDI Learn", systemImage: "antenna.radiowaves.left.and.right")
-                }
-                if !songMappings.isEmpty {
-                    Button(action: {
-                        // Remove mapping would be handled by parent
-                    }) {
-                        Label("Clear MIDI Trigger (\(songMappings.first!.triggerDescription))", systemImage: "xmark.circle")
-                    }
-                }
-                Divider()
                 Button(action: onAddSection) {
                     Label("Add Section", systemImage: "plus.circle")
                 }
@@ -588,9 +542,17 @@ struct SongRow: View {
                         SectionRow(
                             section: section,
                             sectionIndex: index,
+                            songId: song.id,
+                            songName: song.name,
                             isCurrentSection: isCurrentSong && currentSectionIndex == index,
                             colors: colors,
-                            onSelect: { onSelectSection(index) }
+                            midiEngine: midiEngine,
+                            sessionStore: sessionStore,
+                            audioEngine: audioEngine,
+                            existingMappings: existingMappings,
+                            onSelect: { onSelectSection(index) },
+                            onMIDILearn: { onMIDILearnSection(index) },
+                            onUpdate: { updatedSection in onUpdateSection(index, updatedSection) }
                         )
                     }
 
@@ -628,48 +590,150 @@ struct SongRow: View {
 struct SectionRow: View {
     let section: SongSection
     let sectionIndex: Int
+    let songId: UUID
+    let songName: String
     let isCurrentSection: Bool
     let colors: ThemeColors
+    let midiEngine: MacMIDIEngine
+    let sessionStore: MacSessionStore
+    let audioEngine: MacAudioEngine
+    let existingMappings: [SongTriggerMapping]
     let onSelect: () -> Void
+    let onMIDILearn: () -> Void
+    let onUpdate: (SongSection) -> Void
 
     @State private var isHovering = false
+    @State private var showingEditor = false
+
+    /// Check if we're currently learning MIDI for this section
+    private var isLearning: Bool {
+        midiEngine.songTriggerLearnTarget?.songId == songId &&
+        midiEngine.songTriggerLearnTarget?.sectionIndex == sectionIndex
+    }
+
+    /// Get existing MIDI trigger mapping for this section
+    private var sectionMapping: SongTriggerMapping? {
+        existingMappings.first { $0.targetSongId == songId && $0.targetSectionIndex == sectionIndex }
+    }
 
     var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 12) {
-                // Section number indicator
-                Text("\(sectionIndex + 1)")
-                    .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(isCurrentSection ? .white : colors.secondaryText)
-                    .frame(width: 20, height: 20)
-                    .background(isCurrentSection ? colors.accent : colors.controlBackground)
-                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
-
-                // Section name
-                Text(section.name)
-                    .font(TEFonts.mono(11, weight: isCurrentSection ? .bold : .medium))
-                    .foregroundColor(isCurrentSection ? colors.accent : colors.primaryText)
-
-                Spacer()
-
-                // MIDI indicator
-                if !section.externalMIDIMessages.isEmpty {
-                    Text("MIDI")
-                        .font(TEFonts.mono(8, weight: .bold))
-                        .foregroundColor(colors.secondaryText)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(colors.controlBackground)
+        HStack(spacing: 12) {
+            // Select button (main area)
+            Button(action: onSelect) {
+                HStack(spacing: 12) {
+                    // Section number indicator
+                    Text("\(sectionIndex + 1)")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(isCurrentSection ? .white : colors.secondaryText)
+                        .frame(width: 20, height: 20)
+                        .background(isCurrentSection ? colors.accent : colors.controlBackground)
                         .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+
+                    // Section name
+                    Text(section.name.uppercased())
+                        .font(TEFonts.mono(11, weight: isCurrentSection ? .bold : .medium))
+                        .foregroundColor(isCurrentSection ? colors.accent : colors.primaryText)
+
+                    Spacer()
+
+                    // MIDI trigger mapping indicator
+                    if let mapping = sectionMapping {
+                        Text(mapping.triggerDescription)
+                            .font(TEFonts.mono(8, weight: .bold))
+                            .foregroundColor(colors.accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(colors.accent.opacity(0.1))
+                            .overlay(Rectangle().strokeBorder(colors.accent.opacity(0.3), lineWidth: 1))
+                    }
+
+                    // External MIDI indicator (for messages sent when section selected)
+                    if !section.externalMIDIMessages.isEmpty {
+                        Text("MIDI OUT")
+                            .font(TEFonts.mono(8, weight: .bold))
+                            .foregroundColor(colors.secondaryText)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(colors.controlBackground)
+                            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
+                    }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(isCurrentSection ? colors.accent.opacity(0.05) : Color.clear)
+            .buttonStyle(.plain)
+
+            // Learning indicator
+            if isLearning {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 6, height: 6)
+                    Text("LEARNING...")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundColor(.red)
+                }
+            }
+
+            // Buttons (show on hover or when learning)
+            if isHovering || isLearning {
+                HStack(spacing: 6) {
+                    // MIDI Learn button
+                    Button(action: onMIDILearn) {
+                        Image(systemName: isLearning ? "stop.circle.fill" : "antenna.radiowaves.left.and.right")
+                            .font(TEFonts.mono(11))
+                            .foregroundColor(isLearning ? .red : colors.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isLearning ? "Cancel MIDI Learn" : "MIDI Learn Trigger")
+
+                    // Edit button
+                    Button(action: { showingEditor = true }) {
+                        Image(systemName: "pencil")
+                            .font(TEFonts.mono(11))
+                            .foregroundColor(colors.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Edit Section")
+                }
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(isCurrentSection ? colors.accent.opacity(0.05) : Color.clear)
         .padding(.leading, 32)
         .onHover { isHovering = $0 }
+        .contextMenu {
+            Button(action: onSelect) {
+                Label("Select Section", systemImage: "play.circle")
+            }
+            Button(action: { showingEditor = true }) {
+                Label("Edit Section", systemImage: "pencil")
+            }
+            Divider()
+            Button(action: onMIDILearn) {
+                Label(isLearning ? "Cancel MIDI Learn" : "MIDI Learn Trigger", systemImage: "antenna.radiowaves.left.and.right")
+            }
+            if sectionMapping != nil {
+                Button(action: {
+                    // Clear mapping - handled by parent via learn toggle
+                }) {
+                    Label("Clear MIDI Trigger", systemImage: "xmark.circle")
+                }
+            }
+        }
+        .sheet(isPresented: $showingEditor) {
+            SectionEditorSheet(
+                section: section,
+                sectionIndex: sectionIndex,
+                songId: songId,
+                songName: songName,
+                colors: colors,
+                audioEngine: audioEngine,
+                midiEngine: midiEngine,
+                sessionStore: sessionStore,
+                existingMappings: existingMappings,
+                onSave: onUpdate
+            )
+        }
     }
 }
 
@@ -679,6 +743,7 @@ struct SongEditorSheet: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var audioEngine: MacAudioEngine
     @EnvironmentObject var sessionStore: MacSessionStore
+    @EnvironmentObject var midiEngine: MacMIDIEngine
     @ObservedObject var themeProvider: ThemeProvider = .shared
 
     let song: MacSong?
@@ -690,13 +755,16 @@ struct SongEditorSheet: View {
     @State private var rootNote: NoteName = .c
     @State private var scale: ScaleType = .major
     @State private var useScale: Bool = false
-    @State private var externalMIDIMessages: [ExternalMIDIMessage] = []
     @State private var sections: [SongSection] = []
-    @State private var showingMIDIEditor = false
-    @State private var showingHelixPicker = false
     @State private var editingSectionIndex: Int?
+    @State private var editingSongId: UUID = UUID()  // Temp ID for new songs
 
     private var colors: ThemeColors { themeProvider.colors }
+
+    /// The effective song ID (existing song or temp ID for new)
+    private var effectiveSongId: UUID {
+        song?.id ?? editingSongId
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -720,6 +788,12 @@ struct SongEditorSheet: View {
                                     .padding(10)
                                     .background(colors.controlBackground)
                                     .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+                                    .onChange(of: name) { _, newValue in
+                                        let uppercased = newValue.uppercased()
+                                        if uppercased != newValue {
+                                            name = uppercased
+                                        }
+                                    }
                             }
 
                             // BPM
@@ -795,63 +869,7 @@ struct SongEditorSheet: View {
                         }
                     }
 
-                    // External MIDI Section (for song-level, like Helix preset)
-                    sectionContainer("EXTERNAL MIDI (SENT WHEN SONG SELECTED)") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if externalMIDIMessages.isEmpty {
-                                Text("No MIDI messages - add Helix preset, etc.")
-                                    .font(TEFonts.mono(11))
-                                    .foregroundColor(colors.secondaryText)
-                            } else {
-                                ForEach(externalMIDIMessages) { message in
-                                    HStack {
-                                        Text(message.displayDescription)
-                                            .font(TEFonts.mono(11))
-                                            .foregroundColor(colors.primaryText)
-                                        Spacer()
-                                        Button(action: { externalMIDIMessages.removeAll { $0.id == message.id } }) {
-                                            Image(systemName: "minus.circle")
-                                                .foregroundColor(colors.error)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                    .padding(8)
-                                    .background(colors.controlBackground)
-                                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: 1))
-                                }
-                            }
-
-                            HStack(spacing: 8) {
-                                Button(action: { showingMIDIEditor = true }) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "plus")
-                                        Text("ADD MIDI")
-                                    }
-                                    .font(TEFonts.mono(10, weight: .bold))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(colors.controlBackground)
-                                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
-                                }
-                                .buttonStyle(.plain)
-
-                                Button(action: { showingHelixPicker = true }) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "guitars")
-                                        Text("HELIX")
-                                    }
-                                    .font(TEFonts.mono(10, weight: .bold))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(colors.controlBackground)
-                                    .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    // Sections
+                    // Sections (external MIDI is configured at the section level)
                     sectionContainer("SECTIONS") {
                         VStack(alignment: .leading, spacing: 8) {
                             if sections.isEmpty {
@@ -863,11 +881,15 @@ struct SongEditorSheet: View {
                                     SectionEditorRow(
                                         section: sections[index],
                                         sectionIndex: index,
+                                        songId: effectiveSongId,
+                                        songName: name,
                                         colors: colors,
                                         onUpdate: { updated in sections[index] = updated },
                                         onDelete: { sections.remove(at: index) },
                                         audioEngine: audioEngine,
-                                        sessionStore: sessionStore
+                                        midiEngine: midiEngine,
+                                        sessionStore: sessionStore,
+                                        existingMappings: midiEngine.songTriggerMappings
                                     )
                                 }
                             }
@@ -901,7 +923,6 @@ struct SongEditorSheet: View {
         .onAppear {
             if let song = song {
                 name = song.name
-                externalMIDIMessages = song.externalMIDIMessages
                 sections = song.sections
                 if let songBpm = song.bpm {
                     bpm = songBpm
@@ -919,16 +940,6 @@ struct SongEditorSheet: View {
             } else {
                 // New song - create default section
                 sections = [SongSection(name: "Intro", channelStates: captureCurrentChannelStates(), order: 0)]
-            }
-        }
-        .sheet(isPresented: $showingMIDIEditor) {
-            TEMIDIMessageEditorSheet(colors: colors) { newMessage in
-                externalMIDIMessages.append(newMessage)
-            }
-        }
-        .sheet(isPresented: $showingHelixPicker) {
-            TEHelixPresetPickerSheet(colors: colors) { helixMessages in
-                externalMIDIMessages.append(contentsOf: helixMessages)
             }
         }
     }
@@ -1012,13 +1023,15 @@ struct SongEditorSheet: View {
     }
 
     private func saveSong() {
+        // NOTE: External MIDI messages are now configured at the section level only
+        // Songs only define BPM and key/scale for all their sections
         let newSong = MacSong(
             id: song?.id ?? UUID(),
             name: name,
             bpm: useBpm ? bpm : nil,
             rootNote: useScale ? rootNote : nil,
             scale: useScale ? scale : nil,
-            externalMIDIMessages: externalMIDIMessages,
+            externalMIDIMessages: [],  // Empty - external MIDI is section-level only
             sections: sections,
             order: song?.order ?? 0
         )
@@ -1033,13 +1046,28 @@ struct SongEditorSheet: View {
 struct SectionEditorRow: View {
     let section: SongSection
     let sectionIndex: Int
+    let songId: UUID
+    let songName: String
     let colors: ThemeColors
     let onUpdate: (SongSection) -> Void
     let onDelete: () -> Void
     let audioEngine: MacAudioEngine
+    let midiEngine: MacMIDIEngine
     let sessionStore: MacSessionStore
+    let existingMappings: [SongTriggerMapping]
 
     @State private var showingEditor = false
+
+    /// Check if we're currently learning MIDI for this section
+    private var isLearning: Bool {
+        midiEngine.songTriggerLearnTarget?.songId == songId &&
+        midiEngine.songTriggerLearnTarget?.sectionIndex == sectionIndex
+    }
+
+    /// Get existing MIDI trigger mapping for this section
+    private var sectionMapping: SongTriggerMapping? {
+        existingMappings.first { $0.targetSongId == songId && $0.targetSectionIndex == sectionIndex }
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1053,7 +1081,7 @@ struct SectionEditorRow: View {
 
             // Section name and info
             VStack(alignment: .leading, spacing: 2) {
-                Text(section.name)
+                Text(section.name.uppercased())
                     .font(TEFonts.mono(12, weight: .medium))
                     .foregroundColor(colors.primaryText)
 
@@ -1064,7 +1092,7 @@ struct SectionEditorRow: View {
                             .foregroundColor(colors.secondaryText)
                     }
                     if !section.externalMIDIMessages.isEmpty {
-                        Text("\(section.externalMIDIMessages.count) MIDI")
+                        Text("\(section.externalMIDIMessages.count) MIDI OUT")
                             .font(TEFonts.mono(9))
                             .foregroundColor(colors.accent)
                     }
@@ -1072,6 +1100,38 @@ struct SectionEditorRow: View {
             }
 
             Spacer()
+
+            // MIDI trigger mapping
+            if let mapping = sectionMapping {
+                Text(mapping.triggerDescription)
+                    .font(TEFonts.mono(9, weight: .bold))
+                    .foregroundColor(colors.accent)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(colors.accent.opacity(0.1))
+                    .overlay(Rectangle().strokeBorder(colors.accent.opacity(0.3), lineWidth: 1))
+            }
+
+            // Learning indicator
+            if isLearning {
+                HStack(spacing: 3) {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 5, height: 5)
+                    Text("LEARNING")
+                        .font(TEFonts.mono(8, weight: .bold))
+                        .foregroundColor(.red)
+                }
+            }
+
+            // MIDI Learn button
+            Button(action: toggleMIDILearn) {
+                Image(systemName: isLearning ? "stop.circle.fill" : "antenna.radiowaves.left.and.right")
+                    .font(TEFonts.mono(10))
+                    .foregroundColor(isLearning ? .red : colors.accent)
+            }
+            .buttonStyle(.plain)
+            .help(isLearning ? "Cancel MIDI Learn" : "MIDI Learn Trigger")
 
             // Edit button
             Button(action: { showingEditor = true }) {
@@ -1098,9 +1158,31 @@ struct SectionEditorRow: View {
         .sheet(isPresented: $showingEditor) {
             SectionEditorSheet(
                 section: section,
+                sectionIndex: sectionIndex,
+                songId: songId,
+                songName: songName,
                 colors: colors,
                 audioEngine: audioEngine,
+                midiEngine: midiEngine,
+                sessionStore: sessionStore,
+                existingMappings: existingMappings,
                 onSave: onUpdate
+            )
+        }
+    }
+
+    private func toggleMIDILearn() {
+        if isLearning {
+            midiEngine.cancelSongTriggerLearn()
+        } else {
+            midiEngine.onSongTriggerLearned = { [sessionStore] mapping in
+                sessionStore.addSongTriggerMapping(mapping)
+            }
+            midiEngine.startSongTriggerLearn(
+                songId: songId,
+                songName: songName,
+                sectionIndex: sectionIndex,
+                sectionName: section.name
             )
         }
     }
@@ -1112,8 +1194,14 @@ struct SectionEditorSheet: View {
     @Environment(\.dismiss) var dismiss
 
     let section: SongSection
+    let sectionIndex: Int
+    let songId: UUID
+    let songName: String
     let colors: ThemeColors
     let audioEngine: MacAudioEngine
+    let midiEngine: MacMIDIEngine
+    let sessionStore: MacSessionStore
+    let existingMappings: [SongTriggerMapping]
     let onSave: (SongSection) -> Void
 
     @State private var name: String = ""
@@ -1121,6 +1209,17 @@ struct SectionEditorSheet: View {
     @State private var externalMIDIMessages: [ExternalMIDIMessage] = []
     @State private var showingMIDIEditor = false
     @State private var showingHelixPicker = false
+
+    /// Check if we're currently learning MIDI for this section
+    private var isLearning: Bool {
+        midiEngine.songTriggerLearnTarget?.songId == songId &&
+        midiEngine.songTriggerLearnTarget?.sectionIndex == sectionIndex
+    }
+
+    /// Get existing MIDI trigger mapping for this section
+    private var sectionMapping: SongTriggerMapping? {
+        existingMappings.first { $0.targetSongId == songId && $0.targetSectionIndex == sectionIndex }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1195,6 +1294,53 @@ struct SectionEditorSheet: View {
                     .padding(.vertical, 6)
                     .background(colors.controlBackground)
                     .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+                    .onChange(of: name) { _, newValue in
+                        let uppercased = newValue.uppercased()
+                        if uppercased != newValue {
+                            name = uppercased
+                        }
+                    }
+            }
+
+            // MIDI Learn section
+            HStack(spacing: 8) {
+                // Current mapping indicator
+                if let mapping = sectionMapping {
+                    Text(mapping.triggerDescription)
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundColor(colors.accent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(colors.accent.opacity(0.1))
+                        .overlay(Rectangle().strokeBorder(colors.accent.opacity(0.5), lineWidth: 1))
+                }
+
+                // Learning indicator
+                if isLearning {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 6, height: 6)
+                        Text("LEARNING...")
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .foregroundColor(.red)
+                    }
+                }
+
+                // MIDI Learn button
+                Button(action: toggleMIDILearn) {
+                    HStack(spacing: 4) {
+                        Image(systemName: isLearning ? "stop.circle.fill" : "antenna.radiowaves.left.and.right")
+                        Text(isLearning ? "CANCEL" : "MIDI LEARN")
+                    }
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(isLearning ? .red : colors.accent)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(isLearning ? Color.red.opacity(0.1) : colors.controlBackground)
+                    .overlay(Rectangle().strokeBorder(isLearning ? Color.red : colors.accent, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
             }
 
             Spacer()
@@ -1215,6 +1361,22 @@ struct SectionEditorSheet: View {
         .padding(16)
         .background(colors.sectionBackground)
         .overlay(Rectangle().frame(height: colors.borderWidth).foregroundColor(colors.border), alignment: .bottom)
+    }
+
+    private func toggleMIDILearn() {
+        if isLearning {
+            midiEngine.cancelSongTriggerLearn()
+        } else {
+            midiEngine.onSongTriggerLearned = { [sessionStore] mapping in
+                sessionStore.addSongTriggerMapping(mapping)
+            }
+            midiEngine.startSongTriggerLearn(
+                songId: songId,
+                songName: songName,
+                sectionIndex: sectionIndex,
+                sectionName: name
+            )
+        }
     }
 
     // MARK: - Channel States Column

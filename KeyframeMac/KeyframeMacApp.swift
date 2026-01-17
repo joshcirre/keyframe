@@ -278,32 +278,6 @@ struct KeyframeMacApp: App {
                 .keyboardShortcut("l", modifiers: .command)
             }
 
-            #if DEBUG
-            // Debug menu (only in debug builds)
-            CommandMenu("Debug") {
-                Button("Run Layout Tests") {
-                    LayoutTests.runAll()
-                }
-
-                Toggle("Show Layout Borders", isOn: Binding(
-                    get: { LayoutDebugger.shared.showBorders },
-                    set: { LayoutDebugger.shared.showBorders = $0 }
-                ))
-
-                Toggle("Highlight Truncation", isOn: Binding(
-                    get: { LayoutDebugger.shared.highlightTruncation },
-                    set: { LayoutDebugger.shared.highlightTruncation = $0 }
-                ))
-
-                Divider()
-
-                Button("Open Audio MIDI Setup") {
-                    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.audio.AudioMIDISetup") {
-                        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
-                    }
-                }
-            }
-            #endif
         }
 
         // Setlist performance window
@@ -542,6 +516,9 @@ struct KeyframeMacApp: App {
     }
 
     private func saveSession() {
+        // Sync AU state to session before saving
+        syncAUStateToSession()
+
         if let url = sessionStore.currentFileURL {
             // Save to existing file
             sessionStore.saveToFile(url)
@@ -552,6 +529,9 @@ struct KeyframeMacApp: App {
     }
 
     private func saveSessionAs() {
+        // Sync AU state to session before saving
+        syncAUStateToSession()
+
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.keyframeSession]
         panel.nameFieldStringValue = sessionStore.currentSession.name.isEmpty
@@ -566,6 +546,29 @@ struct KeyframeMacApp: App {
                     sessionStore.currentSession.name = url.deletingPathExtension().lastPathComponent
                 }
                 sessionStore.saveToFile(url)
+            }
+        }
+    }
+
+    /// Captures current AudioUnit state (presets, parameters) from all channels
+    /// and stores it in the session configuration for persistence
+    private func syncAUStateToSession() {
+        for (index, channel) in audioEngine.channelStrips.enumerated() {
+            guard index < sessionStore.currentSession.channels.count else { continue }
+
+            // Capture instrument state
+            if let instrumentState = channel.saveInstrumentState() {
+                sessionStore.currentSession.channels[index].instrument?.presetData = instrumentState
+                print("KeyframeMacApp: Captured instrument state for channel \(index)")
+            }
+
+            // Capture effect states
+            for effectIndex in 0..<channel.effects.count {
+                if effectIndex < sessionStore.currentSession.channels[index].effects.count,
+                   let effectState = channel.saveEffectState(at: effectIndex) {
+                    sessionStore.currentSession.channels[index].effects[effectIndex].presetData = effectState
+                    print("KeyframeMacApp: Captured effect \(effectIndex) state for channel \(index)")
+                }
             }
         }
     }
@@ -596,6 +599,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch response {
         case .alertFirstButtonReturn:
+            // Sync AU state before saving
+            syncAUStateToSession()
+
             // Save
             if let url = sessionStore.currentFileURL {
                 sessionStore.saveToFile(url)
@@ -628,6 +634,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             // Cancel
             return .terminateCancel
+        }
+    }
+
+    /// Captures current AudioUnit state (presets, parameters) from all channels
+    /// and stores it in the session configuration for persistence
+    private func syncAUStateToSession() {
+        let audioEngine = MacAudioEngine.shared
+        let sessionStore = MacSessionStore.shared
+
+        for (index, channel) in audioEngine.channelStrips.enumerated() {
+            guard index < sessionStore.currentSession.channels.count else { continue }
+
+            // Capture instrument state
+            if let instrumentState = channel.saveInstrumentState() {
+                sessionStore.currentSession.channels[index].instrument?.presetData = instrumentState
+            }
+
+            // Capture effect states
+            for effectIndex in 0..<channel.effects.count {
+                if effectIndex < sessionStore.currentSession.channels[index].effects.count,
+                   let effectState = channel.saveEffectState(at: effectIndex) {
+                    sessionStore.currentSession.channels[index].effects[effectIndex].presetData = effectState
+                }
+            }
         }
     }
 }
