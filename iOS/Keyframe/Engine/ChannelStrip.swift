@@ -118,10 +118,12 @@ final class ChannelStrip: ObservableObject, Identifiable {
         meterUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let pending = self.pendingPeakLevel
-            self.peakLevel = max(pending, self.peakLevel - 2.0)
+            let newLevel = max(pending, self.peakLevel - 2.0)
+            // Guard against NaN propagation
+            self.peakLevel = newLevel.isFinite ? newLevel : -60
         }
     }
-    
+
     private func processMeterData(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
 
@@ -140,8 +142,14 @@ final class ChannelStrip: ObservableObject, Identifiable {
         }
 
         // Store for timer to read (no main thread dispatch from audio thread!)
-        let db = maxSample > 0 ? 20 * log10(maxSample) : -60
-        pendingPeakLevel = db
+        // Guard against NaN/Inf from corrupted audio data
+        let db: Float
+        if maxSample > 0 && maxSample.isFinite {
+            db = 20 * log10(maxSample)
+        } else {
+            db = -60
+        }
+        pendingPeakLevel = db.isFinite ? db : -60
     }
     
     // MARK: - Instrument Loading

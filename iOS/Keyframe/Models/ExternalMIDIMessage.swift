@@ -47,20 +47,17 @@ struct ExternalMIDIMessage: Codable, Identifiable, Equatable {
     var type: MIDIMessageType
     var data1: Int        // Note/CC/PC number (0-127)
     var data2: Int        // Velocity/Value (0-127), ignored for PC
-    var name: String      // User label (e.g., "Clean Preset", "Lead Tone")
 
     init(
         id: UUID = UUID(),
         type: MIDIMessageType = .programChange,
         data1: Int = 0,
-        data2: Int = 127,
-        name: String = ""
+        data2: Int = 127
     ) {
         self.id = id
         self.type = type
         self.data1 = min(max(data1, 0), 127)
         self.data2 = min(max(data2, 0), 127)
-        self.name = name
     }
 
     /// Human-readable description of the message
