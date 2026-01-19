@@ -68,6 +68,9 @@ extension MacSessionStore {
     /// - Returns: True if save was successful
     @discardableResult
     func saveToFile(_ url: URL) -> Bool {
+        // Sync AU state before saving to file (captures instrument/effect presets)
+        onSyncAUState?()
+
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 

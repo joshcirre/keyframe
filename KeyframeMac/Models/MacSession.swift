@@ -90,8 +90,8 @@ final class MacSessionStore: ObservableObject {
     // MARK: - Session Management
 
     func saveCurrentSession() {
-        // Sync AU state before saving (captures instrument/effect presets)
-        onSyncAUState?()
+        // NOTE: Only saves to UserDefaults (fast).
+        // File saves are explicit via File > Save menu (triggers AU state sync).
 
         let defaults = UserDefaults.standard
 
@@ -99,9 +99,9 @@ final class MacSessionStore: ObservableObject {
             defaults.set(data, forKey: currentSessionKey)
         }
 
-        // Auto-save to file if we have a file URL
-        if let url = currentFileURL {
-            saveToFile(url)
+        // Mark document as dirty if we have a file URL
+        if currentFileURL != nil {
+            isDocumentDirty = true
         }
     }
 
@@ -757,6 +757,7 @@ struct BackingTrack: Codable, Identifiable, Equatable {
 struct MacChannelState: Codable, Identifiable, Equatable {
     var id = UUID()
     var channelId: UUID
+    var channelIndex: Int?  // Index for matching when UUIDs change across rebuilds (optional for backwards compat)
     var volume: Float
     var pan: Float
     var isMuted: Bool
@@ -764,12 +765,14 @@ struct MacChannelState: Codable, Identifiable, Equatable {
 
     init(
         channelId: UUID,
+        channelIndex: Int? = nil,
         volume: Float = 1.0,
         pan: Float = 0.0,
         isMuted: Bool = false,
         isSoloed: Bool = false
     ) {
         self.channelId = channelId
+        self.channelIndex = channelIndex
         self.volume = volume
         self.pan = pan
         self.isMuted = isMuted

@@ -39,7 +39,10 @@ final class KeyframeDiscovery: ObservableObject {
     // MARK: - Initialization
 
     private init() {
-        startAdvertising()
+        // Delay advertising to reduce startup load and rate-limit flooding
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.startAdvertising()
+        }
     }
 
     deinit {

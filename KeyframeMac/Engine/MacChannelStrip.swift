@@ -121,31 +121,58 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         mixer.outputVolume = volume
         mixer.pan = pan
 
-        // Install metering tap
-        let format = mixer.outputFormat(forBus: 0)
-        if format.sampleRate > 0 {
-            mixer.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-                self?.processMeterData(buffer)
-            }
-            meterTap = true
-        }
+        // NOTE: Metering tap is installed lazily when instrument is loaded
+        // to avoid overhead on empty channels. See installMeteringTapIfNeeded()
 
-        // Timer to read pending meter value
-        meterUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
+        // Timer to read pending meter value (200ms = 5Hz to reduce CPU load)
+        // Only updates if we have a metering tap installed
+        meterUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            guard let self = self, self.meterTap else { return }
             let pending = self.pendingPeakLevel
-            let newLevel = max(pending, self.peakLevel - 2.0)
-            self.peakLevel = newLevel.isFinite ? newLevel : -60
+            let newLevel = max(pending, self.peakLevel - 6.0)
+            // Only update if changed significantly to reduce SwiftUI updates
+            if abs(self.peakLevel - newLevel) > 2.0 {
+                self.peakLevel = newLevel.isFinite ? newLevel : -60
+            }
         }
     }
 
+    /// Install metering tap only when needed (when instrument is loaded)
+    private func installMeteringTapIfNeeded() {
+        guard !meterTap, let engine = engine else { return }
+
+        let format = mixer.outputFormat(forBus: 0)
+        if format.sampleRate > 0 {
+            mixer.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
+                self?.processMeterData(buffer)
+            }
+            meterTap = true
+            print("MacChannelStrip \(index): Installed metering tap")
+        }
+    }
+
+    /// Remove metering tap when instrument is unloaded
+    private func removeMeteringTap() {
+        guard meterTap else { return }
+        mixer.removeTap(onBus: 0)
+        meterTap = false
+        peakLevel = -60
+    }
+
     private func processMeterData(_ buffer: AVAudioPCMBuffer) {
+        // Skip processing if muted (no audio to meter)
+        guard !isMuted else {
+            pendingPeakLevel = -60
+            return
+        }
+
         guard let channelData = buffer.floatChannelData else { return }
 
         let frameCount = Int(buffer.frameLength)
         var maxSample: Float = 0
 
-        let stride = max(1, frameCount / 64)
+        // Sample every 32nd frame for efficiency (still accurate enough for meters)
+        let stride = max(1, frameCount / 32)
         var frame = 0
         while frame < frameCount {
             let sample = abs(channelData[0][frame])
@@ -156,7 +183,7 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         }
 
         let db: Float
-        if maxSample > 0 && maxSample.isFinite {
+        if maxSample > 0.0001 && maxSample.isFinite {  // Threshold to avoid log(0)
             db = 20 * log10(maxSample)
         } else {
             db = -60
@@ -168,15 +195,20 @@ final class MacChannelStrip: ObservableObject, Identifiable {
 
     func loadInstrument(_ description: AudioComponentDescription, completion: @escaping (Bool, Error?) -> Void) {
         guard let engine = engine else {
+            print("MacChannelStrip \(index): loadInstrument failed - no engine")
             completion(false, NSError(domain: "MacChannelStrip", code: 1, userInfo: [NSLocalizedDescriptionKey: "Engine not available"]))
             return
         }
 
+        print("MacChannelStrip \(index): Loading instrument type=\(description.componentType) subtype=\(description.componentSubType)")
         isLoading = true
         unloadInstrument()
 
         AVAudioUnit.instantiate(with: description, options: []) { [weak self] audioUnit, error in
-            guard let self = self else { return }
+            guard let self = self else {
+                print("MacChannelStrip: loadInstrument - self was deallocated")
+                return
+            }
 
             DispatchQueue.main.async {
                 self.isLoading = false
@@ -188,17 +220,29 @@ final class MacChannelStrip: ObservableObject, Identifiable {
                 }
 
                 guard let audioUnit = audioUnit else {
+                    print("MacChannelStrip \(self.index): Instrument AudioUnit is nil")
                     completion(false, NSError(domain: "MacChannelStrip", code: 2, userInfo: [NSLocalizedDescriptionKey: "AudioUnit is nil"]))
                     return
                 }
 
                 self.instrument = audioUnit
                 engine.attach(audioUnit)
+                print("MacChannelStrip \(self.index): Attached instrument to engine")
+
+                // Verify scheduleMIDIEventBlock is available
+                if audioUnit.auAudioUnit.scheduleMIDIEventBlock != nil {
+                    print("MacChannelStrip \(self.index): scheduleMIDIEventBlock is available")
+                } else {
+                    print("MacChannelStrip \(self.index): WARNING - scheduleMIDIEventBlock is nil!")
+                }
 
                 self.applyMusicalContext(to: audioUnit.auAudioUnit)
                 self.rebuildAudioChain()
 
-                print("MacChannelStrip \(self.index): Loaded instrument")
+                // Install metering tap now that we have an instrument
+                self.installMeteringTapIfNeeded()
+
+                print("MacChannelStrip \(self.index): Loaded instrument successfully")
                 completion(true, nil)
             }
         }
@@ -207,12 +251,19 @@ final class MacChannelStrip: ObservableObject, Identifiable {
     func unloadInstrument() {
         guard let instrument = instrument, let engine = engine else { return }
 
+        // Close any open plugin window for this channel's instrument
+        // This ensures the window is recreated with the new instrument's UI
+        PluginWindowManager.shared.closeWindow(id: "instrument-\(id)")
+
         instrument.auAudioUnit.musicalContextBlock = nil
         instrument.auAudioUnit.transportStateBlock = nil
 
         engine.detach(instrument)
         self.instrument = nil
         self.instrumentInfo = nil
+
+        // Remove metering tap when no instrument
+        removeMeteringTap()
 
         rebuildAudioChain()
     }
@@ -264,6 +315,9 @@ final class MacChannelStrip: ObservableObject, Identifiable {
     func removeEffect(at index: Int) {
         guard index < effects.count, let engine = engine else { return }
 
+        // Close any open plugin window for this effect
+        PluginWindowManager.shared.closeWindow(id: "effect-\(id)-\(index)")
+
         let effect = effects.remove(at: index)
         if index < effectInfos.count {
             effectInfos.remove(at: index)
@@ -292,7 +346,10 @@ final class MacChannelStrip: ObservableObject, Identifiable {
     // MARK: - Audio Chain Management
 
     private func rebuildAudioChain() {
-        guard let engine = engine else { return }
+        guard let engine = engine else {
+            print("MacChannelStrip \(index): rebuildAudioChain failed - no engine")
+            return
+        }
 
         // Disconnect all existing connections
         if let instrument = instrument {
@@ -304,6 +361,7 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         engine.disconnectNodeInput(mixer)
 
         let format = engine.outputNode.inputFormat(forBus: 0)
+        print("MacChannelStrip \(index): rebuildAudioChain with format: \(format.sampleRate)Hz, \(format.channelCount)ch")
 
         // Build the chain: Instrument -> Effects -> Mixer
         var previousNode: AVAudioNode? = instrument
@@ -311,12 +369,16 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         for effect in effects {
             if let prev = previousNode {
                 engine.connect(prev, to: effect, format: format)
+                print("MacChannelStrip \(index): Connected \(type(of: prev)) -> \(type(of: effect))")
             }
             previousNode = effect
         }
 
         if let finalNode = previousNode {
             engine.connect(finalNode, to: mixer, format: format)
+            print("MacChannelStrip \(index): Connected \(type(of: finalNode)) -> mixer")
+        } else {
+            print("MacChannelStrip \(index): No instrument to connect")
         }
     }
 
@@ -419,6 +481,18 @@ final class MacChannelStrip: ObservableObject, Identifiable {
 
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
             let data: [UInt8] = [0xB0, cc, value]
+            data.withUnsafeBufferPointer { bufferPointer in
+                midiBlock(AUEventSampleTimeImmediate, 0, 3, bufferPointer.baseAddress!)
+            }
+        }
+    }
+
+    func sendMIDI(pitchBend lsb: UInt8, msb: UInt8) {
+        guard let instrument = instrument else { return }
+
+        if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
+            // Pitch bend: 0xE0 + channel, LSB, MSB
+            let data: [UInt8] = [0xE0, lsb, msb]
             data.withUnsafeBufferPointer { bufferPointer in
                 midiBlock(AUEventSampleTimeImmediate, 0, 3, bufferPointer.baseAddress!)
             }

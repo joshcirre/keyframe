@@ -330,9 +330,18 @@ struct SetlistView: View {
         }
 
         // Apply channel states with spillover support
+        // Match by UUID first, fall back to index for rebuild compatibility
         let spilloverEnabled = sessionStore.currentSession.spilloverEnabled
-        for channelState in preset.channelStates {
-            if let channel = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+        for (index, channelState) in preset.channelStates.enumerated() {
+            let channel: MacChannelStrip?
+            if let match = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                channel = match
+            } else if index < audioEngine.channelStrips.count {
+                channel = audioEngine.channelStrips[index]
+            } else {
+                channel = nil
+            }
+            if let channel = channel {
                 channel.applyStateWithSpillover(
                     volume: channelState.volume,
                     pan: channelState.pan,

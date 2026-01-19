@@ -50,7 +50,7 @@ struct KeyframeMacApp: App {
             }
         }
 
-        // Set up AU state sync callback - captures instrument/effect presets before saving
+        // Set up AU state sync callback - captures channel state and instrument/effect presets before saving
         MacSessionStore.shared.onSyncAUState = {
             let audioEngine = MacAudioEngine.shared
             let sessionStore = MacSessionStore.shared
@@ -58,9 +58,33 @@ struct KeyframeMacApp: App {
             for (index, channel) in audioEngine.channelStrips.enumerated() {
                 guard index < sessionStore.currentSession.channels.count else { continue }
 
-                // Capture instrument state
-                if let instrumentState = channel.saveInstrumentState() {
-                    sessionStore.currentSession.channels[index].instrument?.presetData = instrumentState
+                // Sync channel state (volume, pan, mute, etc.)
+                sessionStore.currentSession.channels[index].volume = channel.volume
+                sessionStore.currentSession.channels[index].pan = channel.pan
+                sessionStore.currentSession.channels[index].isMuted = channel.isMuted
+                sessionStore.currentSession.channels[index].midiChannel = channel.midiChannel
+                sessionStore.currentSession.channels[index].midiSourceName = channel.midiSourceName
+                sessionStore.currentSession.channels[index].scaleFilterEnabled = channel.scaleFilterEnabled
+                sessionStore.currentSession.channels[index].isChordPadTarget = channel.isChordPadTarget
+
+                // Sync instrument info and state
+                if let info = channel.instrumentInfo, let instrument = channel.instrument {
+                    let desc = instrument.audioComponentDescription
+                    // Update or create instrument config
+                    if sessionStore.currentSession.channels[index].instrument == nil {
+                        sessionStore.currentSession.channels[index].instrument = MacPluginConfiguration(
+                            name: info.name,
+                            manufacturerName: info.manufacturerName,
+                            audioComponentDescription: desc
+                        )
+                    }
+                    // Capture preset state
+                    if let instrumentState = channel.saveInstrumentState() {
+                        sessionStore.currentSession.channels[index].instrument?.presetData = instrumentState
+                    }
+                } else {
+                    // No instrument loaded - clear from session
+                    sessionStore.currentSession.channels[index].instrument = nil
                 }
 
                 // Capture effect states
@@ -71,6 +95,9 @@ struct KeyframeMacApp: App {
                     }
                 }
             }
+
+            // Also persist to UserDefaults for recovery after force-quit/crash
+            sessionStore.saveCurrentSession()
         }
 
         // Set up external MIDI controller preset trigger handler
@@ -99,9 +126,17 @@ struct KeyframeMacApp: App {
                         midiEngine.currentScaleType = scale
                     }
 
-                    // Apply channel states
-                    for channelState in preset.channelStates {
-                        if let channel = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                    // Apply channel states (match by UUID first, fall back to index)
+                    for (index, channelState) in preset.channelStates.enumerated() {
+                        let channel: MacChannelStrip?
+                        if let match = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                            channel = match
+                        } else if index < audioEngine.channelStrips.count {
+                            channel = audioEngine.channelStrips[index]
+                        } else {
+                            channel = nil
+                        }
+                        if let channel = channel {
                             channel.volume = channelState.volume
                             channel.pan = channelState.pan
                             channel.isMuted = channelState.isMuted
@@ -148,9 +183,17 @@ struct KeyframeMacApp: App {
                         midiEngine.currentScaleType = scale
                     }
 
-                    // Apply channel states
-                    for channelState in preset.channelStates {
-                        if let channel = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                    // Apply channel states (match by UUID first, fall back to index)
+                    for (index, channelState) in preset.channelStates.enumerated() {
+                        let channel: MacChannelStrip?
+                        if let match = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                            channel = match
+                        } else if index < audioEngine.channelStrips.count {
+                            channel = audioEngine.channelStrips[index]
+                        } else {
+                            channel = nil
+                        }
+                        if let channel = channel {
                             channel.volume = channelState.volume
                             channel.pan = channelState.pan
                             channel.isMuted = channelState.isMuted
@@ -208,9 +251,18 @@ struct KeyframeMacApp: App {
                 }
 
                 // Apply section-level settings (channel states, external MIDI)
+                // Match by UUID first, fall back to index for rebuild compatibility
                 let spilloverEnabled = sessionStore.currentSession.spilloverEnabled
-                for channelState in section.channelStates {
-                    if let channel = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                for (index, channelState) in section.channelStates.enumerated() {
+                    let channel: MacChannelStrip?
+                    if let match = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                        channel = match
+                    } else if index < audioEngine.channelStrips.count {
+                        channel = audioEngine.channelStrips[index]
+                    } else {
+                        channel = nil
+                    }
+                    if let channel = channel {
                         channel.applyStateWithSpillover(
                             volume: channelState.volume,
                             pan: channelState.pan,
@@ -240,8 +292,7 @@ struct KeyframeMacApp: App {
             }
         }
 
-        // Scan for plugins at launch
-        MacPluginManager.shared.scanForPlugins()
+        // Plugin scan happens automatically in MacPluginManager.init()
     }
 
     var body: some Scene {
@@ -442,9 +493,18 @@ struct KeyframeMacApp: App {
         }
 
         // Apply channel states with spillover support
+        // Match by UUID first, fall back to index for rebuild compatibility
         let spilloverEnabled = sessionStore.currentSession.spilloverEnabled
-        for channelState in preset.channelStates {
-            if let channel = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+        for (index, channelState) in preset.channelStates.enumerated() {
+            let channel: MacChannelStrip?
+            if let match = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                channel = match
+            } else if index < audioEngine.channelStrips.count {
+                channel = audioEngine.channelStrips[index]
+            } else {
+                channel = nil
+            }
+            if let channel = channel {
                 channel.applyStateWithSpillover(
                     volume: channelState.volume,
                     pan: channelState.pan,
@@ -497,66 +557,77 @@ struct KeyframeMacApp: App {
                     audioEngine?.setRestorationState(true, progress: "Loaded \(current)/\(totalPlugins): \(name)")
                 } else {
                     audioEngine?.setRestorationState(false, progress: "")
+                    // All plugins loaded - NOW start the engine
+                    if let engine = audioEngine, !engine.isRunning {
+                        // Longer delay to let audio graph and plugins fully initialize
+                        // Heavy plugins like Analog Lab V need time to settle
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            engine.start()
+                            print("MacAudioEngine: Started after all plugins loaded")
+                        }
+                    }
                 }
             }
         }
 
-        // Recreate channel strips from session
+        // Ensure we have enough channels (batch creation for efficiency)
+        audioEngine.ensureChannelCount(session.channels.count)
+
+        // Configure channel strips from session
         for (index, config) in session.channels.enumerated() {
-            guard index >= audioEngine.channelStrips.count else { continue }
+            guard index < audioEngine.channelStrips.count else { continue }
+            let channel = audioEngine.channelStrips[index]
 
-            if let channel = audioEngine.addChannel() {
-                // Apply channel configuration
-                channel.midiChannel = config.midiChannel
-                channel.midiSourceName = config.midiSourceName
-                channel.scaleFilterEnabled = config.scaleFilterEnabled
-                channel.isChordPadTarget = config.isChordPadTarget
-                channel.volume = config.volume
-                channel.pan = config.pan
-                channel.isMuted = config.isMuted
+            // Apply channel configuration
+            channel.midiChannel = config.midiChannel
+            channel.midiSourceName = config.midiSourceName
+            channel.scaleFilterEnabled = config.scaleFilterEnabled
+            channel.isChordPadTarget = config.isChordPadTarget
+            channel.volume = config.volume
+            channel.pan = config.pan
+            channel.isMuted = config.isMuted
 
-                // Load instrument if configured
-                if let instrument = config.instrument {
-                    audioEngine.setRestorationState(true, progress: "Loading \(instrument.name)...")
+            // Load instrument if configured
+            if let instrument = config.instrument {
+                audioEngine.setRestorationState(true, progress: "Loading \(instrument.name)...")
 
-                    channel.loadInstrument(instrument.audioComponentDescription) { success, error in
-                        if success {
-                            channel.instrumentInfo = MacAUInfo(
-                                name: instrument.name,
-                                manufacturerName: instrument.manufacturerName,
-                                componentType: instrument.audioComponentDescription.componentType,
-                                componentSubType: instrument.audioComponentDescription.componentSubType,
-                                componentManufacturer: instrument.audioComponentDescription.componentManufacturer
-                            )
+                channel.loadInstrument(instrument.audioComponentDescription) { success, error in
+                    if success {
+                        channel.instrumentInfo = MacAUInfo(
+                            name: instrument.name,
+                            manufacturerName: instrument.manufacturerName,
+                            componentType: instrument.audioComponentDescription.componentType,
+                            componentSubType: instrument.audioComponentDescription.componentSubType,
+                            componentManufacturer: instrument.audioComponentDescription.componentManufacturer
+                        )
 
-                            // Restore preset data if available
-                            if let presetData = instrument.presetData {
-                                channel.restoreInstrumentState(presetData)
-                            }
+                        // Restore preset data if available
+                        if let presetData = instrument.presetData {
+                            channel.restoreInstrumentState(presetData)
                         }
-                        markPluginLoaded(instrument.name)
                     }
+                    markPluginLoaded(instrument.name)
                 }
+            }
 
-                // Load effects
-                for effect in config.effects {
-                    channel.addEffect(effect.audioComponentDescription) { success, error in
-                        if success {
-                            channel.effectInfos.append(MacAUInfo(
-                                name: effect.name,
-                                manufacturerName: effect.manufacturerName,
-                                componentType: effect.audioComponentDescription.componentType,
-                                componentSubType: effect.audioComponentDescription.componentSubType,
-                                componentManufacturer: effect.audioComponentDescription.componentManufacturer
-                            ))
+            // Load effects
+            for effect in config.effects {
+                channel.addEffect(effect.audioComponentDescription) { success, error in
+                    if success {
+                        channel.effectInfos.append(MacAUInfo(
+                            name: effect.name,
+                            manufacturerName: effect.manufacturerName,
+                            componentType: effect.audioComponentDescription.componentType,
+                            componentSubType: effect.audioComponentDescription.componentSubType,
+                            componentManufacturer: effect.audioComponentDescription.componentManufacturer
+                        ))
 
-                            if let presetData = effect.presetData {
-                                let effectIndex = channel.effectInfos.count - 1
-                                channel.restoreEffectState(presetData, at: effectIndex)
-                            }
+                        if let presetData = effect.presetData {
+                            let effectIndex = channel.effectInfos.count - 1
+                            channel.restoreEffectState(presetData, at: effectIndex)
                         }
-                        markPluginLoaded(effect.name)
                     }
+                    markPluginLoaded(effect.name)
                 }
             }
         }
@@ -567,13 +638,13 @@ struct KeyframeMacApp: App {
         // Load MIDI mappings
         midiEngine.loadMappings(from: session)
 
-        // Start audio engine
-        audioEngine.start()
-
-        // Clear loading state if no plugins
+        // Start audio engine ONLY if no plugins to load
+        // If there are plugins, the engine will be started after they finish loading (in markPluginLoaded)
         if totalPlugins == 0 {
+            audioEngine.start()
             audioEngine.setRestorationState(false, progress: "")
         }
+        // Note: If totalPlugins > 0, engine start is handled in markPluginLoaded callback
 
         print("KeyframeMacApp: Session '\(session.name)' restored with \(session.channels.count) channels, \(session.midiMappings.count) mappings")
     }
@@ -710,7 +781,6 @@ struct KeyframeMacApp: App {
             // Capture instrument state
             if let instrumentState = channel.saveInstrumentState() {
                 sessionStore.currentSession.channels[index].instrument?.presetData = instrumentState
-                print("KeyframeMacApp: Captured instrument state for channel \(index)")
             }
 
             // Capture effect states
@@ -718,7 +788,6 @@ struct KeyframeMacApp: App {
                 if effectIndex < sessionStore.currentSession.channels[index].effects.count,
                    let effectState = channel.saveEffectState(at: effectIndex) {
                     sessionStore.currentSession.channels[index].effects[effectIndex].presetData = effectState
-                    print("KeyframeMacApp: Captured effect \(effectIndex) state for channel \(index)")
                 }
             }
         }
@@ -788,27 +857,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Captures current AudioUnit state (presets, parameters) from all channels
-    /// and stores it in the session configuration for persistence
+    /// Syncs all channel state (mute, volume, instruments, effects) to the session
     private func syncAUStateToSession() {
-        let audioEngine = MacAudioEngine.shared
-        let sessionStore = MacSessionStore.shared
-
-        for (index, channel) in audioEngine.channelStrips.enumerated() {
-            guard index < sessionStore.currentSession.channels.count else { continue }
-
-            // Capture instrument state
-            if let instrumentState = channel.saveInstrumentState() {
-                sessionStore.currentSession.channels[index].instrument?.presetData = instrumentState
-            }
-
-            // Capture effect states
-            for effectIndex in 0..<channel.effects.count {
-                if effectIndex < sessionStore.currentSession.channels[index].effects.count,
-                   let effectState = channel.saveEffectState(at: effectIndex) {
-                    sessionStore.currentSession.channels[index].effects[effectIndex].presetData = effectState
-                }
-            }
-        }
+        // Use the shared sync callback which handles all channel state
+        MacSessionStore.shared.onSyncAUState?()
     }
 }

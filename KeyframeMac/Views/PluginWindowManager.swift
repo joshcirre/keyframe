@@ -106,11 +106,17 @@ class PluginWindowManager: ObservableObject {
         print("PluginWindowManager: Opened window '\(title)'")
     }
 
-    /// Close a plugin window
+    /// Close a plugin window (called when instrument/effect changes)
     func closeWindow(id: String) {
-        windows[id]?.close()
+        guard let window = windows[id] else { return }
+
+        // Remove from dictionaries BEFORE calling close()
+        // This allows windowShouldClose to return true (allowing actual close)
+        // instead of hiding the window
         windows.removeValue(forKey: id)
         windowDelegates.removeValue(forKey: id)
+
+        window.close()
     }
 
     /// Close all windows for a channel (when channel is removed)
@@ -118,12 +124,19 @@ class PluginWindowManager: ObservableObject {
         let prefix = "instrument-\(channelId)"
         let effectPrefix = "effect-\(channelId)"
 
-        for (id, window) in windows {
-            if id.hasPrefix(prefix) || id.hasPrefix(effectPrefix) {
-                window.close()
-                windows.removeValue(forKey: id)
-                windowDelegates.removeValue(forKey: id)
-            }
+        // Collect windows to close first
+        let idsToClose = windows.keys.filter { id in
+            id.hasPrefix(prefix) || id.hasPrefix(effectPrefix)
+        }
+
+        for id in idsToClose {
+            guard let window = windows[id] else { continue }
+
+            // Remove from dictionaries BEFORE closing
+            windows.removeValue(forKey: id)
+            windowDelegates.removeValue(forKey: id)
+
+            window.close()
         }
     }
 
@@ -132,7 +145,11 @@ class PluginWindowManager: ObservableObject {
         // Hide the window instead of closing it, so we can reopen it later
         if let window = windows[id] {
             window.orderOut(nil)  // Hide instead of close
-            print("PluginWindowManager: Hiding window '\(id)' (will reopen on next click)")
+
+            // Save the instrument/effect state when plugin window is closed
+            // This captures any preset changes the user made in the plugin UI
+            MacSessionStore.shared.onSyncAUState?()
+
             return false  // Prevent actual close
         }
         return true

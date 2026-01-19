@@ -42,7 +42,8 @@ struct PresetGridView: View {
                             onDelete: { songToDelete = song },
                             onAddSection: { addSection(to: song) },
                             onMIDILearnSection: { sectionIndex in startMIDILearnForSection(song: song, sectionIndex: sectionIndex) },
-                            onUpdateSection: { sectionIndex, updatedSection in updateSection(song: song, sectionIndex: sectionIndex, section: updatedSection) }
+                            onUpdateSection: { sectionIndex, updatedSection in updateSection(song: song, sectionIndex: sectionIndex, section: updatedSection) },
+                            onDeleteSection: { sectionIndex in deleteSection(song: song, sectionIndex: sectionIndex) }
                         )
                     }
 
@@ -260,9 +261,17 @@ struct PresetGridView: View {
     }
 
     private func applySectionSettings(_ section: SongSection) {
-        // Apply channel states
-        for channelState in section.channelStates {
-            if let channel = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+        // Apply channel states (match by UUID first, fall back to index)
+        for (index, channelState) in section.channelStates.enumerated() {
+            let channel: MacChannelStrip?
+            if let match = audioEngine.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                channel = match
+            } else if index < audioEngine.channelStrips.count {
+                channel = audioEngine.channelStrips[index]
+            } else {
+                channel = nil
+            }
+            if let channel = channel {
                 channel.volume = channelState.volume
                 channel.pan = channelState.pan
                 channel.isMuted = channelState.isMuted
@@ -306,10 +315,36 @@ struct PresetGridView: View {
         sessionStore.saveCurrentSession()
     }
 
+    private func deleteSection(song: MacSong, sectionIndex: Int) {
+        guard let songIndex = sessionStore.currentSession.songs.firstIndex(where: { $0.id == song.id }),
+              sectionIndex < song.sections.count else { return }
+
+        var updatedSong = song
+        updatedSong.sections.remove(at: sectionIndex)
+
+        // Update current section index if needed
+        if sessionStore.currentSongId == song.id,
+           let currentIndex = sessionStore.currentSectionIndex {
+            if sectionIndex == currentIndex {
+                // Deleted current section - select previous or first
+                sessionStore.currentSectionIndex = max(0, sectionIndex - 1)
+            } else if sectionIndex < currentIndex {
+                // Deleted section before current - adjust index
+                sessionStore.currentSectionIndex = currentIndex - 1
+            }
+        }
+
+        var session = sessionStore.currentSession
+        session.songs[songIndex] = updatedSong
+        sessionStore.currentSession = session
+        sessionStore.saveCurrentSession()
+    }
+
     private func captureCurrentChannelStates() -> [MacChannelState] {
-        audioEngine.channelStrips.map { channel in
+        audioEngine.channelStrips.enumerated().map { index, channel in
             MacChannelState(
                 channelId: channel.id,
+                channelIndex: index,
                 volume: channel.volume,
                 pan: channel.pan,
                 isMuted: channel.isMuted,
@@ -385,9 +420,17 @@ struct PresetGridView: View {
                 let actualSectionIndex = sectionIndex ?? 0
                 if actualSectionIndex < song.sections.count {
                     let section = song.sections[actualSectionIndex]
-                    // Apply channel states
-                    for channelState in section.channelStates {
-                        if let channel = audio.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                    // Apply channel states (match by UUID first, fall back to index)
+                    for (stateIndex, channelState) in section.channelStates.enumerated() {
+                        let channel: MacChannelStrip?
+                        if let match = audio.channelStrips.first(where: { $0.id == channelState.channelId }) {
+                            channel = match
+                        } else if stateIndex < audio.channelStrips.count {
+                            channel = audio.channelStrips[stateIndex]
+                        } else {
+                            channel = nil
+                        }
+                        if let channel = channel {
                             channel.volume = channelState.volume
                             channel.pan = channelState.pan
                             channel.isMuted = channelState.isMuted
@@ -427,6 +470,7 @@ struct SongRow: View {
     let onAddSection: () -> Void
     let onMIDILearnSection: (Int) -> Void
     let onUpdateSection: (Int, SongSection) -> Void
+    let onDeleteSection: (Int) -> Void
 
     @State private var isHovering = false
 
@@ -546,7 +590,8 @@ struct SongRow: View {
                             existingMappings: existingMappings,
                             onSelect: { onSelectSection(index) },
                             onMIDILearn: { onMIDILearnSection(index) },
-                            onUpdate: { updatedSection in onUpdateSection(index, updatedSection) }
+                            onUpdate: { updatedSection in onUpdateSection(index, updatedSection) },
+                            onDelete: { onDeleteSection(index) }
                         )
                     }
 
@@ -595,6 +640,7 @@ struct SectionRow: View {
     let onSelect: () -> Void
     let onMIDILearn: () -> Void
     let onUpdate: (SongSection) -> Void
+    var onDelete: (() -> Void)? = nil
 
     @State private var isHovering = false
     @State private var showingEditor = false
@@ -725,7 +771,8 @@ struct SectionRow: View {
                 midiEngine: midiEngine,
                 sessionStore: sessionStore,
                 existingMappings: existingMappings,
-                onSave: onUpdate
+                onSave: onUpdate,
+                onDelete: onDelete
             )
         }
     }
@@ -996,9 +1043,10 @@ struct SongEditorSheet: View {
     }
 
     private func captureCurrentChannelStates() -> [MacChannelState] {
-        audioEngine.channelStrips.map { channel in
+        audioEngine.channelStrips.enumerated().map { index, channel in
             MacChannelState(
                 channelId: channel.id,
+                channelIndex: index,
                 volume: channel.volume,
                 pan: channel.pan,
                 isMuted: channel.isMuted,
@@ -1160,7 +1208,8 @@ struct SectionEditorRow: View {
                 midiEngine: midiEngine,
                 sessionStore: sessionStore,
                 existingMappings: existingMappings,
-                onSave: onUpdate
+                onSave: onUpdate,
+                onDelete: onDelete
             )
         }
     }
@@ -1197,12 +1246,14 @@ struct SectionEditorSheet: View {
     let sessionStore: MacSessionStore
     let existingMappings: [SongTriggerMapping]
     let onSave: (SongSection) -> Void
+    var onDelete: (() -> Void)? = nil
 
     @State private var name: String = ""
     @State private var channelStates: [MacChannelState] = []
     @State private var externalMIDIMessages: [ExternalMIDIMessage] = []
     @State private var showingMIDIEditor = false
     @State private var showingHelixPicker = false
+    @State private var showingDeleteConfirmation = false
 
     /// Check if we're currently learning MIDI for this section
     private var isLearning: Bool {
@@ -1240,20 +1291,39 @@ struct SectionEditorSheet: View {
             name = section.name
             externalMIDIMessages = section.externalMIDIMessages
 
-            // Initialize channel states from section or from current mixer
-            if section.channelStates.isEmpty {
-                channelStates = audioEngine.channelStrips.map { channel in
-                    MacChannelState(
+            // Always sync channel states with current mixer channels
+            // This ensures we show current channel names and pick up any new channels
+            // Match by UUID first, fall back to index for rebuild compatibility
+            channelStates = audioEngine.channelStrips.enumerated().map { index, channel in
+                // Try to find existing state for this channel by UUID first
+                if let existingState = section.channelStates.first(where: { $0.channelId == channel.id }) {
+                    return existingState
+                }
+                // Fall back to index-based matching
+                else if index < section.channelStates.count {
+                    return section.channelStates[index]
+                }
+                // New channel - use current mixer state
+                else {
+                    return MacChannelState(
                         channelId: channel.id,
+                        channelIndex: index,
                         volume: channel.volume,
                         pan: channel.pan,
                         isMuted: channel.isMuted,
                         isSoloed: channel.isSoloed
                     )
                 }
-            } else {
-                channelStates = section.channelStates
             }
+        }
+        .alert("Delete Section?", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                onDelete?()
+                dismiss()
+            }
+        } message: {
+            Text("This will permanently delete the section '\(name)'. This action cannot be undone.")
         }
     }
 
@@ -1272,6 +1342,23 @@ struct SectionEditorSheet: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.cancelAction)
+
+            // Delete button (only show if delete handler is provided)
+            if onDelete != nil {
+                Button(action: { showingDeleteConfirmation = true }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "trash")
+                        Text("DELETE")
+                    }
+                    .font(TEFonts.mono(11, weight: .bold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .foregroundColor(colors.error)
+                    .background(colors.controlBackground)
+                    .overlay(Rectangle().strokeBorder(colors.error.opacity(0.5), lineWidth: colors.borderWidth))
+                }
+                .buttonStyle(.plain)
+            }
 
             Spacer()
 
@@ -1409,7 +1496,7 @@ struct SectionEditorSheet: View {
                     ForEach(Array(channelStates.enumerated()), id: \.element.id) { index, state in
                         ChannelStateEditorRow(
                             channelState: $channelStates[index],
-                            channelName: channelName(for: state.channelId),
+                            channelName: channelName(at: index),
                             colors: colors
                         )
                     }
@@ -1526,14 +1613,21 @@ struct SectionEditorSheet: View {
 
     // MARK: - Helpers
 
-    private func channelName(for channelId: UUID) -> String {
-        audioEngine.channelStrips.first { $0.id == channelId }?.name ?? "Unknown"
+    private func channelName(at index: Int) -> String {
+        guard index < audioEngine.channelStrips.count else { return "Unknown" }
+        let channel = audioEngine.channelStrips[index]
+        // Prefer instrument name if loaded, otherwise fall back to channel name
+        if let instrumentName = channel.instrumentInfo?.name {
+            return instrumentName
+        }
+        return channel.name
     }
 
     private func captureCurrentMixer() {
-        channelStates = audioEngine.channelStrips.map { channel in
+        channelStates = audioEngine.channelStrips.enumerated().map { index, channel in
             MacChannelState(
                 channelId: channel.id,
+                channelIndex: index,
                 volume: channel.volume,
                 pan: channel.pan,
                 isMuted: channel.isMuted,

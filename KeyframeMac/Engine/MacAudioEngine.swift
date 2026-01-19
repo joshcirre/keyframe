@@ -122,6 +122,7 @@ final class MacAudioEngine: ObservableObject {
     private func connectChannelToMaster(_ channel: MacChannelStrip) {
         let format = engine.outputNode.inputFormat(forBus: 0)
         engine.connect(channel.outputNode, to: masterMixer, format: format)
+        print("MacAudioEngine: Connected channel \(channel.index) to master (format: \(format.sampleRate)Hz, \(format.channelCount)ch)")
     }
 
     // MARK: - Engine Control
@@ -130,10 +131,16 @@ final class MacAudioEngine: ObservableObject {
         guard !isRunning else { return }
 
         do {
+            // Log audio graph state before starting
+            print("MacAudioEngine: Starting engine...")
+            print("MacAudioEngine: Master mixer attached: \(engine.attachedNodes.contains(masterMixer))")
+            print("MacAudioEngine: Output node format: \(engine.outputNode.inputFormat(forBus: 0))")
+            print("MacAudioEngine: Channel count: \(channelStrips.count)")
+
             try engine.start()
             isRunning = true
             startMetering()
-            print("MacAudioEngine: Started")
+            print("MacAudioEngine: Started successfully")
         } catch {
             print("MacAudioEngine: Failed to start: \(error)")
         }
@@ -168,23 +175,39 @@ final class MacAudioEngine: ObservableObject {
     // MARK: - Channel Management
 
     func addChannel() -> MacChannelStrip? {
-        let wasRunning = isRunning
-        if wasRunning { stop() }
-
+        // AVAudioEngine can attach nodes while running - no need to stop
         let channel = MacChannelStrip(engine: engine, index: channelStrips.count)
         channelStrips.append(channel)
         connectChannelToMaster(channel)
-
-        if wasRunning { start() }
-
         return channel
+    }
+
+    /// Add multiple channels at once efficiently
+    func addChannels(count: Int) -> [MacChannelStrip] {
+        guard count > 0 else { return [] }
+
+        var newChannels: [MacChannelStrip] = []
+        for _ in 0..<count {
+            let channel = MacChannelStrip(engine: engine, index: channelStrips.count)
+            channelStrips.append(channel)
+            connectChannelToMaster(channel)
+            newChannels.append(channel)
+        }
+
+        print("MacAudioEngine: Added \(count) channels in batch")
+        return newChannels
+    }
+
+    /// Ensure we have at least the specified number of channels
+    func ensureChannelCount(_ targetCount: Int) {
+        let currentCount = channelStrips.count
+        if targetCount > currentCount {
+            _ = addChannels(count: targetCount - currentCount)
+        }
     }
 
     func removeChannel(at index: Int) {
         guard index < channelStrips.count else { return }
-
-        let wasRunning = isRunning
-        if wasRunning { stop() }
 
         let channel = channelStrips.remove(at: index)
         channel.cleanup()
@@ -194,20 +217,14 @@ final class MacAudioEngine: ObservableObject {
             ch.index = i
         }
 
-        if wasRunning { start() }
         print("MacAudioEngine: Removed channel at index \(index), \(channelStrips.count) remaining")
     }
 
     func removeAllChannels() {
-        let wasRunning = isRunning
-        if wasRunning { stop() }
-
         for channel in channelStrips {
             channel.cleanup()
         }
         channelStrips.removeAll()
-
-        if wasRunning { start() }
         print("MacAudioEngine: Removed all channels")
     }
 
@@ -348,7 +365,11 @@ final class MacAudioEngine: ObservableObject {
             self.updateDSPLoad()
 
             let pending = self.pendingPeakLevel
-            self.peakLevel = max(pending, self.peakLevel - 6.0)
+            let newLevel = max(pending, self.peakLevel - 6.0)
+            // Only update if changed significantly to reduce SwiftUI updates
+            if abs(self.peakLevel - newLevel) > 1.5 {
+                self.peakLevel = newLevel
+            }
         }
     }
 
@@ -384,7 +405,11 @@ final class MacAudioEngine: ObservableObject {
     private func updateDSPLoad() {
         let load = getProcessCPUUsage()
         let smoothed = self.cpuUsage * 0.7 + load * 0.3
-        self.cpuUsage = min(100, max(0, smoothed))
+        let newCPU = min(100, max(0, smoothed))
+        // Only update if changed by >2% to reduce SwiftUI updates
+        if abs(self.cpuUsage - newCPU) > 2.0 {
+            self.cpuUsage = newCPU
+        }
     }
 
     private func getProcessCPUUsage() -> Float {
@@ -418,7 +443,10 @@ final class MacAudioEngine: ObservableObject {
         let size = vm_size_t(Int(threadsCount) * MemoryLayout<thread_t>.stride)
         vm_deallocate(task, vm_address_t(bitPattern: threads), size)
 
-        return totalCPU
+        // Divide by number of CPU cores to get percentage of total system capacity
+        // This matches what Activity Monitor displays
+        let coreCount = Float(ProcessInfo.processInfo.activeProcessorCount)
+        return totalCPU / max(1, coreCount)
     }
 
     // MARK: - Preset Application
@@ -577,30 +605,25 @@ final class MacAudioEngine: ObservableObject {
     }
 
     private func setOutputDevice(_ deviceID: AudioDeviceID) {
-        let wasRunning = isRunning
-        if wasRunning { stop() }
+        // Note: On macOS, we can change output device while engine is running
+        // Stopping/restarting causes audio glitches and overload issues during startup
+        let audioUnit = engine.outputNode.audioUnit!
 
-        do {
-            let audioUnit = engine.outputNode.audioUnit!
+        var deviceIDVar = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceIDVar,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
 
-            var deviceIDVar = deviceID
-            let status = AudioUnitSetProperty(
-                audioUnit,
-                kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global,
-                0,
-                &deviceIDVar,
-                UInt32(MemoryLayout<AudioDeviceID>.size)
-            )
-
-            if status == noErr {
-                print("MacAudioEngine: Output device set to ID \(deviceID)")
-            } else {
-                print("MacAudioEngine: Failed to set output device: \(status)")
-            }
+        if status == noErr {
+            print("MacAudioEngine: Output device set to ID \(deviceID)")
+        } else {
+            print("MacAudioEngine: Failed to set output device: \(status)")
         }
-
-        if wasRunning { start() }
     }
 
     private func saveOutputDeviceSelection() {

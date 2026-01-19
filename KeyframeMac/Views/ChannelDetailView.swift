@@ -325,6 +325,19 @@ struct ChannelDetailView: View {
             teToggle("CHORDPAD TARGET", isOn: $config.isChordPadTarget)
         }
         .padding(16)
+        // Sync config changes to the actual channel strip
+        .onChange(of: config.midiChannel) { _, newValue in
+            channel.midiChannel = newValue
+        }
+        .onChange(of: config.midiSourceName) { _, newValue in
+            channel.midiSourceName = newValue
+        }
+        .onChange(of: config.scaleFilterEnabled) { _, newValue in
+            channel.scaleFilterEnabled = newValue
+        }
+        .onChange(of: config.isChordPadTarget) { _, newValue in
+            channel.isChordPadTarget = newValue
+        }
     }
 
     // MARK: - Mixer Settings
@@ -593,6 +606,9 @@ struct PluginBrowserSheet: View {
                         manufacturerName: plugin.manufacturerName,
                         audioComponentDescription: plugin.audioComponentDescription
                     )
+
+                    // Save to UserDefaults so instrument persists across force-quit
+                    MacSessionStore.shared.saveCurrentSession()
                 }
             }
         } else {

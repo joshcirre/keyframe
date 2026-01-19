@@ -15,6 +15,8 @@ final class MacMIDIEngine: ObservableObject {
     @Published private(set) var connectedSources: [MacMIDISourceInfo] = []
     @Published private(set) var lastReceivedMessage: String?
     @Published private(set) var lastActivity: Date?
+    private var lastActivityUpdateTime: Date = .distantPast
+    private var lastMessageUpdateTime: Date = .distantPast
 
     // MARK: - Scale/Chord Settings
 
@@ -592,37 +594,77 @@ final class MacMIDIEngine: ObservableObject {
     }
 
     private func handleMIDIEventPacket(_ packet: MIDIEventPacket, sourceName: String?) {
-        let words = [packet.words.0, packet.words.1, packet.words.2, packet.words.3]
-        let word = words[0]
+        // MIDIEventPacket can contain multiple UMP messages
+        // wordCount tells us how many 32-bit words are valid
+        // MIDI 1.0 Channel Voice messages (type 0x2) are always 1 word each
+        let wordCount = Int(packet.wordCount)
+        guard wordCount > 0 else { return }
 
-        let status = UInt8((word >> 16) & 0xFF)
-        let data1 = UInt8((word >> 8) & 0xFF)
-        let data2 = UInt8(word & 0xFF)
+        // Access words tuple - up to 64 words possible
+        let words: [UInt32] = [
+            packet.words.0, packet.words.1, packet.words.2, packet.words.3,
+            packet.words.4, packet.words.5, packet.words.6, packet.words.7,
+            packet.words.8, packet.words.9, packet.words.10, packet.words.11,
+            packet.words.12, packet.words.13, packet.words.14, packet.words.15
+        ]
 
-        let messageType = status & 0xF0
-        let channel = status & 0x0F
+        var index = 0
+        while index < wordCount && index < words.count {
+            let word = words[index]
+            let umpType = (word >> 28) & 0x0F  // Upper nibble = UMP message type
 
-        DispatchQueue.main.async { [weak self] in
-            self?.lastActivity = Date()
+            // Determine words per message based on UMP type
+            let wordsPerMessage: Int
+            switch umpType {
+            case 0x0, 0x1, 0x2:  // Utility, System, MIDI 1.0 Channel Voice = 1 word
+                wordsPerMessage = 1
+            case 0x3, 0x4:       // Data 64-bit, MIDI 2.0 Channel Voice = 2 words
+                wordsPerMessage = 2
+            case 0x5:           // Data 128-bit = 4 words
+                wordsPerMessage = 4
+            default:
+                wordsPerMessage = 1
+            }
+
+            // Process MIDI 1.0 Channel Voice messages (type 0x2)
+            if umpType == 0x2 {
+                let status = UInt8((word >> 16) & 0xFF)
+                let data1 = UInt8((word >> 8) & 0xFF)
+                let data2 = UInt8(word & 0xFF)
+
+                let messageType = status & 0xF0
+                let channel = status & 0x0F
+
+                switch messageType {
+                case 0x90:
+                    if data2 > 0 {
+                        processNoteOn(note: data1, velocity: data2, channel: channel, sourceName: sourceName)
+                    } else {
+                        processNoteOff(note: data1, channel: channel, sourceName: sourceName)
+                    }
+                case 0x80:
+                    processNoteOff(note: data1, channel: channel, sourceName: sourceName)
+                case 0xB0:
+                    processCC(cc: data1, value: data2, channel: channel, sourceName: sourceName)
+                case 0xC0:
+                    processProgramChange(program: data1, channel: channel, sourceName: sourceName)
+                case 0xE0:
+                    processPitchBend(lsb: data1, msb: data2, channel: channel, sourceName: sourceName)
+                default:
+                    break
+                }
+            }
+
+            index += wordsPerMessage
         }
 
-        switch messageType {
-        case 0x90:
-            if data2 > 0 {
-                processNoteOn(note: data1, velocity: data2, channel: channel, sourceName: sourceName)
-            } else {
-                processNoteOff(note: data1, channel: channel, sourceName: sourceName)
+        // Throttle lastActivity updates to max 10Hz to reduce main thread load
+        let now = Date()
+        if now.timeIntervalSince(lastActivityUpdateTime) > 0.1 {
+            lastActivityUpdateTime = now
+            DispatchQueue.main.async { [weak self] in
+                self?.lastActivity = now
             }
-        case 0x80:
-            processNoteOff(note: data1, channel: channel, sourceName: sourceName)
-        case 0xB0:
-            processCC(cc: data1, value: data2, channel: channel, sourceName: sourceName)
-        case 0xC0:
-            processProgramChange(program: data1, channel: channel, sourceName: sourceName)
-        case 0xE0:
-            processPitchBend(lsb: data1, msb: data2, channel: channel, sourceName: sourceName)
-        default:
-            break
         }
     }
 
@@ -656,6 +698,108 @@ final class MacMIDIEngine: ObservableObject {
     private func processNoteOn(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?) {
         let midiChannel = Int(channel) + 1
 
+        // FAST PATH: Send MIDI to instruments immediately before any other processing
+        // This is critical for low-latency response
+        if let audioEngine = audioEngine {
+            let sourceHash = sourceName?.hashValue ?? 0
+            let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
+
+            // Check for ChordPad early (but don't process - just skip fast path)
+            let isChordPad = chordPadSourceName == sourceName && midiChannel == chordPadChannel && chordMapping.buttonMap[Int(note)] != nil
+
+            if !isChordPad && !isLearningMode && presetTriggerLearnTarget == nil && songTriggerLearnTarget == nil {
+                // Get cached session for zone support
+                let session = sessionStore?.currentSession
+
+                if activeNotes[sourceKey] == nil {
+                    activeNotes[sourceKey] = [:]
+                }
+
+                // First pass: try strict source matching
+                var matchedChannels: [MacChannelStrip] = []
+                for strip in audioEngine.channelStrips {
+                    let channelMatches = strip.midiChannel == 0 || strip.midiChannel == midiChannel
+                    let sourceMatches = strip.midiSourceName == nil || strip.midiSourceName == sourceName
+
+                    if channelMatches && sourceMatches {
+                        matchedChannels.append(strip)
+                    }
+                }
+
+                // Fallback: If no channels matched specific source but have instrument loaded,
+                // route to channels with matching MIDI channel that have instruments (ignore source filter)
+                // This prevents MIDI from being silently dropped due to source name mismatch
+                if matchedChannels.isEmpty {
+                    for strip in audioEngine.channelStrips {
+                        let channelMatches = strip.midiChannel == 0 || strip.midiChannel == midiChannel
+                        let hasInstrument = strip.instrumentInfo != nil
+
+                        if channelMatches && hasInstrument {
+                            matchedChannels.append(strip)
+                        }
+                    }
+                }
+
+                for strip in matchedChannels {
+                    // Find config for zone support
+                    let config = session?.channels.first { $0.id == strip.id }
+
+                    // Apply keyboard zones
+                    let zoneTransformed: [(note: UInt8, velocity: UInt8)]
+                    if let config = config, !config.keyboardZones.isEmpty {
+                        var results: [(note: UInt8, velocity: UInt8)] = []
+                        for zone in config.keyboardZones {
+                            if let transformed = zone.transform(note: Int(note), velocity: Int(velocity)) {
+                                results.append((UInt8(transformed.note), UInt8(transformed.velocity)))
+                            }
+                        }
+                        zoneTransformed = results.isEmpty ? [] : results
+                    } else {
+                        zoneTransformed = [(note, velocity)]
+                    }
+
+                    guard !zoneTransformed.isEmpty else { continue }
+
+                    var allProcessedNotes: [UInt8] = []
+
+                    for (zoneNote, zoneVelocity) in zoneTransformed {
+                        let processedNotes: [UInt8]
+
+                        // Apply scale filter
+                        if strip.scaleFilterEnabled && isScaleFilterEnabled {
+                            processedNotes = applyScaleFilter(note: zoneNote)
+                        } else {
+                            processedNotes = [zoneNote]
+                        }
+
+                        allProcessedNotes.append(contentsOf: processedNotes)
+
+                        // Send MIDI immediately
+                        for processedNote in processedNotes {
+                            strip.sendMIDI(noteOn: processedNote, velocity: zoneVelocity)
+                        }
+                    }
+
+                    activeNotes[sourceKey]?[strip.id] = allProcessedNotes
+                }
+
+                // Defer non-critical work (throttled to reduce main thread load)
+                let now = Date()
+                let shouldUpdateMessage = now.timeIntervalSince(lastMessageUpdateTime) > 0.1
+                if shouldUpdateMessage {
+                    lastMessageUpdateTime = now
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onSongTrigger?(Int(note), midiChannel, sourceName)
+                        self?.lastReceivedMessage = "\(sourceName ?? "?"): Note \(note) vel \(velocity) ch \(channel + 1)"
+                    }
+                }
+                return
+            }
+        }
+
+        // SLOW PATH: Handle special modes (learn modes, triggers, chord pad)
+        // These are less time-critical since they're configuration operations
+
         // Preset trigger learn mode - capture Note On
         if let target = presetTriggerLearnTarget {
             completePresetTriggerLearn(type: .noteOn, channel: midiChannel, data1: Int(note), data2: Int(velocity), sourceName: sourceName, target: target)
@@ -685,71 +829,14 @@ final class MacMIDIEngine: ObservableObject {
             return
         }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.onSongTrigger?(Int(note), midiChannel, sourceName)
-        }
-
-        guard let audioEngine = audioEngine else { return }
-
-        // Check for ChordPad
-        if let chordPadSource = chordPadSourceName,
+        // ChordPad processing
+        if audioEngine != nil,
+           let chordPadSource = chordPadSourceName,
            chordPadSource == sourceName,
-           midiChannel == chordPadChannel {
-            if chordMapping.buttonMap[Int(note)] != nil {
-                processChordTrigger(note: note, velocity: velocity, channel: channel, sourceName: sourceName)
-            }
+           midiChannel == chordPadChannel,
+           chordMapping.buttonMap[Int(note)] != nil {
+            processChordTrigger(note: note, velocity: velocity, channel: channel, sourceName: sourceName)
             return
-        }
-
-        let targetChannels = audioEngine.channelStrips.filter { strip in
-            channelAcceptsMIDI(strip, sourceName: sourceName, midiChannel: midiChannel)
-        }
-
-        let sourceHash = sourceName?.hashValue ?? 0
-        let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
-
-        if activeNotes[sourceKey] == nil {
-            activeNotes[sourceKey] = [:]
-        }
-
-        // Get channel configurations for zone processing
-        let session = sessionStore?.currentSession
-
-        for targetChannel in targetChannels {
-            // Find the channel configuration for zone support
-            let config = session?.channels.first { $0.id == targetChannel.id }
-
-            // Apply keyboard zones first (if configured)
-            let zoneTransformed: [(note: UInt8, velocity: UInt8)]
-            if let config = config {
-                zoneTransformed = applyKeyboardZones(note: note, velocity: velocity, config: config)
-            } else {
-                zoneTransformed = [(note, velocity)]
-            }
-
-            // Skip if note doesn't fall in any zone
-            guard !zoneTransformed.isEmpty else { continue }
-
-            var allProcessedNotes: [UInt8] = []
-
-            for (zoneNote, zoneVelocity) in zoneTransformed {
-                let processedNotes: [UInt8]
-
-                // Apply scale filter after zone transformation
-                if targetChannel.scaleFilterEnabled && isScaleFilterEnabled {
-                    processedNotes = applyScaleFilter(note: zoneNote)
-                } else {
-                    processedNotes = [zoneNote]
-                }
-
-                allProcessedNotes.append(contentsOf: processedNotes)
-
-                for processedNote in processedNotes {
-                    targetChannel.sendMIDI(noteOn: processedNote, velocity: zoneVelocity)
-                }
-            }
-
-            activeNotes[sourceKey]?[targetChannel.id] = allProcessedNotes
         }
 
         updateLastMessage("\(sourceName ?? "?"): Note \(note) vel \(velocity) ch \(channel + 1)")
@@ -858,8 +945,17 @@ final class MacMIDIEngine: ObservableObject {
 
         guard let audioEngine = audioEngine else { return }
 
-        let targetChannels = audioEngine.channelStrips.filter { strip in
+        // First try strict source matching
+        var targetChannels = audioEngine.channelStrips.filter { strip in
             channelAcceptsMIDI(strip, sourceName: sourceName, midiChannel: midiChannel)
+        }
+
+        // Fallback: if no strict match, route to channels with instruments that match MIDI channel
+        if targetChannels.isEmpty {
+            targetChannels = audioEngine.channelStrips.filter { strip in
+                let channelMatches = strip.midiChannel == 0 || strip.midiChannel == midiChannel
+                return channelMatches && strip.instrumentInfo != nil
+            }
         }
 
         for targetChannel in targetChannels {
@@ -1187,7 +1283,26 @@ final class MacMIDIEngine: ObservableObject {
     }
 
     private func processPitchBend(lsb: UInt8, msb: UInt8, channel: UInt8, sourceName: String?) {
-        // TODO: Implement pitch bend forwarding
+        guard let audioEngine = audioEngine else { return }
+
+        let midiChannel = Int(channel) + 1
+
+        // First try strict source matching
+        var targetChannels = audioEngine.channelStrips.filter { strip in
+            channelAcceptsMIDI(strip, sourceName: sourceName, midiChannel: midiChannel)
+        }
+
+        // Fallback: if no strict match, route to channels with instruments that match MIDI channel
+        if targetChannels.isEmpty {
+            targetChannels = audioEngine.channelStrips.filter { strip in
+                let channelMatches = strip.midiChannel == 0 || strip.midiChannel == midiChannel
+                return channelMatches && strip.instrumentInfo != nil
+            }
+        }
+
+        for targetChannel in targetChannels {
+            targetChannel.sendMIDI(pitchBend: lsb, msb: msb)
+        }
     }
 
     // MARK: - Remote Control (iOS)
@@ -1499,6 +1614,11 @@ final class MacMIDIEngine: ObservableObject {
     // MARK: - Helpers
 
     private func updateLastMessage(_ message: String) {
+        // Throttle to max 10Hz to reduce SwiftUI update overhead
+        let now = Date()
+        guard now.timeIntervalSince(lastMessageUpdateTime) > 0.1 else { return }
+        lastMessageUpdateTime = now
+
         DispatchQueue.main.async { [weak self] in
             self?.lastReceivedMessage = message
         }

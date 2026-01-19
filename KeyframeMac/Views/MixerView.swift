@@ -974,6 +974,9 @@ struct PluginBrowserView: View {
                             audioComponentDescription: plugin.audioComponentDescription
                         )
 
+                        // Save to UserDefaults so instrument persists across force-quit
+                        MacSessionStore.shared.saveCurrentSession()
+
                         // Auto-open the plugin editor window
                         PluginWindowManager.shared.openInstrumentEditor(
                             for: channel,
