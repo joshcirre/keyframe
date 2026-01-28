@@ -115,14 +115,18 @@ final class AudioEngine: ObservableObject {
     }
     
     private func connectChannelToMaster(_ channel: ChannelStrip) {
-        // Use the channel's output format for better compatibility with varied plugin chains
-        let channelFormat = channel.outputNode.outputFormat(forBus: 0)
-        if channelFormat.sampleRate > 0 {
-            engine.connect(channel.outputNode, to: masterMixer, format: channelFormat)
-        } else {
-            // Fallback to output format if channel hasn't been configured yet
-            let format = engine.outputNode.inputFormat(forBus: 0)
-            engine.connect(channel.outputNode, to: masterMixer, format: format)
+        // Use nil format to let AVAudioEngine negotiate - more robust for varied plugin chains
+        engine.connect(channel.outputNode, to: masterMixer, format: nil)
+    }
+
+    /// Verify and fix channel connections to master mixer (call after modifying channel chains)
+    func ensureChannelConnections() {
+        for (index, channel) in channelStrips.enumerated() {
+            let connections = engine.outputConnectionPoints(for: channel.outputNode, outputBus: 0)
+            if connections.isEmpty {
+                print("🔌 Channel \(index) disconnected from master - reconnecting...")
+                engine.connect(channel.outputNode, to: masterMixer, format: nil)
+            }
         }
     }
 
@@ -373,8 +377,9 @@ final class AudioEngine: ObservableObject {
         for (index, config) in configs.enumerated() {
             guard index < channelStrips.count else { continue }
             let strip = channelStrips[index]
+            let effectConfigs = config.effects
 
-            // Restore instrument if configured
+            // Load instrument FIRST, then effects (effects need instrument to connect to)
             if let instrumentConfig = config.instrument {
                 DispatchQueue.main.async {
                     self.restorationProgress = "Loading \(instrumentConfig.name)..."
@@ -387,19 +392,32 @@ final class AudioEngine: ObservableObject {
                         print("AudioEngine: Failed to load '\(instrumentConfig.name)': \(error?.localizedDescription ?? "unknown")")
                     }
                     markPluginLoaded(instrumentConfig.name, success)
-                }
-            }
 
-            // Restore effects if configured
-            for effectConfig in config.effects {
-                print("AudioEngine: Restoring effect '\(effectConfig.name)' on channel \(index)")
-                strip.addEffect(effectConfig.audioComponentDescription) { success, error in
-                    if success {
-                        print("AudioEngine: Successfully loaded effect '\(effectConfig.name)' on channel \(index)")
-                    } else {
-                        print("AudioEngine: Failed to load effect '\(effectConfig.name)': \(error?.localizedDescription ?? "unknown")")
+                    // Now load effects AFTER instrument is ready
+                    for effectConfig in effectConfigs {
+                        print("AudioEngine: Restoring effect '\(effectConfig.name)' on channel \(index)")
+                        strip.addEffect(effectConfig.audioComponentDescription) { success, error in
+                            if success {
+                                print("AudioEngine: Successfully loaded effect '\(effectConfig.name)' on channel \(index)")
+                            } else {
+                                print("AudioEngine: Failed to load effect '\(effectConfig.name)': \(error?.localizedDescription ?? "unknown")")
+                            }
+                            markPluginLoaded(effectConfig.name, success)
+                        }
                     }
-                    markPluginLoaded(effectConfig.name, success)
+                }
+            } else {
+                // No instrument - load effects anyway (they just won't have input)
+                for effectConfig in effectConfigs {
+                    print("AudioEngine: Restoring effect '\(effectConfig.name)' on channel \(index) (no instrument)")
+                    strip.addEffect(effectConfig.audioComponentDescription) { success, error in
+                        if success {
+                            print("AudioEngine: Successfully loaded effect '\(effectConfig.name)' on channel \(index)")
+                        } else {
+                            print("AudioEngine: Failed to load effect '\(effectConfig.name)': \(error?.localizedDescription ?? "unknown")")
+                        }
+                        markPluginLoaded(effectConfig.name, success)
+                    }
                 }
             }
         }

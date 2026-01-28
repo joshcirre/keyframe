@@ -622,6 +622,8 @@ struct ChannelDetailView: View {
                     componentSubType: component.audioComponentDescription.componentSubType,
                     componentManufacturer: component.audioComponentDescription.componentManufacturer
                 ))
+                // Ensure channel connections to master are maintained after chain rebuild
+                AudioEngine.shared.ensureChannelConnections()
             }
         }
     }

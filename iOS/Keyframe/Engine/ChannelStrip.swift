@@ -254,6 +254,14 @@ final class ChannelStrip: ObservableObject, Identifiable {
 
                 self.rebuildAudioChain()
 
+                // Verify mixer is still connected to something (its output should go to masterMixer)
+                let mixerOutputConnections = engine.outputConnectionPoints(for: self.mixer, outputBus: 0)
+                if mixerOutputConnections.isEmpty {
+                    print("⚠️ ChannelStrip \(self.index): Mixer lost connection to master! Needs reconnect.")
+                } else {
+                    print("✅ ChannelStrip \(self.index): Mixer connected to \(mixerOutputConnections.count) output(s)")
+                }
+
                 print("ChannelStrip \(self.index): Added effect (\(self.effects.count) total)")
                 completion(true, nil)
             }
@@ -295,46 +303,52 @@ final class ChannelStrip: ObservableObject, Identifiable {
 
     /// Rebuild the audio signal chain after changes (also called by AudioEngine after stop/start)
     func rebuildAudioChain() {
-        guard let engine = engine else { return }
+        guard let engine = engine else {
+            print("⚠️ ChannelStrip \(index): rebuildAudioChain - no engine!")
+            return
+        }
 
-        // Disconnect all existing connections
+        print("🔧 ChannelStrip \(index): Rebuilding audio chain (instrument: \(instrument != nil), effects: \(effects.count))")
+
+        // Disconnect existing connections from nodes we'll reconnect
+        // Note: We don't disconnect mixer input - new connections will replace old ones
         if let instrument = instrument {
             engine.disconnectNodeOutput(instrument)
         }
         for effect in effects {
             engine.disconnectNodeOutput(effect)
         }
-        engine.disconnectNodeInput(mixer)
 
         // Build the chain: Instrument -> Effects -> Mixer
         // Use nil format to let AVAudioEngine auto-negotiate between nodes.
-        // This is more robust than forcing a specific format which may not
-        // match what certain AUv3 plugins expect or produce.
+        // This avoids kAudioUnitErr_FormatNotSupported (-10868) crashes.
         var previousNode: AVAudioNode? = instrument
 
-        for effect in effects {
+        for (i, effect) in effects.enumerated() {
             if let prev = previousNode {
-                // Use the output format of the previous node for better compatibility
-                let connectionFormat = prev.outputFormat(forBus: 0)
-                if connectionFormat.sampleRate > 0 {
-                    engine.connect(prev, to: effect, format: connectionFormat)
-                } else {
-                    // Fallback to nil format for auto-negotiation
-                    engine.connect(prev, to: effect, format: nil)
-                }
+                engine.connect(prev, to: effect, format: nil)
+                print("   Connected \(type(of: prev)) → effect[\(i)]")
+            } else {
+                // No instrument yet - effect can't receive input
+                // This is okay during async loading; chain will rebuild when instrument loads
+                print("   ⚠️ Effect[\(i)] has no input source (instrument not loaded yet)")
             }
             previousNode = effect
         }
 
         // Connect final node to mixer
         if let finalNode = previousNode {
-            let connectionFormat = finalNode.outputFormat(forBus: 0)
-            if connectionFormat.sampleRate > 0 {
-                engine.connect(finalNode, to: mixer, format: connectionFormat)
-            } else {
-                engine.connect(finalNode, to: mixer, format: nil)
-            }
+            engine.connect(finalNode, to: mixer, format: nil)
+            print("   Connected \(type(of: finalNode)) → mixer")
+        } else if instrument == nil && !effects.isEmpty {
+            // Effects exist but no instrument - connect first effect to mixer anyway
+            // so the chain is ready when instrument loads
+            print("   ⚠️ No instrument - effects waiting for input")
+        } else {
+            print("   ⚠️ No nodes to connect to mixer")
         }
+
+        print("🔧 ChannelStrip \(index): Chain rebuild complete")
     }
 
     // MARK: - Host Musical Context (Tempo Sync)

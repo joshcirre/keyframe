@@ -318,183 +318,207 @@ struct ChordMapView: View {
 
     private var secondaryZoneSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("SPLIT CONTROLLER")
-                    .font(TEFonts.mono(10, weight: .bold))
+            secondaryZoneHeader
+            secondaryZoneContent
+        }
+    }
+
+    private var secondaryZoneHeader: some View {
+        HStack {
+            Text("SPLIT CONTROLLER")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundColor(TEColors.midGray)
+                .tracking(2)
+
+            Spacer()
+
+            Image(systemName: "info.circle")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(TEColors.midGray)
+        }
+    }
+
+    private var secondaryZoneContent: some View {
+        VStack(spacing: 16) {
+            secondaryZoneToggle
+
+            if secondaryEnabled {
+                secondaryZoneSettings
+            }
+        }
+        .padding(16)
+        .background(
+            Rectangle()
+                .strokeBorder(TEColors.black, lineWidth: 2)
+                .background(TEColors.warmWhite)
+        )
+    }
+
+    private var secondaryZoneToggle: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("SECONDARY ZONE")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundColor(TEColors.darkGray)
+
+                Text("Route a second set of buttons to a different track")
+                    .font(TEFonts.mono(9, weight: .medium))
                     .foregroundColor(TEColors.midGray)
-                    .tracking(2)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: $secondaryEnabled)
+                .labelsHidden()
+                .tint(TEColors.orange)
+        }
+    }
+
+    @ViewBuilder
+    private var secondaryZoneSettings: some View {
+        Rectangle()
+            .fill(TEColors.lightGray)
+            .frame(height: 1)
+
+        secondaryTargetPicker
+
+        if audioEngine.channelStrips.isEmpty {
+            Text("Add channels first to select a target track")
+                .font(TEFonts.mono(9, weight: .medium))
+                .foregroundColor(TEColors.orange)
+        }
+
+        Rectangle()
+            .fill(TEColors.lightGray)
+            .frame(height: 1)
+
+        secondaryButtonsSection
+        secondaryLearningIndicator
+    }
+
+    private var secondaryTargetPicker: some View {
+        HStack {
+            Text("TARGET TRACK")
+                .font(TEFonts.mono(10, weight: .medium))
+                .foregroundColor(TEColors.midGray)
+
+            Spacer()
+
+            Menu {
+                Button("NONE") {
+                    secondaryTargetChannel = nil
+                }
+                ForEach(0..<audioEngine.channelStrips.count, id: \.self) { index in
+                    let strip = audioEngine.channelStrips[index]
+                    Button("CH \(index + 1): \(strip.name.uppercased())") {
+                        secondaryTargetChannel = index
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(secondaryTargetLabel)
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundColor(secondaryTargetChannel == nil ? TEColors.midGray : TEColors.black)
+                        .lineLimit(1)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(TEColors.darkGray)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    Rectangle()
+                        .strokeBorder(TEColors.black, lineWidth: 2)
+                )
+            }
+        }
+    }
+
+    private var secondaryButtonsSection: some View {
+        VStack(spacing: 8) {
+            Text("MAP SECONDARY BUTTONS")
+                .font(TEFonts.mono(9, weight: .bold))
+                .foregroundColor(TEColors.darkGray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 8) {
+                ForEach(1...7, id: \.self) { index in
+                    SecondaryZoneLearnButton(
+                        index: index,
+                        mappedNote: secondaryMappings[index],
+                        isLearning: learningSecondaryIndex == index
+                    ) {
+                        if learningSecondaryIndex == index {
+                            learningSecondaryIndex = nil
+                            midiEngine.isLearningMode = false
+                        } else {
+                            learningDegree = nil
+                            learningSecondaryIndex = index
+                            midiEngine.isLearningMode = true
+                        }
+                    } onClear: {
+                        secondaryMappings.removeValue(forKey: index)
+                    }
+                }
+            }
+
+            secondaryMappingSummary
+        }
+    }
+
+    private var secondaryMappingSummary: some View {
+        let mappedCount = secondaryMappings.count
+        return HStack {
+            Text("\(mappedCount)/7 MAPPED")
+                .font(TEFonts.mono(10, weight: .medium))
+                .foregroundColor(mappedCount > 0 ? TEColors.green : TEColors.midGray)
+
+            Spacer()
+
+            if !secondaryMappings.isEmpty {
+                Button {
+                    secondaryMappings.removeAll()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("CLEAR")
+                            .font(TEFonts.mono(9, weight: .bold))
+                    }
+                    .foregroundColor(TEColors.red)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var secondaryLearningIndicator: some View {
+        if learningSecondaryIndex != nil {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .scaleEffect(0.7)
+                    .tint(TEColors.blue)
+
+                Text("LISTENING FOR SECONDARY BUTTON...")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(TEColors.blue)
 
                 Spacer()
 
-                // Info button
-                Image(systemName: "info.circle")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
-            }
-
-            VStack(spacing: 16) {
-                // Enable toggle
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("SECONDARY ZONE")
-                            .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.darkGray)
-
-                        Text("Route a second set of buttons to a different track")
-                            .font(TEFonts.mono(9, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: $secondaryEnabled)
-                        .labelsHidden()
-                        .tint(TEColors.orange)
-                }
-
-                if secondaryEnabled {
-                    Rectangle()
-                        .fill(TEColors.lightGray)
-                        .frame(height: 1)
-
-                    // Target channel picker
-                    HStack {
-                        Text("TARGET TRACK")
-                            .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
-
-                        Spacer()
-
-                        Menu {
-                            Button("NONE") {
-                                secondaryTargetChannel = nil
-                            }
-                            ForEach(0..<audioEngine.channelStrips.count, id: \.self) { index in
-                                let strip = audioEngine.channelStrips[index]
-                                Button("CH \(index + 1): \(strip.name.uppercased())") {
-                                    secondaryTargetChannel = index
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text(secondaryTargetLabel)
-                                    .font(TEFonts.mono(12, weight: .bold))
-                                    .foregroundColor(secondaryTargetChannel == nil ? TEColors.midGray : TEColors.black)
-                                    .lineLimit(1)
-
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(TEColors.darkGray)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                Rectangle()
-                                    .strokeBorder(TEColors.black, lineWidth: 2)
-                            )
-                        }
-                    }
-
-                    if audioEngine.channelStrips.isEmpty {
-                        Text("Add channels first to select a target track")
-                            .font(TEFonts.mono(9, weight: .medium))
-                            .foregroundColor(TEColors.orange)
-                    }
-
-                    Rectangle()
-                        .fill(TEColors.lightGray)
-                        .frame(height: 1)
-
-                    // Secondary zone buttons
-                    VStack(spacing: 8) {
-                        Text("MAP SECONDARY BUTTONS")
-                            .font(TEFonts.mono(9, weight: .bold))
-                            .foregroundColor(TEColors.darkGray)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        // Row of 7 secondary buttons
-                        HStack(spacing: 8) {
-                            ForEach(1...7, id: \.self) { index in
-                                SecondaryZoneLearnButton(
-                                    index: index,
-                                    mappedNote: secondaryMappings[index],
-                                    isLearning: learningSecondaryIndex == index
-                                ) {
-                                    if learningSecondaryIndex == index {
-                                        // Cancel learning
-                                        learningSecondaryIndex = nil
-                                        midiEngine.isLearningMode = false
-                                    } else {
-                                        // Start learning for this slot
-                                        learningDegree = nil  // Cancel any primary learning
-                                        learningSecondaryIndex = index
-                                        midiEngine.isLearningMode = true
-                                    }
-                                } onClear: {
-                                    secondaryMappings.removeValue(forKey: index)
-                                }
-                            }
-                        }
-
-                        // Summary
-                        let mappedCount = secondaryMappings.count
-                        HStack {
-                            Text("\(mappedCount)/7 MAPPED")
-                                .font(TEFonts.mono(10, weight: .medium))
-                                .foregroundColor(mappedCount > 0 ? TEColors.green : TEColors.midGray)
-
-                            Spacer()
-
-                            if !secondaryMappings.isEmpty {
-                                Button {
-                                    secondaryMappings.removeAll()
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "trash")
-                                            .font(.system(size: 10, weight: .bold))
-                                        Text("CLEAR")
-                                            .font(TEFonts.mono(9, weight: .bold))
-                                    }
-                                    .foregroundColor(TEColors.red)
-                                }
-                            }
-                        }
-                    }
-
-                    if learningSecondaryIndex != nil {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .tint(TEColors.blue)
-
-                            Text("LISTENING FOR SECONDARY BUTTON...")
-                                .font(TEFonts.mono(10, weight: .bold))
-                                .foregroundColor(TEColors.blue)
-
-                            Spacer()
-
-                            Button {
-                                learningSecondaryIndex = nil
-                                midiEngine.isLearningMode = false
-                            } label: {
-                                Text("CANCEL")
-                                    .font(TEFonts.mono(9, weight: .bold))
-                                    .foregroundColor(TEColors.red)
-                            }
-                        }
-                        .padding(12)
-                        .background(
-                            Rectangle()
-                                .strokeBorder(TEColors.blue, lineWidth: 2)
-                                .background(TEColors.warmWhite)
-                        )
-                    }
+                Button {
+                    learningSecondaryIndex = nil
+                    midiEngine.isLearningMode = false
+                } label: {
+                    Text("CANCEL")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundColor(TEColors.red)
                 }
             }
-            .padding(16)
+            .padding(12)
             .background(
                 Rectangle()
-                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .strokeBorder(TEColors.blue, lineWidth: 2)
                     .background(TEColors.warmWhite)
             )
         }

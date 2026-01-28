@@ -14,6 +14,7 @@ enum TEColors {
     static let red = Color(red: 0.9, green: 0.2, blue: 0.15)
     static let green = Color(red: 0.2, green: 0.75, blue: 0.3)
     static let yellow = Color(red: 0.95, green: 0.8, blue: 0.0)
+    static let blue = Color(red: 0.2, green: 0.5, blue: 0.9)
 }
 
 enum TEFonts {
@@ -389,7 +390,6 @@ struct PerformanceView: View {
 
     private func setupEngines() {
         midiEngine.setAudioEngine(audioEngine)
-        syncChannelConfigs()
 
         // Initialize currentBPM from active song if it has one
         if let activeSong = sessionStore.currentSession.activeSong, let bpm = activeSong.bpm {
@@ -403,6 +403,10 @@ struct PerformanceView: View {
                   let midiEngine = midiEngine else { return }
 
             DispatchQueue.main.async {
+                // Sync MIDI settings AFTER channel strips are created
+                // This ensures midiSourceName, midiChannel, etc. are applied
+                self.syncChannelConfigs()
+
                 if let activeSong = sessionStore.currentSession.activeSong {
                     midiEngine.applySongSettings(self.convertToLegacySong(activeSong))
                     // Set initial tempo for hosted plugins
