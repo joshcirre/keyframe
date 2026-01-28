@@ -549,6 +549,9 @@ struct PerformanceSettingsView: View {
                     Spacer()
 
                     Menu {
+                        Button("ANY") {
+                            midiEngine.chordPadChannel = 0
+                        }
                         ForEach(1...16, id: \.self) { ch in
                             Button("CH \(ch)") {
                                 midiEngine.chordPadChannel = ch
@@ -556,7 +559,7 @@ struct PerformanceSettingsView: View {
                         }
                     } label: {
                         HStack(spacing: 8) {
-                            Text("CH \(midiEngine.chordPadChannel)")
+                            Text(midiEngine.chordPadChannel == 0 ? "ANY" : "CH \(midiEngine.chordPadChannel)")
                                 .font(TEFonts.mono(12, weight: .bold))
                                 .foregroundColor(TEColors.black)
 

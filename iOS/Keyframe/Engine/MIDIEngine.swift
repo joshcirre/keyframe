@@ -613,11 +613,13 @@ final class MIDIEngine: ObservableObject {
         guard let audioEngine = audioEngine else { return }
 
         // Check if this is from the ChordPad (chord trigger controller)
-        // Requires BOTH a specific source AND matching channel (no "any" source allowed)
+        // Requires a specific source (no "any" source allowed)
+        // Channel can be specific (1-16) or any (0)
         // ALL notes from ChordPad are captured - mapped ones trigger chords, unmapped ones are ignored
+        let chordPadChannelMatches = chordPadChannel == 0 || midiChannel == chordPadChannel
         if let chordPadSource = chordPadSourceName,
            chordPadSource == sourceName,
-           midiChannel == chordPadChannel {
+           chordPadChannelMatches {
 
             // Check if this note is in the secondary zone (split controller mode)
             if chordMapping.isSecondaryZoneNote(note) {
@@ -742,7 +744,7 @@ final class MIDIEngine: ObservableObject {
     // MARK: - Secondary Zone Processing (Split Controller)
 
     /// Process a note from the ChordPad's secondary zone
-    /// These notes go to a specific target channel instead of triggering chords
+    /// These notes play scale degree notes on a specific target channel
     private func processSecondaryZoneNote(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?) {
         guard let audioEngine = audioEngine else { return }
 
@@ -753,10 +755,22 @@ final class MIDIEngine: ObservableObject {
             return
         }
 
+        // Get the scale degree for this button
+        guard let degree = chordMapping.secondaryDegree(note) else {
+            print("MIDIEngine: Secondary zone note \(note) - no degree mapping")
+            return
+        }
+
         let targetChannel = audioEngine.channelStrips[targetIndex]
 
-        // Get the output note (may be remapped or pass-through)
-        let outputNote = chordMapping.secondaryOutputNote(note) ?? note
+        // Calculate the actual MIDI note from scale degree
+        // Use ScaleEngine to get the note for this degree in the current key
+        let outputNote = ScaleEngine.noteForDegree(
+            degree: degree,
+            root: currentRootNote,
+            scale: currentScaleType,
+            octave: chordMapping.secondaryBaseOctave
+        )
 
         // Create key for tracking this note
         let sourceHash = sourceName?.hashValue ?? 0
@@ -773,7 +787,8 @@ final class MIDIEngine: ObservableObject {
         // Send to instrument
         targetChannel.sendMIDI(noteOn: outputNote, velocity: velocity)
 
-        updateLastMessage("Split: Note \(note)→\(outputNote) → Ch\(targetIndex + 1)")
+        let degreeNames = ["1", "2", "3", "4", "5", "6", "7"]
+        updateLastMessage("Split: Deg \(degreeNames[degree - 1]) → Note \(outputNote) → Ch\(targetIndex + 1)")
     }
 
     // MARK: - Chord Triggering

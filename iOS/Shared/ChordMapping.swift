@@ -15,17 +15,20 @@ struct ChordMapping: Codable, Equatable {
     // MARK: - Secondary Zone (Split Controller)
 
     /// Whether the secondary zone is enabled
-    /// When enabled, notes in secondaryButtonMap are routed to a specific track
-    /// instead of triggering chords
+    /// When enabled, notes starting from secondaryStartNote are routed to a specific track
     var secondaryZoneEnabled: Bool
 
-    /// Map of MIDI note number to output note for secondary zone
-    /// Key: MIDI note from controller, Value: Note to send (can remap or pass through)
-    var secondaryButtonMap: [Int: Int]
+    /// The first MIDI note of the secondary zone (degrees 1-7 are this note + 0-6)
+    /// For example, if secondaryStartNote = 48 (C3), then:
+    /// - Note 48 = degree 1, Note 49 = degree 2, ... Note 54 = degree 7
+    var secondaryStartNote: Int?
 
     /// Target channel strip index for secondary zone (0-based)
     /// Notes in secondary zone go to this specific track
     var secondaryTargetChannel: Int?
+
+    /// Base octave for secondary zone output (MIDI octave, 4 = middle C octave)
+    var secondaryBaseOctave: Int
     
     // MARK: - Default Configuration
     
@@ -60,8 +63,9 @@ struct ChordMapping: Codable, Equatable {
         ],
         baseOctave: 4,
         secondaryZoneEnabled: false,
-        secondaryButtonMap: [:],
-        secondaryTargetChannel: nil
+        secondaryStartNote: nil,
+        secondaryTargetChannel: nil,
+        secondaryBaseOctave: 4
     )
     
     // MARK: - Initialization
@@ -71,15 +75,17 @@ struct ChordMapping: Codable, Equatable {
         buttonMap: [Int: Int] = [:],
         baseOctave: Int = 4,
         secondaryZoneEnabled: Bool = false,
-        secondaryButtonMap: [Int: Int] = [:],
-        secondaryTargetChannel: Int? = nil
+        secondaryStartNote: Int? = nil,
+        secondaryTargetChannel: Int? = nil,
+        secondaryBaseOctave: Int = 4
     ) {
         self.chordPadChannel = chordPadChannel
         self.buttonMap = buttonMap
         self.baseOctave = baseOctave
         self.secondaryZoneEnabled = secondaryZoneEnabled
-        self.secondaryButtonMap = secondaryButtonMap
+        self.secondaryStartNote = secondaryStartNote
         self.secondaryTargetChannel = secondaryTargetChannel
+        self.secondaryBaseOctave = secondaryBaseOctave
     }
 
     // MARK: - Helpers
@@ -112,32 +118,19 @@ struct ChordMapping: Codable, Equatable {
         Array(buttonMap.keys).sorted()
     }
 
-    /// Get all mapped notes (secondary zone)
-    var secondaryMappedNotes: [Int] {
-        Array(secondaryButtonMap.keys).sorted()
-    }
-
-    /// Check if a note is in the secondary zone
+    /// Check if a note is in the secondary zone (7 consecutive notes starting from secondaryStartNote)
     func isSecondaryZoneNote(_ note: UInt8) -> Bool {
-        secondaryZoneEnabled && secondaryButtonMap[Int(note)] != nil
+        guard secondaryZoneEnabled, let startNote = secondaryStartNote else { return false }
+        let noteInt = Int(note)
+        return noteInt >= startNote && noteInt < startNote + 7
     }
 
-    /// Get the output note for a secondary zone input note
-    func secondaryOutputNote(_ note: UInt8) -> UInt8? {
-        guard secondaryZoneEnabled,
-              let outputNote = secondaryButtonMap[Int(note)] else {
-            return nil
-        }
-        return UInt8(outputNote)
-    }
-
-    /// Update a secondary zone button mapping
-    mutating func setSecondaryMapping(note: Int, outputNote: Int?) {
-        if let outputNote = outputNote {
-            secondaryButtonMap[note] = outputNote
-        } else {
-            secondaryButtonMap.removeValue(forKey: note)
-        }
+    /// Get the scale degree (1-7) for a secondary zone input note
+    func secondaryDegree(_ note: UInt8) -> Int? {
+        guard secondaryZoneEnabled, let startNote = secondaryStartNote else { return nil }
+        let noteInt = Int(note)
+        guard noteInt >= startNote && noteInt < startNote + 7 else { return nil }
+        return noteInt - startNote + 1  // 1-based degree
     }
     
     /// Get a description of the mapping for a note
