@@ -618,6 +618,13 @@ final class MIDIEngine: ObservableObject {
         if let chordPadSource = chordPadSourceName,
            chordPadSource == sourceName,
            midiChannel == chordPadChannel {
+
+            // Check if this note is in the secondary zone (split controller mode)
+            if chordMapping.isSecondaryZoneNote(note) {
+                processSecondaryZoneNote(note: note, velocity: velocity, channel: channel, sourceName: sourceName)
+                return
+            }
+
             // Only process if this note is mapped to a chord degree
             if chordMapping.buttonMap[Int(note)] != nil {
                 processChordTrigger(note: note, velocity: velocity, channel: channel, sourceName: sourceName)
@@ -732,8 +739,45 @@ final class MIDIEngine: ObservableObject {
         }
     }
     
+    // MARK: - Secondary Zone Processing (Split Controller)
+
+    /// Process a note from the ChordPad's secondary zone
+    /// These notes go to a specific target channel instead of triggering chords
+    private func processSecondaryZoneNote(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?) {
+        guard let audioEngine = audioEngine else { return }
+
+        // Get the target channel index
+        guard let targetIndex = chordMapping.secondaryTargetChannel,
+              targetIndex < audioEngine.channelStrips.count else {
+            print("MIDIEngine: Secondary zone note \(note) - no valid target channel")
+            return
+        }
+
+        let targetChannel = audioEngine.channelStrips[targetIndex]
+
+        // Get the output note (may be remapped or pass-through)
+        let outputNote = chordMapping.secondaryOutputNote(note) ?? note
+
+        // Create key for tracking this note
+        let sourceHash = sourceName?.hashValue ?? 0
+        let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
+
+        // Initialize mapping for this note if needed
+        if activeNotes[sourceKey] == nil {
+            activeNotes[sourceKey] = [:]
+        }
+
+        // Store which note was sent to this channel
+        activeNotes[sourceKey]?[targetChannel.id] = [outputNote]
+
+        // Send to instrument
+        targetChannel.sendMIDI(noteOn: outputNote, velocity: velocity)
+
+        updateLastMessage("Split: Note \(note)→\(outputNote) → Ch\(targetIndex + 1)")
+    }
+
     // MARK: - Chord Triggering
-    
+
     private func processChordTrigger(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?) {
         guard let audioEngine = audioEngine else { return }
 

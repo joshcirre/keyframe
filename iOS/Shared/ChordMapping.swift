@@ -8,9 +8,24 @@ struct ChordMapping: Codable, Equatable {
     /// Map of MIDI note number to scale degree (1-7)
     /// Key: MIDI note from ChordPad button, Value: Scale degree to play
     var buttonMap: [Int: Int]
-    
+
     /// Base octave for chord output (MIDI octave, 4 = middle C octave)
     var baseOctave: Int
+
+    // MARK: - Secondary Zone (Split Controller)
+
+    /// Whether the secondary zone is enabled
+    /// When enabled, notes in secondaryButtonMap are routed to a specific track
+    /// instead of triggering chords
+    var secondaryZoneEnabled: Bool
+
+    /// Map of MIDI note number to output note for secondary zone
+    /// Key: MIDI note from controller, Value: Note to send (can remap or pass through)
+    var secondaryButtonMap: [Int: Int]
+
+    /// Target channel strip index for secondary zone (0-based)
+    /// Notes in secondary zone go to this specific track
+    var secondaryTargetChannel: Int?
     
     // MARK: - Default Configuration
     
@@ -26,7 +41,7 @@ struct ChordMapping: Codable, Equatable {
             39: 4,  // Button 4 → IV chord
             40: 5,  // Button 5 → V chord
             41: 6,  // Button 6 → vi chord
-            
+
             // Row 2: Chords VII, then repeat with different voicings/octaves
             42: 7,  // Button 7 → vii° chord
             43: 1,  // Button 8 → I chord (can be configured differently)
@@ -34,7 +49,7 @@ struct ChordMapping: Codable, Equatable {
             45: 5,  // Button 10 → V chord
             46: 1,  // Button 11 → I chord
             47: 6,  // Button 12 → vi chord
-            
+
             // Row 3: Common progressions
             48: 1,  // Button 13 → I
             49: 5,  // Button 14 → V
@@ -43,15 +58,28 @@ struct ChordMapping: Codable, Equatable {
             52: 2,  // Button 17 → ii
             53: 5,  // Button 18 → V
         ],
-        baseOctave: 4
+        baseOctave: 4,
+        secondaryZoneEnabled: false,
+        secondaryButtonMap: [:],
+        secondaryTargetChannel: nil
     )
     
     // MARK: - Initialization
-    
-    init(chordPadChannel: Int = 10, buttonMap: [Int: Int] = [:], baseOctave: Int = 4) {
+
+    init(
+        chordPadChannel: Int = 10,
+        buttonMap: [Int: Int] = [:],
+        baseOctave: Int = 4,
+        secondaryZoneEnabled: Bool = false,
+        secondaryButtonMap: [Int: Int] = [:],
+        secondaryTargetChannel: Int? = nil
+    ) {
         self.chordPadChannel = chordPadChannel
         self.buttonMap = buttonMap
         self.baseOctave = baseOctave
+        self.secondaryZoneEnabled = secondaryZoneEnabled
+        self.secondaryButtonMap = secondaryButtonMap
+        self.secondaryTargetChannel = secondaryTargetChannel
     }
 
     // MARK: - Helpers
@@ -79,9 +107,37 @@ struct ChordMapping: Codable, Equatable {
         }
     }
     
-    /// Get all mapped notes
+    /// Get all mapped notes (primary chord zone)
     var mappedNotes: [Int] {
         Array(buttonMap.keys).sorted()
+    }
+
+    /// Get all mapped notes (secondary zone)
+    var secondaryMappedNotes: [Int] {
+        Array(secondaryButtonMap.keys).sorted()
+    }
+
+    /// Check if a note is in the secondary zone
+    func isSecondaryZoneNote(_ note: UInt8) -> Bool {
+        secondaryZoneEnabled && secondaryButtonMap[Int(note)] != nil
+    }
+
+    /// Get the output note for a secondary zone input note
+    func secondaryOutputNote(_ note: UInt8) -> UInt8? {
+        guard secondaryZoneEnabled,
+              let outputNote = secondaryButtonMap[Int(note)] else {
+            return nil
+        }
+        return UInt8(outputNote)
+    }
+
+    /// Update a secondary zone button mapping
+    mutating func setSecondaryMapping(note: Int, outputNote: Int?) {
+        if let outputNote = outputNote {
+            secondaryButtonMap[note] = outputNote
+        } else {
+            secondaryButtonMap.removeValue(forKey: note)
+        }
     }
     
     /// Get a description of the mapping for a note
