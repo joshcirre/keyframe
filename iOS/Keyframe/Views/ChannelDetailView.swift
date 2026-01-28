@@ -380,23 +380,47 @@ struct ChannelDetailView: View {
     
     // MARK: - MIDI Section
     
-    private var midiSourceOptions: [String: String] {
-        var options: [String: String] = ["": "ALL"]
+    /// Options for MIDI input source - pre-ordered with NONE first
+    private var midiSourceOptions: [(key: String, value: String)] {
+        var options: [(key: String, value: String)] = [
+            ("__none__", "NONE"),
+            ("", "ALL")
+        ]
         let connectedNames = Set(MIDIEngine.shared.connectedSources.map { $0.name })
 
-        // Add connected sources
-        for source in MIDIEngine.shared.connectedSources {
-            options[source.name] = source.name.uppercased()
+        // Add connected sources (sorted)
+        let sortedSources = MIDIEngine.shared.connectedSources.sorted { $0.name < $1.name }
+        for source in sortedSources {
+            options.append((source.name, source.name.uppercased()))
         }
 
         // Include saved source name even if disconnected (for MIDI input)
-        if let savedSource = config.midiSourceName, !connectedNames.contains(savedSource) {
-            options[savedSource] = "\(savedSource.uppercased()) (OFFLINE)"
+        if let savedSource = config.midiSourceName,
+           savedSource != "__none__",
+           !connectedNames.contains(savedSource) {
+            options.append((savedSource, "\(savedSource.uppercased()) (OFFLINE)"))
         }
 
-        // Include saved control source name even if disconnected (for fader control)
+        return options
+    }
+
+    /// Options for fader control source - uses "NONE" instead of "ALL" as default
+    private var faderControlSourceOptions: [(key: String, value: String)] {
+        var options: [(key: String, value: String)] = [
+            ("__none__", "NONE"),
+            ("", "ALL")
+        ]
+        let connectedNames = Set(MIDIEngine.shared.connectedSources.map { $0.name })
+
+        // Add connected sources (sorted)
+        let sortedSources = MIDIEngine.shared.connectedSources.sorted { $0.name < $1.name }
+        for source in sortedSources {
+            options.append((source.name, source.name.uppercased()))
+        }
+
+        // Include saved control source name even if disconnected
         if let savedControl = config.controlSourceName, !connectedNames.contains(savedControl) {
-            options[savedControl] = "\(savedControl.uppercased()) (OFFLINE)"
+            options.append((savedControl, "\(savedControl.uppercased()) (OFFLINE)"))
         }
 
         return options
@@ -418,14 +442,26 @@ struct ChannelDetailView: View {
                 .tracking(2)
             
             VStack(spacing: 16) {
-                // Source picker
+                // Source picker - NONE means no MIDI input, ALL means any source
                 TEPicker(
                     label: "INPUT",
                     selection: Binding(
-                        get: { config.midiSourceName ?? "" },
-                        set: { config.midiSourceName = $0.isEmpty ? nil : $0 }
+                        get: {
+                            // Show NONE if midiSourceName is the special none value
+                            if config.midiSourceName == "__none__" {
+                                return "__none__"
+                            }
+                            return config.midiSourceName ?? ""
+                        },
+                        set: { newValue in
+                            if newValue == "__none__" {
+                                config.midiSourceName = "__none__"
+                            } else {
+                                config.midiSourceName = newValue.isEmpty ? nil : newValue
+                            }
+                        }
                     ),
-                    options: midiSourceOptions
+                    orderedOptions: midiSourceOptions
                 )
                 
                 // Channel picker
@@ -452,27 +488,33 @@ struct ChannelDetailView: View {
                         .foregroundColor(TEColors.midGray)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    // Control source picker
+                    // Control source picker - allows selecting controller before learning CC
                     TEPicker(
                         label: "CONTROLLER",
                         selection: Binding(
-                            get: { config.controlSourceName ?? "" },
-                            set: { config.controlSourceName = $0.isEmpty ? nil : $0 }
+                            get: {
+                                // Show the actual source name, or NONE if explicitly cleared
+                                if config.controlSourceName == nil && config.controlCC == nil {
+                                    return "__none__"
+                                }
+                                return config.controlSourceName ?? ""
+                            },
+                            set: { newValue in
+                                if newValue == "__none__" {
+                                    // Clear fader control entirely
+                                    config.controlSourceName = nil
+                                    config.controlCC = nil
+                                    config.controlChannel = nil
+                                } else {
+                                    // Set the source - user can now learn CC from this source
+                                    config.controlSourceName = newValue.isEmpty ? nil : newValue
+                                }
+                            }
                         ),
-                        options: midiSourceOptions
+                        orderedOptions: faderControlSourceOptions
                     )
 
-                    // Control channel picker
-                    TEPicker(
-                        label: "CHANNEL",
-                        selection: Binding(
-                            get: { config.controlChannel ?? 0 },
-                            set: { config.controlChannel = $0 == 0 ? nil : $0 }
-                        ),
-                        options: midiChannelOptions
-                    )
-
-                    // CC Learn button
+                    // CC Learn button and display
                     HStack {
                         Text("CC")
                             .font(TEFonts.mono(10, weight: .medium))
@@ -528,6 +570,18 @@ struct ChannelDetailView: View {
                                 .background(isLearningFaderCC ? TEColors.orange : TEColors.lightGray)
                                 .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
                         }
+                    }
+
+                    // Only show channel picker when a CC is mapped
+                    if config.controlCC != nil {
+                        TEPicker(
+                            label: "CHANNEL",
+                            selection: Binding(
+                                get: { config.controlChannel ?? 0 },
+                                set: { config.controlChannel = $0 == 0 ? nil : $0 }
+                            ),
+                            options: midiChannelOptions
+                        )
                     }
                 }
             }
@@ -625,31 +679,35 @@ struct TESlider: View {
     @Binding var value: Float
     var range: ClosedRange<Float> = 0...1
     var centered: Bool = false
-    
+
     var body: some View {
         GeometryReader { geometry in
+            // Guard against zero width during initial layout
+            let safeWidth = max(1, geometry.size.width)
+
             ZStack(alignment: .leading) {
                 // Track
                 Rectangle()
                     .fill(TEColors.lightGray)
                     .frame(height: 8)
-                
+
                 // Fill
                 if centered {
-                    let center = geometry.size.width / 2
+                    let center = safeWidth / 2
                     let fillWidth = abs(CGFloat(value) / CGFloat(range.upperBound)) * center
                     let fillX = value >= 0 ? center : center - fillWidth
-                    
+
                     Rectangle()
                         .fill(TEColors.orange)
-                        .frame(width: fillWidth, height: 8)
+                        .frame(width: max(0, fillWidth), height: 8)
                         .offset(x: fillX)
                 } else {
+                    let normalizedValue = (value - range.lowerBound) / (range.upperBound - range.lowerBound)
                     Rectangle()
                         .fill(TEColors.orange)
-                        .frame(width: geometry.size.width * CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound)), height: 8)
+                        .frame(width: max(0, safeWidth * CGFloat(normalizedValue)), height: 8)
                 }
-                
+
                 // Border
                 Rectangle()
                     .strokeBorder(TEColors.black, lineWidth: 2)
@@ -659,7 +717,7 @@ struct TESlider: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
-                        let percent = Float(gesture.location.x / geometry.size.width)
+                        let percent = Float(gesture.location.x / safeWidth)
                         let newValue = range.lowerBound + (range.upperBound - range.lowerBound) * min(max(percent, 0), 1)
                         value = newValue
                     }
@@ -673,7 +731,7 @@ struct TEPicker<T: Hashable>: View {
     let label: String
     @Binding var selection: T
     let options: [(key: T, value: String)]
-    
+
     init(label: String, selection: Binding<T>, options: [T: String]) {
         self.label = label
         self._selection = selection
@@ -686,6 +744,13 @@ struct TEPicker<T: Hashable>: View {
                 }
                 return a.value < b.value
             }
+    }
+
+    /// Init with pre-ordered options array (preserves order)
+    init(label: String, selection: Binding<T>, orderedOptions: [(key: T, value: String)]) {
+        self.label = label
+        self._selection = selection
+        self.options = orderedOptions
     }
     
     var body: some View {

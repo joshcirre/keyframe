@@ -46,26 +46,41 @@ struct ScaleEngine {
         if isInScale(note: note, root: root, scale: scale) {
             return note
         }
-        
+
         let noteInt = Int(note)
-        
-        // Search up and down for nearest scale note
-        var searchUp = noteInt + 1
-        var searchDown = noteInt - 1
-        
-        while searchUp <= 127 || searchDown >= 0 {
-            if searchDown >= 0 && isInScale(note: UInt8(searchDown), root: root, scale: scale) {
-                return UInt8(searchDown)
+
+        // Find nearest scale note below
+        var noteBelow: Int? = nil
+        for i in stride(from: noteInt - 1, through: 0, by: -1) {
+            if isInScale(note: UInt8(i), root: root, scale: scale) {
+                noteBelow = i
+                break
             }
-            if searchUp <= 127 && isInScale(note: UInt8(searchUp), root: root, scale: scale) {
-                return UInt8(searchUp)
-            }
-            searchUp += 1
-            searchDown -= 1
         }
-        
-        // Fallback (should never reach here)
-        return note
+
+        // Find nearest scale note above
+        var noteAbove: Int? = nil
+        for i in (noteInt + 1)...127 {
+            if isInScale(note: UInt8(i), root: root, scale: scale) {
+                noteAbove = i
+                break
+            }
+        }
+
+        // Choose the nearest one (prefer UP when equidistant - feels more natural)
+        switch (noteBelow, noteAbove) {
+        case (nil, let above?):
+            return UInt8(above)
+        case (let below?, nil):
+            return UInt8(below)
+        case (let below?, let above?):
+            let distBelow = noteInt - below
+            let distAbove = above - noteInt
+            // Prefer UP when equidistant (sharps resolve up naturally)
+            return UInt8(distBelow < distAbove ? below : above)
+        case (nil, nil):
+            return note // Fallback
+        }
     }
     
     // MARK: - Scale Degree Calculation

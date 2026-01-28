@@ -115,8 +115,26 @@ final class AudioEngine: ObservableObject {
     }
     
     private func connectChannelToMaster(_ channel: ChannelStrip) {
-        let format = engine.outputNode.inputFormat(forBus: 0)
-        engine.connect(channel.outputNode, to: masterMixer, format: format)
+        // Use the channel's output format for better compatibility with varied plugin chains
+        let channelFormat = channel.outputNode.outputFormat(forBus: 0)
+        if channelFormat.sampleRate > 0 {
+            engine.connect(channel.outputNode, to: masterMixer, format: channelFormat)
+        } else {
+            // Fallback to output format if channel hasn't been configured yet
+            let format = engine.outputNode.inputFormat(forBus: 0)
+            engine.connect(channel.outputNode, to: masterMixer, format: format)
+        }
+    }
+
+    /// Reconnect ALL channels to master (used after stop/start to restore connections)
+    private func reconnectAllChannelsToMaster() {
+        for (index, channel) in channelStrips.enumerated() {
+            // Rebuild internal chain (Instrument → Effects → Mixer)
+            channel.rebuildAudioChain()
+            // Connect channel mixer to master using channel's format
+            connectChannelToMaster(channel)
+            print("🔌 Reconnected channel \(index) to master (rebuilt internal chain)")
+        }
     }
     
     // MARK: - Notifications
@@ -160,21 +178,40 @@ final class AudioEngine: ObservableObject {
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
             return
         }
-        
+
         switch type {
         case .began:
             print("AudioEngine: Interruption began")
             stop()
         case .ended:
             print("AudioEngine: Interruption ended")
-            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
-                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-                if options.contains(.shouldResume) {
-                    start()
-                }
+            // Always try to restart after interruption ends, with retry logic
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.restartAfterInterruption(retryCount: 0)
             }
         @unknown default:
             break
+        }
+    }
+
+    private func restartAfterInterruption(retryCount: Int) {
+        guard !isRunning else { return }
+
+        do {
+            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+            try engine.start()
+            isRunning = true
+            startMetering()
+            print("AudioEngine: Restarted after interruption (attempt \(retryCount + 1))")
+        } catch {
+            print("AudioEngine: Failed to restart (attempt \(retryCount + 1)): \(error)")
+            // Retry up to 3 times with increasing delay
+            if retryCount < 3 {
+                let delay = Double(retryCount + 1) * 0.5
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.restartAfterInterruption(retryCount: retryCount + 1)
+                }
+            }
         }
     }
     
@@ -215,15 +252,23 @@ final class AudioEngine: ObservableObject {
     // MARK: - Channel Management
     
     func addChannel() -> ChannelStrip? {
-        let wasRunning = isRunning
-        if wasRunning { stop() }
-        
+        // Debug: Log existing channel states before adding
+        print("🎛️ addChannel: Before - \(channelStrips.count) strips exist")
+        for (i, strip) in channelStrips.enumerated() {
+            print("  [\(i)] midiSource='\(strip.midiSourceName ?? "nil")' midiCh=\(strip.midiChannel)")
+        }
+
+        // Create new channel and connect to master (don't stop engine - it breaks AUv3 plugins)
         let channel = ChannelStrip(engine: engine, index: channelStrips.count)
         channelStrips.append(channel)
         connectChannelToMaster(channel)
-        
-        if wasRunning { start() }
-        
+
+        // Debug: Log channel states after adding
+        print("🎛️ addChannel: After - \(channelStrips.count) strips exist")
+        for (i, strip) in channelStrips.enumerated() {
+            print("  [\(i)] midiSource='\(strip.midiSourceName ?? "nil")' midiCh=\(strip.midiChannel)")
+        }
+
         return channel
     }
     

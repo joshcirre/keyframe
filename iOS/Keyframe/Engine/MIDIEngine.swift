@@ -580,12 +580,17 @@ final class MIDIEngine: ObservableObject {
     
     /// Check if a channel strip should receive MIDI from the given source and channel
     private func channelAcceptsMIDI(_ strip: ChannelStrip, sourceName: String?, midiChannel: Int) -> Bool {
+        // "__none__" means explicitly disabled - don't accept any MIDI
+        if strip.midiSourceName == "__none__" {
+            return false
+        }
+
         // Check MIDI channel (0 = omni/all channels)
         let channelMatches = strip.midiChannel == 0 || strip.midiChannel == midiChannel
-        
+
         // Check MIDI source (nil = any source)
         let sourceMatches = strip.midiSourceName == nil || strip.midiSourceName == sourceName
-        
+
         return channelMatches && sourceMatches
     }
     

@@ -61,8 +61,8 @@ final class ChannelStrip: ObservableObject, Identifiable {
     /// MIDI channel this strip responds to (1-16, 0 = omni)
     @Published var midiChannel: Int = 0
     
-    /// MIDI source name this strip responds to (nil = any source)
-    @Published var midiSourceName: String? = nil
+    /// MIDI source name this strip responds to (nil = any source, "__none__" = disabled)
+    @Published var midiSourceName: String? = "__none__"
     
     /// Whether scale filtering is applied to incoming MIDI
     @Published var scaleFilterEnabled: Bool = true
@@ -292,11 +292,11 @@ final class ChannelStrip: ObservableObject, Identifiable {
     }
     
     // MARK: - Audio Chain Management
-    
-    /// Rebuild the audio signal chain after changes
-    private func rebuildAudioChain() {
+
+    /// Rebuild the audio signal chain after changes (also called by AudioEngine after stop/start)
+    func rebuildAudioChain() {
         guard let engine = engine else { return }
-        
+
         // Disconnect all existing connections
         if let instrument = instrument {
             engine.disconnectNodeOutput(instrument)
@@ -305,23 +305,35 @@ final class ChannelStrip: ObservableObject, Identifiable {
             engine.disconnectNodeOutput(effect)
         }
         engine.disconnectNodeInput(mixer)
-        
-        // Get the format to use
-        let format = engine.outputNode.inputFormat(forBus: 0)
-        
+
         // Build the chain: Instrument -> Effects -> Mixer
+        // Use nil format to let AVAudioEngine auto-negotiate between nodes.
+        // This is more robust than forcing a specific format which may not
+        // match what certain AUv3 plugins expect or produce.
         var previousNode: AVAudioNode? = instrument
-        
+
         for effect in effects {
             if let prev = previousNode {
-                engine.connect(prev, to: effect, format: format)
+                // Use the output format of the previous node for better compatibility
+                let connectionFormat = prev.outputFormat(forBus: 0)
+                if connectionFormat.sampleRate > 0 {
+                    engine.connect(prev, to: effect, format: connectionFormat)
+                } else {
+                    // Fallback to nil format for auto-negotiation
+                    engine.connect(prev, to: effect, format: nil)
+                }
             }
             previousNode = effect
         }
-        
+
         // Connect final node to mixer
         if let finalNode = previousNode {
-            engine.connect(finalNode, to: mixer, format: format)
+            let connectionFormat = finalNode.outputFormat(forBus: 0)
+            if connectionFormat.sampleRate > 0 {
+                engine.connect(finalNode, to: mixer, format: connectionFormat)
+            } else {
+                engine.connect(finalNode, to: mixer, format: nil)
+            }
         }
     }
 
@@ -411,7 +423,7 @@ final class ChannelStrip: ObservableObject, Identifiable {
     /// Send MIDI note to the instrument
     func sendMIDI(noteOn note: UInt8, velocity: UInt8) {
         guard let instrument = instrument else { return }
-        
+
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
             let data: [UInt8] = [0x90, note, velocity]
             data.withUnsafeBufferPointer { bufferPointer in

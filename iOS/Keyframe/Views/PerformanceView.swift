@@ -88,7 +88,10 @@ struct PerformanceView: View {
             if let index = selectedChannelIndex {
                 ChannelDetailView(
                     channel: audioEngine.channelStrips[index],
-                    config: binding(for: index)
+                    config: binding(for: index),
+                    onDelete: {
+                        deleteChannel(at: index)
+                    }
                 )
             }
         }
@@ -344,6 +347,10 @@ struct PerformanceView: View {
                             let newConfig = ChannelConfiguration(name: "CH \(audioEngine.channelStrips.count)")
                             sessionStore.currentSession.channels.append(newConfig)
                             sessionStore.saveCurrentSession()
+                            // Re-sync all channel configs to ensure existing settings aren't lost
+                            syncChannelConfigs()
+                            // Debug: Log state after adding channel
+                            logChannelState("After adding channel")
                         }
                     }
                 }
@@ -504,9 +511,12 @@ struct PerformanceView: View {
     }
 
     private func syncChannelConfigs() {
+        print("🔄 syncChannelConfigs: Syncing \(sessionStore.currentSession.channels.count) configs to \(audioEngine.channelStrips.count) strips")
         for (index, config) in sessionStore.currentSession.channels.enumerated() {
             if index < audioEngine.channelStrips.count {
                 let strip = audioEngine.channelStrips[index]
+                let inputDisplay = config.midiSourceName == "__none__" ? "NONE" : (config.midiSourceName ?? "ALL")
+                print("  Channel \(index): input='\(inputDisplay)' midiCh=\(config.midiChannel)")
                 strip.midiChannel = config.midiChannel
                 strip.midiSourceName = config.midiSourceName
                 strip.scaleFilterEnabled = config.scaleFilterEnabled
@@ -515,6 +525,23 @@ struct PerformanceView: View {
                 strip.pan = config.pan
                 strip.isMuted = config.isMuted
             }
+        }
+    }
+
+    private func logChannelState(_ context: String) {
+        print("📊 Channel State [\(context)]:")
+        print("  Configs: \(sessionStore.currentSession.channels.count), Strips: \(audioEngine.channelStrips.count)")
+        for (index, config) in sessionStore.currentSession.channels.enumerated() {
+            let configInput = config.midiSourceName == "__none__" ? "NONE" : (config.midiSourceName ?? "ALL")
+            let stripInfo: String
+            if index < audioEngine.channelStrips.count {
+                let strip = audioEngine.channelStrips[index]
+                let stripInput = strip.midiSourceName == "__none__" ? "NONE" : (strip.midiSourceName ?? "ALL")
+                stripInfo = "strip.input='\(stripInput)'"
+            } else {
+                stripInfo = "NO STRIP"
+            }
+            print("  [\(index)] config.input='\(configInput)' | \(stripInfo)")
         }
     }
     
@@ -553,14 +580,34 @@ struct PerformanceView: View {
         )
     }
     
+    private func deleteChannel(at index: Int) {
+        // Remove from audio engine
+        audioEngine.removeChannel(at: index)
+
+        // Remove from session config
+        if index < sessionStore.currentSession.channels.count {
+            sessionStore.currentSession.channels.remove(at: index)
+            sessionStore.saveCurrentSession()
+        }
+
+        // Clear selection
+        selectedChannelIndex = nil
+    }
+
     private func binding(for index: Int) -> Binding<ChannelConfiguration> {
         Binding(
             get: { sessionStore.currentSession.channels[safe: index] ?? ChannelConfiguration() },
             set: { newValue in
                 if index < sessionStore.currentSession.channels.count {
+                    let oldValue = sessionStore.currentSession.channels[index]
+                    if oldValue.midiSourceName != newValue.midiSourceName {
+                        let oldDisplay = oldValue.midiSourceName == "__none__" ? "NONE" : (oldValue.midiSourceName ?? "ALL")
+                        let newDisplay = newValue.midiSourceName == "__none__" ? "NONE" : (newValue.midiSourceName ?? "ALL")
+                        print("✏️ Binding[\(index)] input: '\(oldDisplay)' → '\(newDisplay)'")
+                    }
                     sessionStore.currentSession.channels[index] = newValue
                     sessionStore.saveCurrentSession()
-                    
+
                     if index < audioEngine.channelStrips.count {
                         let strip = audioEngine.channelStrips[index]
                         strip.midiChannel = newValue.midiChannel
@@ -821,7 +868,9 @@ struct MeterView: View {
         GeometryReader { geometry in
             let spacing: CGFloat = 1
             let totalSpacing = spacing * CGFloat(segments - 1)
-            let segmentHeight = (geometry.size.height - totalSpacing) / CGFloat(segments)
+            // Guard against invalid frame dimensions when geometry is zero or too small
+            let availableHeight = geometry.size.height - totalSpacing
+            let segmentHeight = availableHeight > 0 ? availableHeight / CGFloat(segments) : 1
 
             ZStack(alignment: .bottom) {
                 // Background
@@ -943,17 +992,17 @@ struct SongGridView: View {
                 let itemCount = songs.count
                 let spacing: CGFloat = 6  // Minimal spacing between items
                 let padding: CGFloat = 6  // Minimal outer margin
-                let availableWidth = geometry.size.width - (padding * 2)
-                let availableHeight = geometry.size.height - (padding * 2)
+                let availableWidth = max(1, geometry.size.width - (padding * 2))
+                let availableHeight = max(1, geometry.size.height - (padding * 2))
 
                 // Calculate optimal grid dimensions
                 let (columns, rows) = calculateGrid(itemCount: max(1, itemCount), availableWidth: availableWidth, availableHeight: availableHeight)
 
-                // Calculate item sizes to fill the space exactly
-                let totalHorizontalSpacing = spacing * CGFloat(columns - 1)
-                let totalVerticalSpacing = spacing * CGFloat(rows - 1)
-                let itemWidth = (availableWidth - totalHorizontalSpacing) / CGFloat(columns)
-                let itemHeight = (availableHeight - totalVerticalSpacing) / CGFloat(rows)
+                // Calculate item sizes to fill the space exactly (guard against zero/negative)
+                let totalHorizontalSpacing = spacing * CGFloat(max(0, columns - 1))
+                let totalVerticalSpacing = spacing * CGFloat(max(0, rows - 1))
+                let itemWidth = max(1, (availableWidth - totalHorizontalSpacing) / CGFloat(max(1, columns)))
+                let itemHeight = max(1, (availableHeight - totalVerticalSpacing) / CGFloat(max(1, rows)))
 
                 let gridColumns = Array(repeating: GridItem(.fixed(itemWidth), spacing: spacing), count: columns)
 
@@ -1084,7 +1133,8 @@ struct SongGridButton: View {
     var body: some View {
         GeometryReader { geometry in
             // Calculate font sizes - large dynamic sizing for perform mode, fixed for edit mode
-            let minDimension = min(geometry.size.width, geometry.size.height)
+            // Guard against zero dimensions during initial layout
+            let minDimension = max(1, min(geometry.size.width, geometry.size.height))
             let nameFontSize: CGFloat = isLargeText
                 ? max(16, min(minDimension * 0.35, 48))  // 35% of cell, clamped 16-48
                 : 14

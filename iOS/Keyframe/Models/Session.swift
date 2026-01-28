@@ -74,7 +74,7 @@ struct ChannelConfiguration: Codable, Identifiable, Equatable {
         pan: Float = 0.0,
         isMuted: Bool = false,
         midiChannel: Int = 0,
-        midiSourceName: String? = nil,
+        midiSourceName: String? = "__none__",  // Default to NONE - user must select input
         scaleFilterEnabled: Bool = true,
         isChordPadTarget: Bool = false,
         controlSourceName: String? = nil,
