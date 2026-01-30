@@ -4,24 +4,26 @@ import QuartzCore
 
 /// Core audio engine that manages the entire audio graph
 /// This is the heart of the Keyframe Performance Engine
-final class AudioEngine: ObservableObject {
+@Observable
+@MainActor
+final class AudioEngine {
 
     // MARK: - Singleton
 
     static let shared = AudioEngine()
 
-    // MARK: - Published Properties
+    // MARK: - Observable Properties
 
-    @Published private(set) var isRunning = false
-    @Published private(set) var cpuUsage: Float = 0.0      // DSP load (0-100%)
-    @Published private(set) var peakLevel: Float = -60.0
-    @Published private(set) var isRestoringPlugins = false
-    @Published private(set) var restorationProgress: String = ""
+    private(set) var isRunning = false
+    private(set) var cpuUsage: Float = 0.0      // DSP load (0-100%)
+    private(set) var peakLevel: Float = -60.0
+    private(set) var isRestoringPlugins = false
+    private(set) var restorationProgress: String = ""
 
     // Track pending plugin loads
     private var pendingPluginLoads = 0
     private let pluginLoadQueue = DispatchQueue(label: "com.keyframe.pluginLoad")
-    @Published var masterVolume: Float = 1.0 {
+    var masterVolume: Float = 1.0 {
         didSet {
             masterMixer.outputVolume = masterVolume
         }
@@ -30,10 +32,10 @@ final class AudioEngine: ObservableObject {
     // MARK: - Host Transport / Tempo
 
     /// Current tempo in BPM (used by hosted plugins for sync)
-    @Published private(set) var currentTempo: Double = 120.0
+    private(set) var currentTempo: Double = 120.0
 
     /// Whether transport is "playing" (for plugin sync)
-    @Published private(set) var isTransportPlaying: Bool = true
+    private(set) var isTransportPlaying: Bool = true
 
     /// Current beat position (advances with audio callback)
     private var currentBeatPosition: Double = 0.0
@@ -51,7 +53,8 @@ final class AudioEngine: ObservableObject {
     // MARK: - Metering
 
     private var meteringTimer: Timer?
-    private var pendingPeakLevel: Float = -60.0  // Updated from audio thread, read by timer
+    private var cpuTimer: Timer?
+    nonisolated(unsafe) private var pendingPeakLevel: Float = -60.0  // Updated from audio thread, read by timer
     
     // MARK: - Initialization
     
@@ -62,8 +65,8 @@ final class AudioEngine: ObservableObject {
     }
     
     deinit {
-        stop()
-        meteringTimer?.invalidate()
+        // Note: Can't call stop() from deinit due to MainActor isolation
+        // Timer cleanup handled by ARC
     }
     
     // MARK: - Audio Session Setup
@@ -78,7 +81,7 @@ final class AudioEngine: ObservableObject {
             try session.setCategory(.playback, mode: .default, options: [])
 
             // Request low latency buffer
-            try session.setPreferredIOBufferDuration(0.005) // 5ms
+            try session.setPreferredIOBufferDuration(0.012) // 12ms for stability
 
             // Set preferred sample rate
             try session.setPreferredSampleRate(44100)
@@ -107,7 +110,7 @@ final class AudioEngine: ObservableObject {
         // No default channels - they are created dynamically when added or restored from session
 
         // Enable metering on master mixer
-        masterMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, time in
+        masterMixer.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, time in
             self?.processMeterData(buffer: buffer)
         }
 
@@ -388,17 +391,25 @@ final class AudioEngine: ObservableObject {
                 strip.loadInstrument(instrumentConfig.audioComponentDescription) { success, error in
                     if success {
                         print("AudioEngine: Successfully loaded '\(instrumentConfig.name)' on channel \(index)")
+                        // Restore instrument preset state
+                        strip.restoreInstrumentState(instrumentConfig.presetData)
                     } else {
                         print("AudioEngine: Failed to load '\(instrumentConfig.name)': \(error?.localizedDescription ?? "unknown")")
                     }
                     markPluginLoaded(instrumentConfig.name, success)
 
                     // Now load effects AFTER instrument is ready
-                    for effectConfig in effectConfigs {
+                    for (effectIndex, effectConfig) in effectConfigs.enumerated() {
                         print("AudioEngine: Restoring effect '\(effectConfig.name)' on channel \(index)")
                         strip.addEffect(effectConfig.audioComponentDescription) { success, error in
                             if success {
                                 print("AudioEngine: Successfully loaded effect '\(effectConfig.name)' on channel \(index)")
+                                // Restore effect preset state
+                                strip.restoreEffectState(effectConfig.presetData, at: effectIndex)
+                                // Restore bypass state
+                                if effectConfig.isBypassed {
+                                    strip.setEffectBypassed(true, at: effectIndex)
+                                }
                             } else {
                                 print("AudioEngine: Failed to load effect '\(effectConfig.name)': \(error?.localizedDescription ?? "unknown")")
                             }
@@ -408,11 +419,17 @@ final class AudioEngine: ObservableObject {
                 }
             } else {
                 // No instrument - load effects anyway (they just won't have input)
-                for effectConfig in effectConfigs {
+                for (effectIndex, effectConfig) in effectConfigs.enumerated() {
                     print("AudioEngine: Restoring effect '\(effectConfig.name)' on channel \(index) (no instrument)")
                     strip.addEffect(effectConfig.audioComponentDescription) { success, error in
                         if success {
                             print("AudioEngine: Successfully loaded effect '\(effectConfig.name)' on channel \(index)")
+                            // Restore effect preset state
+                            strip.restoreEffectState(effectConfig.presetData, at: effectIndex)
+                            // Restore bypass state
+                            if effectConfig.isBypassed {
+                                strip.setEffectBypassed(true, at: effectIndex)
+                            }
                         } else {
                             print("AudioEngine: Failed to load effect '\(effectConfig.name)': \(error?.localizedDescription ?? "unknown")")
                         }
@@ -474,24 +491,39 @@ final class AudioEngine: ObservableObject {
     // MARK: - Metering
 
     private func startMetering() {
-        // Update every 250ms for stability and lower overhead
-        meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.updateDSPLoad()
+        // Consolidated timer for all metering (master + channels)
+        // 50ms interval for smooth channel meter animation
+        meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self = self else { return }
 
-            // Read the pending peak level (written by audio thread)
-            // and apply smoothing/decay (faster decay for longer interval)
-            let pending = self.pendingPeakLevel
-            self.peakLevel = max(pending, self.peakLevel - 6.0)
+                // Update master level (with slower decay for 50ms interval)
+                let pending = self.pendingPeakLevel
+                self.peakLevel = max(pending, self.peakLevel - 1.0)
+
+                // Update all channel strip meters
+                for channel in self.channelStrips {
+                    channel.updateMeterFromEngine()
+                }
+            }
+        }
+
+        // Separate slower timer for CPU load (expensive to compute)
+        cpuTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateDSPLoad()
+            }
         }
     }
     
     private func stopMetering() {
         meteringTimer?.invalidate()
         meteringTimer = nil
+        cpuTimer?.invalidate()
+        cpuTimer = nil
     }
     
-    private func processMeterData(buffer: AVAudioPCMBuffer) {
+    nonisolated private func processMeterData(buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
 
         let channelCount = Int(buffer.format.channelCount)

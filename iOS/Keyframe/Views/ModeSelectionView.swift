@@ -17,7 +17,7 @@ struct ModeSelectionView: View {
                 VStack(spacing: 12) {
                     Text("KEYFRAME")
                         .font(TEFonts.display(36, weight: .black))
-                        .foregroundColor(TEColors.cream)
+                        .foregroundStyle(TEColors.cream)
                         .tracking(6)
                         .scaleEffect(logoScale)
 
@@ -57,7 +57,7 @@ struct ModeSelectionView: View {
                 // Version
                 Text("v1.0")
                     .font(TEFonts.mono(10, weight: .regular))
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
                     .padding(.bottom, 20)
             }
         }
@@ -93,18 +93,18 @@ struct ModeButton: View {
                 // Icon
                 Image(systemName: icon)
                     .font(.system(size: 28, weight: .medium))
-                    .foregroundColor(color)
+                    .foregroundStyle(color)
                     .frame(width: 50)
 
                 // Text
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(TEFonts.mono(16, weight: .bold))
-                        .foregroundColor(TEColors.cream)
+                        .foregroundStyle(TEColors.cream)
 
                     Text(subtitle)
                         .font(TEFonts.mono(11, weight: .regular))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                 }
 
                 Spacer()
@@ -112,7 +112,7 @@ struct ModeButton: View {
                 // Arrow
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 20)

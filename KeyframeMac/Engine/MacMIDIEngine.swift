@@ -195,6 +195,18 @@ final class MacMIDIEngine: ObservableObject {
     private var lastSentTempo: Int?
     private var activeNotes: [Int: [UUID: [UInt8]]] = [:]
     private var sourceNameMap: [MIDIEndpointRef: String] = [:]
+    
+    // Reference count for output notes - allows multiple inputs to map to same output
+    // Key: (channelStripId, outputNote), Value: count of inputs currently holding this note
+    // Only sends Note-Off when count reaches 0
+    private var outputNoteRefCount: [String: Int] = [:]
+    
+    // Lock for thread-safe note tracking - CoreMIDI callbacks come from background threads
+    private let noteTrackingLock = NSLock()
+    
+    private func outputNoteKey(channelId: UUID, note: UInt8) -> String {
+        return "\(channelId.uuidString):\(note)"
+    }
 
     // MARK: - Audio Engine Reference
 
@@ -711,10 +723,6 @@ final class MacMIDIEngine: ObservableObject {
                 // Get cached session for zone support
                 let session = sessionStore?.currentSession
 
-                if activeNotes[sourceKey] == nil {
-                    activeNotes[sourceKey] = [:]
-                }
-
                 // First pass: try strict source matching
                 var matchedChannels: [MacChannelStrip] = []
                 for strip in audioEngine.channelStrips {
@@ -739,6 +747,10 @@ final class MacMIDIEngine: ObservableObject {
                         }
                     }
                 }
+
+                // Collect all notes to send and tracking updates
+                var notesToSend: [(strip: MacChannelStrip, note: UInt8, velocity: UInt8)] = []
+                var trackingUpdates: [(stripId: UUID, notes: [UInt8])] = []
 
                 for strip in matchedChannels {
                     // Find config for zone support
@@ -774,13 +786,32 @@ final class MacMIDIEngine: ObservableObject {
 
                         allProcessedNotes.append(contentsOf: processedNotes)
 
-                        // Send MIDI immediately
+                        // Collect notes to send
                         for processedNote in processedNotes {
-                            strip.sendMIDI(noteOn: processedNote, velocity: zoneVelocity)
+                            notesToSend.append((strip, processedNote, zoneVelocity))
                         }
                     }
 
-                    activeNotes[sourceKey]?[strip.id] = allProcessedNotes
+                    trackingUpdates.append((strip.id, allProcessedNotes))
+                }
+                
+                // Thread-safe: update tracking dictionaries
+                noteTrackingLock.lock()
+                if activeNotes[sourceKey] == nil {
+                    activeNotes[sourceKey] = [:]
+                }
+                for (stripId, notes) in trackingUpdates {
+                    activeNotes[sourceKey]?[stripId] = notes
+                }
+                for (strip, processedNote, _) in notesToSend {
+                    let key = outputNoteKey(channelId: strip.id, note: processedNote)
+                    outputNoteRefCount[key, default: 0] += 1
+                }
+                noteTrackingLock.unlock()
+                
+                // Send MIDI outside the lock for low latency
+                for (strip, processedNote, velocity) in notesToSend {
+                    strip.sendMIDI(noteOn: processedNote, velocity: velocity)
                 }
 
                 // Defer non-critical work (throttled to reduce main thread load)
@@ -848,24 +879,44 @@ final class MacMIDIEngine: ObservableObject {
         let sourceHash = sourceName?.hashValue ?? 0
         let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
 
-        guard let channelMappings = activeNotes[sourceKey] else { return }
+        // Thread-safe: read and remove from activeNotes atomically
+        noteTrackingLock.lock()
+        guard let channelMappings = activeNotes.removeValue(forKey: sourceKey) else {
+            noteTrackingLock.unlock()
+            return
+        }
 
         // If freeze is active, move notes to frozenNotes instead of releasing
         if isFreezeActive {
             frozenNotes[sourceKey] = channelMappings
-            activeNotes.removeValue(forKey: sourceKey)
+            noteTrackingLock.unlock()
             return
         }
 
-        // Normal release - send note-off to all target channels
+        // Collect ref count updates while holding lock
+        var notesToRelease: [(channel: MacChannelStrip, note: UInt8)] = []
         for (channelId, processedNotes) in channelMappings {
             if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
                 for processedNote in processedNotes {
-                    targetChannel.sendMIDI(noteOff: processedNote)
+                    let key = outputNoteKey(channelId: channelId, note: processedNote)
+                    let currentCount = outputNoteRefCount[key, default: 0]
+                    if currentCount <= 1 {
+                        // Last input holding this note - will send Note-Off
+                        outputNoteRefCount.removeValue(forKey: key)
+                        notesToRelease.append((targetChannel, processedNote))
+                    } else {
+                        // Other inputs still holding this note - just decrement
+                        outputNoteRefCount[key] = currentCount - 1
+                    }
                 }
             }
         }
-        activeNotes.removeValue(forKey: sourceKey)
+        noteTrackingLock.unlock()
+        
+        // Send note-offs outside the lock to minimize lock duration
+        for (targetChannel, processedNote) in notesToRelease {
+            targetChannel.sendMIDI(noteOff: processedNote)
+        }
     }
 
     private func processCC(cc: UInt8, value: UInt8, channel: UInt8, sourceName: String?) {
@@ -1509,13 +1560,18 @@ final class MacMIDIEngine: ObservableObject {
         let sourceHash = sourceName?.hashValue ?? 0
         let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
 
+        // Thread-safe: update tracking dictionaries
+        noteTrackingLock.lock()
         if activeNotes[sourceKey] == nil {
             activeNotes[sourceKey] = [:]
         }
-
         for targetChannel in targetChannels {
             activeNotes[sourceKey]?[targetChannel.id] = chordNotes
+        }
+        noteTrackingLock.unlock()
 
+        // Send MIDI outside the lock
+        for targetChannel in targetChannels {
             for chordNote in chordNotes {
                 targetChannel.sendMIDI(noteOn: chordNote, velocity: velocity)
             }
@@ -1562,7 +1618,14 @@ final class MacMIDIEngine: ObservableObject {
     func releaseFrozenNotes() {
         guard let audioEngine = audioEngine else { return }
 
-        for (_, channelMappings) in frozenNotes {
+        // Thread-safe: copy and clear frozen notes
+        noteTrackingLock.lock()
+        let notesToRelease = frozenNotes
+        frozenNotes.removeAll()
+        noteTrackingLock.unlock()
+
+        // Send note-offs outside the lock
+        for (_, channelMappings) in notesToRelease {
             for (channelId, processedNotes) in channelMappings {
                 if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
                     for note in processedNotes {
@@ -1571,7 +1634,6 @@ final class MacMIDIEngine: ObservableObject {
                 }
             }
         }
-        frozenNotes.removeAll()
     }
 
     /// Manually toggle freeze state (for UI button)
@@ -1595,8 +1657,15 @@ final class MacMIDIEngine: ObservableObject {
     func releaseAllActiveNotes() {
         guard let audioEngine = audioEngine else { return }
 
-        // Release all active notes
-        for (_, channelMappings) in activeNotes {
+        // Thread-safe: copy and clear active notes
+        noteTrackingLock.lock()
+        let notesToRelease = activeNotes
+        activeNotes.removeAll()
+        outputNoteRefCount.removeAll()
+        noteTrackingLock.unlock()
+
+        // Send note-offs outside the lock
+        for (_, channelMappings) in notesToRelease {
             for (channelId, processedNotes) in channelMappings {
                 if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
                     for note in processedNotes {
@@ -1605,7 +1674,6 @@ final class MacMIDIEngine: ObservableObject {
                 }
             }
         }
-        activeNotes.removeAll()
 
         // Also release frozen notes
         releaseFrozenNotes()

@@ -4,8 +4,8 @@ import SwiftUI
 /// Now with secondary zone support for split controller mode
 struct ChordMapView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var midiEngine = MIDIEngine.shared
-    @StateObject private var audioEngine = AudioEngine.shared
+    @State private var midiEngine = MIDIEngine.shared
+    @State private var audioEngine = AudioEngine.shared
 
     @State private var mappings: [Int: Int] = [:]  // degree (1-7) -> MIDI note
     @State private var baseOctave: Int = 4
@@ -13,10 +13,9 @@ struct ChordMapView: View {
 
     // Secondary zone state
     @State private var secondaryEnabled: Bool = false
-    @State private var secondaryStartNote: Int? = nil  // First note of secondary zone
-    @State private var secondaryTargetChannel: Int? = nil
+    @State private var secondaryMappings: [Int: Int] = [:]  // degree (1-7) -> MIDI note
     @State private var secondaryBaseOctave: Int = 4
-    @State private var isLearningSecondaryStart: Bool = false
+    @State private var learningSecondaryDegree: Int? = nil
 
     init() {
         // Load existing mappings from MIDIEngine
@@ -31,8 +30,12 @@ struct ChordMapView: View {
 
         // Load secondary zone settings
         _secondaryEnabled = State(initialValue: mapping.secondaryZoneEnabled)
-        _secondaryStartNote = State(initialValue: mapping.secondaryStartNote)
-        _secondaryTargetChannel = State(initialValue: mapping.secondaryTargetChannel)
+        // Load secondary mappings - reverse the map (note -> degree) to (degree -> note)
+        var secondaryInitial: [Int: Int] = [:]
+        for (note, degree) in mapping.secondaryButtonMap {
+            secondaryInitial[degree] = note
+        }
+        _secondaryMappings = State(initialValue: secondaryInitial)
         _secondaryBaseOctave = State(initialValue: mapping.secondaryBaseOctave)
     }
 
@@ -60,32 +63,36 @@ struct ChordMapView: View {
         }
         .preferredColorScheme(.light)
         .onAppear {
+            print("ChordMapView: Setting up onNoteLearn callback")
             midiEngine.onNoteLearn = { note, channel, source in
+                print("ChordMapView: onNoteLearn called with note=\(note) ch=\(channel) source=\(source ?? "nil")")
+                print("ChordMapView: learningDegree=\(String(describing: learningDegree)) learningSecondaryDegree=\(String(describing: learningSecondaryDegree))")
                 // Learning for primary chord zone
                 if let degree = learningDegree {
-                    // Remove this note from any other degree first
+                    // Remove this note from any other primary degree first
                     for (d, n) in mappings where n == note && d != degree {
                         mappings.removeValue(forKey: d)
                     }
-                    // Check if note conflicts with secondary zone
-                    if let start = secondaryStartNote, note >= start && note < start + 7 {
-                        secondaryStartNote = nil  // Clear secondary if there's a conflict
+                    // Remove from secondary mappings if it conflicts
+                    for (d, n) in secondaryMappings where n == note {
+                        secondaryMappings.removeValue(forKey: d)
                     }
                     mappings[degree] = note
                     learningDegree = nil
                     midiEngine.isLearningMode = false
                 }
-                // Learning for secondary zone start note
-                else if isLearningSecondaryStart {
-                    // Remove any primary mappings that would conflict with secondary zone (7 notes)
-                    for offset in 0..<7 {
-                        let conflictNote = note + offset
-                        for (d, n) in mappings where n == conflictNote {
-                            mappings.removeValue(forKey: d)
-                        }
+                // Learning for secondary zone individual notes
+                else if let degree = learningSecondaryDegree {
+                    // Remove this note from any other secondary degree first
+                    for (d, n) in secondaryMappings where n == note && d != degree {
+                        secondaryMappings.removeValue(forKey: d)
                     }
-                    secondaryStartNote = note
-                    isLearningSecondaryStart = false
+                    // Remove from primary mappings if it conflicts
+                    for (d, n) in mappings where n == note {
+                        mappings.removeValue(forKey: d)
+                    }
+                    secondaryMappings[degree] = note
+                    learningSecondaryDegree = nil
                     midiEngine.isLearningMode = false
                 }
             }
@@ -106,7 +113,7 @@ struct ChordMapView: View {
             } label: {
                 Text("CANCEL")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background(
@@ -119,7 +126,7 @@ struct ChordMapView: View {
 
             Text("CHORD MAP")
                 .font(TEFonts.display(16, weight: .black))
-                .foregroundColor(TEColors.black)
+                .foregroundStyle(TEColors.black)
                 .tracking(2)
 
             Spacer()
@@ -129,7 +136,7 @@ struct ChordMapView: View {
             } label: {
                 Text("SAVE")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 10)
                     .background(TEColors.orange)
@@ -148,11 +155,11 @@ struct ChordMapView: View {
             HStack(spacing: 8) {
                 Image(systemName: "pianokeys")
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(TEColors.orange)
+                    .foregroundStyle(TEColors.orange)
 
                 Text("MAP YOUR CHORDPAD BUTTONS")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
 
                 Spacer()
 
@@ -163,13 +170,13 @@ struct ChordMapView: View {
                         .frame(width: 8, height: 8)
                     Text(!midiEngine.connectedSources.isEmpty ? "MIDI OK" : "NO MIDI")
                         .font(TEFonts.mono(9, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                 }
             }
 
             Text("Tap a chord degree below, then press a button on your controller to assign it.")
                 .font(TEFonts.mono(10, weight: .medium))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if learningDegree != nil {
@@ -180,7 +187,7 @@ struct ChordMapView: View {
 
                     Text("LISTENING FOR MIDI INPUT...")
                         .font(TEFonts.mono(10, weight: .bold))
-                        .foregroundColor(TEColors.orange)
+                        .foregroundStyle(TEColors.orange)
 
                     Spacer()
 
@@ -190,7 +197,7 @@ struct ChordMapView: View {
                     } label: {
                         Text("CANCEL")
                             .font(TEFonts.mono(9, weight: .bold))
-                            .foregroundColor(TEColors.red)
+                            .foregroundStyle(TEColors.red)
                     }
                 }
                 .padding(12)
@@ -217,12 +224,15 @@ struct ChordMapView: View {
                     ) {
                         if learningDegree == degree {
                             // Cancel learning
+                            print("ChordMapView: Cancelling learning for degree \(degree)")
                             learningDegree = nil
                             midiEngine.isLearningMode = false
                         } else {
                             // Start learning for this degree
+                            print("ChordMapView: Starting learning for degree \(degree)")
                             learningDegree = degree
                             midiEngine.isLearningMode = true
+                            print("ChordMapView: midiEngine.isLearningMode is now \(midiEngine.isLearningMode)")
                         }
                     } onClear: {
                         mappings.removeValue(forKey: degree)
@@ -235,7 +245,7 @@ struct ChordMapView: View {
             HStack {
                 Text("\(mappedCount)/7 MAPPED")
                     .font(TEFonts.mono(10, weight: .medium))
-                    .foregroundColor(mappedCount == 7 ? TEColors.green : TEColors.midGray)
+                    .foregroundStyle(mappedCount == 7 ? TEColors.green : TEColors.midGray)
 
                 Spacer()
 
@@ -249,7 +259,7 @@ struct ChordMapView: View {
                             Text("CLEAR ALL")
                                 .font(TEFonts.mono(9, weight: .bold))
                         }
-                        .foregroundColor(TEColors.red)
+                        .foregroundStyle(TEColors.red)
                     }
                 }
             }
@@ -268,14 +278,14 @@ struct ChordMapView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("OUTPUT")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
 
             VStack(spacing: 16) {
                 HStack {
                     Text("BASE OCTAVE")
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
 
                     Spacer()
 
@@ -286,7 +296,7 @@ struct ChordMapView: View {
                             } label: {
                                 Text("\(octave)")
                                     .font(TEFonts.mono(12, weight: .bold))
-                                    .foregroundColor(baseOctave == octave ? .white : TEColors.black)
+                                    .foregroundStyle(baseOctave == octave ? .white : TEColors.black)
                                     .frame(width: 44, height: 36)
                                     .background(baseOctave == octave ? TEColors.orange : TEColors.cream)
                             }
@@ -297,7 +307,7 @@ struct ChordMapView: View {
 
                 Text("The octave where chord notes will be played (4 = middle C octave)")
                     .font(TEFonts.mono(9, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
             }
             .padding(16)
             .background(
@@ -315,14 +325,14 @@ struct ChordMapView: View {
             HStack {
                 Text("SPLIT CONTROLLER")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
                     .tracking(2)
 
                 Spacer()
 
                 Image(systemName: "info.circle")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
             }
 
             VStack(spacing: 16) {
@@ -331,11 +341,11 @@ struct ChordMapView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("SECONDARY ZONE")
                             .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.darkGray)
+                            .foregroundStyle(TEColors.darkGray)
 
                         Text("Route a second set of buttons to a different track")
                             .font(TEFonts.mono(9, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                     }
 
                     Spacer()
@@ -350,155 +360,92 @@ struct ChordMapView: View {
                         .fill(TEColors.lightGray)
                         .frame(height: 1)
 
-                    // Target channel picker
-                    HStack {
-                        Text("TARGET TRACK")
-                            .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                    Text("Enable 'Single Note Target' on channels to receive these notes")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Spacer()
-
-                        Menu {
-                            Button("NONE") {
-                                secondaryTargetChannel = nil
-                            }
-                            ForEach(0..<audioEngine.channelStrips.count, id: \.self) { index in
-                                let strip = audioEngine.channelStrips[index]
-                                Button("CH \(index + 1): \(strip.name.uppercased())") {
-                                    secondaryTargetChannel = index
+                    // Row of 7 secondary degree buttons
+                    HStack(spacing: 8) {
+                        ForEach(1...7, id: \.self) { degree in
+                            SecondaryDegreeLearnButton(
+                                degree: degree,
+                                mappedNote: secondaryMappings[degree],
+                                isLearning: learningSecondaryDegree == degree
+                            ) {
+                                if learningSecondaryDegree == degree {
+                                    learningSecondaryDegree = nil
+                                    midiEngine.isLearningMode = false
+                                } else {
+                                    learningDegree = nil
+                                    learningSecondaryDegree = degree
+                                    midiEngine.isLearningMode = true
                                 }
+                            } onClear: {
+                                secondaryMappings.removeValue(forKey: degree)
                             }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text(secondaryTargetLabel)
-                                    .font(TEFonts.mono(12, weight: .bold))
-                                    .foregroundColor(secondaryTargetChannel == nil ? TEColors.midGray : TEColors.black)
-                                    .lineLimit(1)
-
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(TEColors.darkGray)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                Rectangle()
-                                    .strokeBorder(TEColors.black, lineWidth: 2)
-                            )
                         }
                     }
 
-                    if audioEngine.channelStrips.isEmpty {
-                        Text("Add channels first to select a target track")
-                            .font(TEFonts.mono(9, weight: .medium))
-                            .foregroundColor(TEColors.orange)
+                    // Listening indicator
+                    if learningSecondaryDegree != nil {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .tint(TEColors.blue)
+
+                            Text("LISTENING FOR MIDI INPUT...")
+                                .font(TEFonts.mono(10, weight: .bold))
+                                .foregroundStyle(TEColors.blue)
+
+                            Spacer()
+
+                            Button {
+                                learningSecondaryDegree = nil
+                                midiEngine.isLearningMode = false
+                            } label: {
+                                Text("CANCEL")
+                                    .font(TEFonts.mono(9, weight: .bold))
+                                    .foregroundStyle(TEColors.red)
+                            }
+                        }
+                        .padding(12)
+                        .background(
+                            Rectangle()
+                                .strokeBorder(TEColors.blue, lineWidth: 2)
+                                .background(TEColors.warmWhite)
+                        )
+                    }
+
+                    // Summary
+                    let secondaryMappedCount = secondaryMappings.count
+                    HStack {
+                        Text("\(secondaryMappedCount)/7 MAPPED")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(secondaryMappedCount == 7 ? TEColors.green : TEColors.midGray)
+
+                        Spacer()
+
+                        if !secondaryMappings.isEmpty {
+                            Button {
+                                secondaryMappings.removeAll()
+                            } label: {
+                                Text("CLEAR ALL")
+                                    .font(TEFonts.mono(9, weight: .bold))
+                                    .foregroundStyle(TEColors.red)
+                            }
+                        }
                     }
 
                     Rectangle()
                         .fill(TEColors.lightGray)
                         .frame(height: 1)
 
-                    // Secondary zone - learn just the first button
-                    VStack(spacing: 12) {
-                        Text("These buttons will play scale degrees 1-7 as single notes")
-                            .font(TEFonts.mono(9, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        // Learn first button
-                        HStack {
-                            Text("FIRST BUTTON")
-                                .font(TEFonts.mono(10, weight: .medium))
-                                .foregroundColor(TEColors.midGray)
-
-                            Spacer()
-
-                            if let startNote = secondaryStartNote {
-                                HStack(spacing: 8) {
-                                    Text(noteName(for: startNote))
-                                        .font(TEFonts.mono(12, weight: .bold))
-                                        .foregroundColor(TEColors.black)
-
-                                    Text("→ \(noteName(for: startNote + 6))")
-                                        .font(TEFonts.mono(10, weight: .medium))
-                                        .foregroundColor(TEColors.midGray)
-
-                                    Button {
-                                        secondaryStartNote = nil
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 16))
-                                            .foregroundColor(TEColors.red)
-                                    }
-                                }
-                            }
-
-                            Button {
-                                if isLearningSecondaryStart {
-                                    isLearningSecondaryStart = false
-                                    midiEngine.isLearningMode = false
-                                } else {
-                                    learningDegree = nil
-                                    isLearningSecondaryStart = true
-                                    midiEngine.isLearningMode = true
-                                }
-                            } label: {
-                                Text(isLearningSecondaryStart ? "CANCEL" : (secondaryStartNote == nil ? "LEARN" : "RELEARN"))
-                                    .font(TEFonts.mono(10, weight: .bold))
-                                    .foregroundColor(isLearningSecondaryStart ? TEColors.red : .white)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(isLearningSecondaryStart ? TEColors.warmWhite : TEColors.blue)
-                                    .overlay(Rectangle().strokeBorder(isLearningSecondaryStart ? TEColors.red : TEColors.black, lineWidth: 2))
-                            }
-                        }
-
-                        if isLearningSecondaryStart {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                    .scaleEffect(0.7)
-                                    .tint(TEColors.blue)
-
-                                Text("PRESS THE FIRST BUTTON OF YOUR SECOND SET...")
-                                    .font(TEFonts.mono(10, weight: .bold))
-                                    .foregroundColor(TEColors.blue)
-
-                                Spacer()
-                            }
-                            .padding(12)
-                            .background(
-                                Rectangle()
-                                    .strokeBorder(TEColors.blue, lineWidth: 2)
-                                    .background(TEColors.warmWhite)
-                            )
-                        }
-
-                        // Visual indicator of the 7 notes
-                        if let startNote = secondaryStartNote {
-                            HStack(spacing: 4) {
-                                ForEach(0..<7, id: \.self) { offset in
-                                    VStack(spacing: 2) {
-                                        Text("\(offset + 1)")
-                                            .font(TEFonts.mono(10, weight: .bold))
-                                            .foregroundColor(.white)
-                                        Text(noteName(for: startNote + offset))
-                                            .font(TEFonts.mono(8, weight: .medium))
-                                            .foregroundColor(.white.opacity(0.8))
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 44)
-                                    .background(TEColors.darkGray)
-                                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 1))
-                                }
-                            }
-                        }
-                    }
-
                     // Secondary octave picker
                     HStack {
                         Text("OUTPUT OCTAVE")
                             .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
 
                         Spacer()
 
@@ -509,7 +456,7 @@ struct ChordMapView: View {
                                 } label: {
                                     Text("\(octave)")
                                         .font(TEFonts.mono(12, weight: .bold))
-                                        .foregroundColor(secondaryBaseOctave == octave ? .white : TEColors.black)
+                                        .foregroundStyle(secondaryBaseOctave == octave ? .white : TEColors.black)
                                         .frame(width: 44, height: 36)
                                         .background(secondaryBaseOctave == octave ? TEColors.blue : TEColors.cream)
                                 }
@@ -526,15 +473,6 @@ struct ChordMapView: View {
                     .background(TEColors.warmWhite)
             )
         }
-    }
-
-    private var secondaryTargetLabel: String {
-        guard let index = secondaryTargetChannel,
-              index < audioEngine.channelStrips.count else {
-            return "NONE"
-        }
-        let strip = audioEngine.channelStrips[index]
-        return "CH \(index + 1): \(strip.name.uppercased())"
     }
 
     private func noteName(for note: Int) -> String {
@@ -554,14 +492,21 @@ struct ChordMapView: View {
             buttonMap[note] = degree
         }
 
+        // Convert secondary degree -> note mapping to note -> degree
+        var secondaryButtonMap: [Int: Int] = [:]
+        for (degree, note) in secondaryMappings {
+            secondaryButtonMap[note] = degree
+        }
+
         midiEngine.chordMapping = ChordMapping(
             chordPadChannel: midiEngine.chordMapping.chordPadChannel,
             buttonMap: buttonMap,
             baseOctave: baseOctave,
             secondaryZoneEnabled: secondaryEnabled,
-            secondaryStartNote: secondaryStartNote,
-            secondaryTargetChannel: secondaryTargetChannel,
-            secondaryBaseOctave: secondaryBaseOctave
+            secondaryStartNote: nil,
+            secondaryTargetChannel: nil,
+            secondaryBaseOctave: secondaryBaseOctave,
+            secondaryButtonMap: secondaryButtonMap
         )
 
         dismiss()
@@ -599,16 +544,16 @@ struct ChordDegreeLearnButton: View {
                     if let note = mappedNote {
                         Text(noteName)
                             .font(TEFonts.mono(9, weight: .medium))
-                            .foregroundColor(isLearning ? .white.opacity(0.7) : .white.opacity(0.8))
+                            .foregroundStyle(isLearning ? .white.opacity(0.7) : .white.opacity(0.8))
                     } else {
                         Text("TAP")
                             .font(TEFonts.mono(8, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                     }
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 64)
-                .foregroundColor(mappedNote != nil || isLearning ? .white : TEColors.darkGray)
+                .foregroundStyle(mappedNote != nil || isLearning ? .white : TEColors.darkGray)
                 .background(
                     isLearning ? TEColors.orange :
                     (mappedNote != nil ? TEColors.black : TEColors.lightGray)
@@ -625,7 +570,72 @@ struct ChordDegreeLearnButton: View {
                 Button(action: onClear) {
                     Image(systemName: "xmark")
                         .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(TEColors.red)
+                        .foregroundStyle(TEColors.red)
+                }
+                .frame(height: 16)
+            } else {
+                Spacer().frame(height: 16)
+            }
+        }
+    }
+}
+
+// MARK: - Secondary Degree Learn Button
+
+struct SecondaryDegreeLearnButton: View {
+    let degree: Int
+    let mappedNote: Int?
+    let isLearning: Bool
+    let onTap: () -> Void
+    let onClear: () -> Void
+
+    private var degreeLabel: String {
+        "\(degree)"
+    }
+
+    private var noteName: String {
+        guard let note = mappedNote else { return "—" }
+        let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        let octave = (note / 12) - 1
+        return "\(noteNames[note % 12])\(octave)"
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Button(action: onTap) {
+                VStack(spacing: 4) {
+                    Text(degreeLabel)
+                        .font(TEFonts.mono(16, weight: .black))
+
+                    if let _ = mappedNote {
+                        Text(noteName)
+                            .font(TEFonts.mono(9, weight: .medium))
+                            .foregroundStyle(isLearning ? .white.opacity(0.7) : .white.opacity(0.8))
+                    } else {
+                        Text("TAP")
+                            .font(TEFonts.mono(8, weight: .medium))
+                            .foregroundStyle(TEColors.midGray)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 64)
+                .foregroundStyle(mappedNote != nil || isLearning ? .white : TEColors.darkGray)
+                .background(
+                    isLearning ? TEColors.blue :
+                    (mappedNote != nil ? TEColors.darkGray : TEColors.lightGray)
+                )
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(isLearning ? TEColors.blue : TEColors.black, lineWidth: 2)
+                )
+            }
+            .buttonStyle(.plain)
+
+            if mappedNote != nil && !isLearning {
+                Button(action: onClear) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(TEColors.red)
                 }
                 .frame(height: 16)
             } else {

@@ -14,7 +14,7 @@ struct BluetoothMIDIView: View {
                 HStack {
                     Text("BLUETOOTH MIDI")
                         .font(TEFonts.display(16, weight: .black))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                         .tracking(2)
 
                     Spacer()
@@ -26,7 +26,7 @@ struct BluetoothMIDIView: View {
                     } label: {
                         Text("DONE")
                             .font(TEFonts.mono(11, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 20)
                             .padding(.vertical, 10)
                             .background(TEColors.black)

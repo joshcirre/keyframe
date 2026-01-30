@@ -67,7 +67,7 @@ struct ScaleEngine {
             }
         }
 
-        // Choose the nearest one (prefer UP when equidistant - feels more natural)
+        // Choose the nearest one
         switch (noteBelow, noteAbove) {
         case (nil, let above?):
             return UInt8(above)
@@ -76,10 +76,40 @@ struct ScaleEngine {
         case (let below?, let above?):
             let distBelow = noteInt - below
             let distAbove = above - noteInt
-            // Prefer UP when equidistant (sharps resolve up naturally)
-            return UInt8(distBelow < distAbove ? below : above)
+            if distBelow < distAbove {
+                return UInt8(below)
+            } else if distAbove < distBelow {
+                return UInt8(above)
+            } else {
+                // Equidistant: snap to the note with the same letter name
+                // F# → F, Bb → B, etc. (accidentals resolve to their natural)
+                return UInt8(snapEquidistantByLetter(noteInt: noteInt, below: below, above: above))
+            }
         case (nil, nil):
             return note // Fallback
+        }
+    }
+    
+    /// When equidistant, snap to the note that shares the same letter name
+    /// Uses common enharmonic spellings: C#, F# (sharps → down), Eb, Ab, Bb (flats → up)
+    private static func snapEquidistantByLetter(noteInt: Int, below: Int, above: Int) -> Int {
+        let pitchClass = noteInt % 12
+        
+        switch pitchClass {
+        // Black keys - use most common enharmonic spelling
+        case 1:  return below  // C# → C (sharp, resolve down)
+        case 3:  return above  // Eb → E (flat, resolve up)
+        case 6:  return below  // F# → F (sharp, resolve down)
+        case 8:  return above  // Ab → A (flat, resolve up)
+        case 10: return above  // Bb → B (flat, resolve up)
+        
+        // White keys out of scale - snap to altered version with same letter
+        case 4:  return below  // E → Eb (if Eb in scale)
+        case 11: return below  // B → Bb (if Bb in scale)
+        case 0:  return above  // C → C# (if C# in scale)
+        case 5:  return above  // F → F# (if F# in scale)
+        
+        default: return below  // D, G, A - default down
         }
     }
     

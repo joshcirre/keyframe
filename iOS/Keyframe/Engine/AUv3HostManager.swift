@@ -4,22 +4,24 @@ import CoreAudioKit
 import UIKit
 
 /// Manages discovery, instantiation, and lifecycle of AUv3 plugins
-final class AUv3HostManager: ObservableObject {
-    
+@Observable
+@MainActor
+final class AUv3HostManager {
+
     // MARK: - Singleton
-    
+
     static let shared = AUv3HostManager()
-    
-    // MARK: - Published Properties
-    
-    @Published private(set) var availableInstruments: [AVAudioUnitComponent] = []
-    @Published private(set) var availableEffects: [AVAudioUnitComponent] = []
-    @Published private(set) var isScanning = false
-    
+
+    // MARK: - Observable Properties
+
+    private(set) var availableInstruments: [AVAudioUnitComponent] = []
+    private(set) var availableEffects: [AVAudioUnitComponent] = []
+    private(set) var isScanning = false
+
     // MARK: - Component Manager
-    
-    private let componentManager = AVAudioUnitComponentManager.shared()
-    private var notificationObserver: NSObjectProtocol?
+
+    @ObservationIgnored private let componentManager = AVAudioUnitComponentManager.shared()
+    @ObservationIgnored private var notificationObserver: NSObjectProtocol?
     
     // MARK: - Initialization
     

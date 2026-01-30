@@ -4,66 +4,100 @@ import Foundation
 
 /// Integrated MIDI Engine with built-in scale filtering and chord generation
 /// Replaces the need for a separate Scale Filter AUv3
-final class MIDIEngine: ObservableObject {
-    
+@Observable
+@MainActor
+final class MIDIEngine {
+
     // MARK: - Singleton
-    
+
     static let shared = MIDIEngine()
-    
-    // MARK: - Published Properties
-    
-    @Published private(set) var isInitialized = false
-    @Published private(set) var connectedSources: [MIDISourceInfo] = []
-    @Published private(set) var lastReceivedMessage: String?
-    @Published private(set) var lastActivity: Date?
-    
+
+    // MARK: - Observable Properties
+
+    private(set) var isInitialized = false
+    private(set) var connectedSources: [MIDISourceInfo] = []
+    private(set) var lastReceivedMessage: String?
+    private(set) var lastActivity: Date?
+
     // MARK: - Scale/Chord Settings
 
-    @Published var currentRootNote: Int = 0  // C
-    @Published var currentScaleType: ScaleType = .major
-    @Published var filterMode: FilterMode = .snap
-    @Published var isScaleFilterEnabled = true
+    var currentRootNote: Int = 0  // C
+    var currentScaleType: ScaleType = .major
+    var filterMode: FilterMode = .snap
+    var isScaleFilterEnabled = true
 
     // MARK: - ChordPad Settings (persisted)
 
-    @Published var chordPadChannel: Int = 10 {  // 1-16
-        didSet { saveChordPadSettings() }
+    /// Flag to prevent saving during load
+    @ObservationIgnored private var isLoadingSettings = false
+
+    var chordPadSourceName: String? = nil {  // nil = disabled
+        didSet { 
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
     }
-    @Published var chordPadSourceName: String? = nil {  // nil = disabled
-        didSet { saveChordPadSettings() }
+
+    /// MIDI channel for chord triggers (1-16, 0 = any)
+    var chordZoneChannel: Int = 10 {
+        didSet { 
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
     }
+
+    /// MIDI channel for single note triggers (1-16, 0 = any)
+    var singleNoteZoneChannel: Int = 10 {
+        didSet { 
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+
     var chordMapping: ChordMapping = .defaultMapping {
-        didSet { saveChordPadSettings() }
+        didSet { 
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+
+    /// Legacy property for backwards compatibility
+    var chordPadChannel: Int {
+        get { chordZoneChannel }
+        set { chordZoneChannel = newValue }
     }
 
     // MARK: - Persistence Keys
 
-    private let chordPadChannelKey = "chordPadChannel"
-    private let chordPadSourceNameKey = "chordPadSourceName"
-    private let chordMappingKey = "chordMapping"
+    @ObservationIgnored private let chordZoneChannelKey = "chordZoneChannel"
+    @ObservationIgnored private let singleNoteZoneChannelKey = "singleNoteZoneChannel"
+    @ObservationIgnored private let chordPadSourceNameKey = "chordPadSourceName"
+    @ObservationIgnored private let chordMappingKey = "chordMapping"
+    // Legacy key for migration
+    @ObservationIgnored private let legacyChordPadChannelKey = "chordPadChannel"
 
     // MARK: - MIDI Learn Mode
 
-    @Published var isLearningMode = false
-    @Published var isCCLearningMode = false
-    var onNoteLearn: ((Int, Int, String?) -> Void)?  // (note, channel, sourceName)
-    var onCCLearn: ((Int, Int, String?) -> Void)?    // (cc, channel, sourceName)
+    var isLearningMode = false {
+        didSet {
+            print("MIDIEngine: isLearningMode changed to \(isLearningMode)")
+        }
+    }
+    var isCCLearningMode = false
+    @ObservationIgnored var onNoteLearn: ((Int, Int, String?) -> Void)?  // (note, channel, sourceName)
+    @ObservationIgnored var onCCLearn: ((Int, Int, String?) -> Void)?    // (cc, channel, sourceName)
 
     // MARK: - Control Callbacks
 
-    var onSongTrigger: ((Int, Int, String?) -> Void)?       // (note, channel, sourceName) - for triggering songs
-    var onFaderControl: ((Int, Int, Int, String?) -> Void)? // (cc, value, channel, sourceName) - for fader control
-    
+    @ObservationIgnored var onSongTrigger: ((Int, Int, String?) -> Void)?       // (note, channel, sourceName) - for triggering songs
+    @ObservationIgnored var onFaderControl: ((Int, Int, Int, String?) -> Void)? // (cc, value, channel, sourceName) - for fader control
+
     // MARK: - CoreMIDI
 
-    private var midiClient: MIDIClientRef = 0
-    private var inputPort: MIDIPortRef = 0
-    private var outputPort: MIDIPortRef = 0
+    @ObservationIgnored private var midiClient: MIDIClientRef = 0
+    @ObservationIgnored private var inputPort: MIDIPortRef = 0
+    @ObservationIgnored private var outputPort: MIDIPortRef = 0
 
     // MARK: - MIDI Output Settings
 
-    @Published private(set) var availableDestinations: [MIDIDestinationInfo] = []
-    @Published var selectedDestinationEndpoint: MIDIEndpointRef? = nil {
+    private(set) var availableDestinations: [MIDIDestinationInfo] = []
+    var selectedDestinationEndpoint: MIDIEndpointRef? = nil {
         didSet {
             // Only save if not currently restoring (to avoid erasing saved name when device not yet discovered)
             if !isRestoringDestination {
@@ -71,12 +105,12 @@ final class MIDIEngine: ObservableObject {
             }
         }
     }
-    private var isRestoringDestination = false
-    private var savedDestinationName: String?  // Keep saved name even if device not available yet
-    @Published var externalMIDIChannel: Int = 1 {  // 1-16
+    @ObservationIgnored private var isRestoringDestination = false
+    @ObservationIgnored private var savedDestinationName: String?  // Keep saved name even if device not available yet
+    var externalMIDIChannel: Int = 1 {  // 1-16
         didSet { saveOutputSettings() }
     }
-    @Published var isNetworkSessionEnabled: Bool = false {
+    var isNetworkSessionEnabled: Bool = false {
         didSet {
             configureNetworkSession()
             saveOutputSettings()
@@ -90,15 +124,15 @@ final class MIDIEngine: ObservableObject {
 
     // MARK: - External Tempo Sync
 
-    @Published var isExternalTempoSyncEnabled: Bool = false {
+    var isExternalTempoSyncEnabled: Bool = false {
         didSet { saveOutputSettings() }
     }
-    @Published var tapTempoCC: Int = 64 {  // Helix default tap tempo CC
+    var tapTempoCC: Int = 64 {  // Helix default tap tempo CC
         didSet { saveOutputSettings() }
     }
 
     /// Current session BPM for display purposes (default 90, updated when presets with BPM are selected)
-    @Published var currentBPM: Int = 90
+    var currentBPM: Int = 90
 
     // Persistence keys for output settings
     private let selectedDestinationKey = "midiOutputDestination"
@@ -110,6 +144,15 @@ final class MIDIEngine: ObservableObject {
     // Track active notes for proper note-off handling
     // Key: sourceHash ^ channel ^ note, Value: Dictionary of channelStripId -> processed notes sent
     private var activeNotes: [Int: [UUID: [UInt8]]] = [:]
+    
+    // Reference count for output notes - allows multiple inputs to map to same output
+    // Key: (channelStripId, outputNote), Value: count of inputs currently holding this note
+    // Only sends Note-Off when count reaches 0
+    private var outputNoteRefCount: [String: Int] = [:]
+    
+    private func outputNoteKey(channelId: UUID, note: UInt8) -> String {
+        return "\(channelId.uuidString):\(note)"
+    }
     
     // Source endpoint to name mapping
     private var sourceNameMap: [MIDIEndpointRef: String] = [:]
@@ -130,13 +173,26 @@ final class MIDIEngine: ObservableObject {
     }
 
     // MARK: - ChordPad Persistence
-
+    
     private func loadChordPadSettings() {
+        isLoadingSettings = true
+        defer { isLoadingSettings = false }
+        
         let defaults = UserDefaults.standard
 
-        // Load channel
-        if defaults.object(forKey: chordPadChannelKey) != nil {
-            chordPadChannel = defaults.integer(forKey: chordPadChannelKey)
+        // Load chord zone channel (with migration from legacy key)
+        if defaults.object(forKey: chordZoneChannelKey) != nil {
+            chordZoneChannel = defaults.integer(forKey: chordZoneChannelKey)
+        } else if defaults.object(forKey: legacyChordPadChannelKey) != nil {
+            // Migrate from old single channel setting
+            chordZoneChannel = defaults.integer(forKey: legacyChordPadChannelKey)
+        }
+
+        // Load single note zone channel (defaults to same as chord zone if not set)
+        if defaults.object(forKey: singleNoteZoneChannelKey) != nil {
+            singleNoteZoneChannel = defaults.integer(forKey: singleNoteZoneChannelKey)
+        } else {
+            singleNoteZoneChannel = chordZoneChannel
         }
 
         // Load source name
@@ -148,18 +204,31 @@ final class MIDIEngine: ObservableObject {
             chordMapping = mapping
         }
 
-        print("MIDIEngine: Loaded ChordPad settings - source: \(chordPadSourceName ?? "none"), channel: \(chordPadChannel), mappings: \(chordMapping.buttonMap.count)")
+        print("MIDIEngine: Loaded ChordPad settings - source: '\(chordPadSourceName ?? "nil")', chordCh: \(chordZoneChannel), noteCh: \(singleNoteZoneChannel), mappings: \(chordMapping.buttonMap.count)")
+        
+        // Debug: verify what's actually in UserDefaults
+        let savedSource = defaults.string(forKey: chordPadSourceNameKey)
+        let savedMappingData = defaults.data(forKey: chordMappingKey)
+        print("MIDIEngine: UserDefaults check - savedSource: '\(savedSource ?? "nil")', hasMappingData: \(savedMappingData != nil)")
     }
 
     private func saveChordPadSettings() {
+        guard !isLoadingSettings else { return }
+        
         let defaults = UserDefaults.standard
 
-        defaults.set(chordPadChannel, forKey: chordPadChannelKey)
+        defaults.set(chordZoneChannel, forKey: chordZoneChannelKey)
+        defaults.set(singleNoteZoneChannel, forKey: singleNoteZoneChannelKey)
         defaults.set(chordPadSourceName, forKey: chordPadSourceNameKey)
 
         if let data = try? JSONEncoder().encode(chordMapping) {
             defaults.set(data, forKey: chordMappingKey)
         }
+        
+        // Force synchronize to ensure data is written immediately
+        defaults.synchronize()
+        
+        print("MIDIEngine: Saved ChordPad settings - source: '\(chordPadSourceName ?? "nil")', chordCh: \(chordZoneChannel)")
     }
 
     // MARK: - Output Settings Persistence
@@ -231,7 +300,8 @@ final class MIDIEngine: ObservableObject {
     }
 
     deinit {
-        teardownMIDI()
+        // Note: teardownMIDI requires MainActor but deinit is nonisolated
+        // CoreMIDI cleanup handled when the MIDIClientRef is deallocated
     }
     
     func setAudioEngine(_ engine: AudioEngine) {
@@ -597,8 +667,11 @@ final class MIDIEngine: ObservableObject {
     private func processNoteOn(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?) {
         let midiChannel = Int(channel) + 1  // Convert to 1-based
 
+        print("MIDIEngine: processNoteOn note=\(note) ch=\(midiChannel) source=\(sourceName ?? "nil") isLearningMode=\(isLearningMode)")
+
         // MIDI Learn mode - intercept note and call callback
         if isLearningMode {
+            print("MIDIEngine: Learning mode active, calling onNoteLearn callback (hasCallback: \(onNoteLearn != nil))")
             DispatchQueue.main.async { [weak self] in
                 self?.onNoteLearn?(Int(note), midiChannel, sourceName)
             }
@@ -612,28 +685,47 @@ final class MIDIEngine: ObservableObject {
 
         guard let audioEngine = audioEngine else { return }
 
-        // Check if this is from the ChordPad (chord trigger controller)
+        // Check if this is from the ChordPad controller
         // Requires a specific source (no "any" source allowed)
-        // Channel can be specific (1-16) or any (0)
-        // ALL notes from ChordPad are captured - mapped ones trigger chords, unmapped ones are ignored
-        let chordPadChannelMatches = chordPadChannel == 0 || midiChannel == chordPadChannel
-        if let chordPadSource = chordPadSourceName,
-           chordPadSource == sourceName,
-           chordPadChannelMatches {
+        guard let chordPadSource = chordPadSourceName else {
+            // No ChordPad configured, route to normal channels
+            routeToInstrumentChannels(note: note, velocity: velocity, channel: channel, sourceName: sourceName, audioEngine: audioEngine)
+            return
+        }
 
-            // Check if this note is in the secondary zone (split controller mode)
-            if chordMapping.isSecondaryZoneNote(note) {
+        // Debug: Log the comparison to diagnose mismatch
+        if chordPadSource != sourceName {
+            print("MIDIEngine: ChordPad source mismatch - saved='\(chordPadSource)' vs incoming='\(sourceName ?? "nil")'")
+        }
+
+        if chordPadSource == sourceName {
+            // This is from the ChordPad controller - check if it matches chord or single note channel
+
+            // Check for single note zone (secondary zone) first
+            let singleNoteChannelMatches = singleNoteZoneChannel == 0 || midiChannel == singleNoteZoneChannel
+            if singleNoteChannelMatches && chordMapping.isSecondaryZoneNote(note) {
                 processSecondaryZoneNote(note: note, velocity: velocity, channel: channel, sourceName: sourceName)
                 return
             }
 
-            // Only process if this note is mapped to a chord degree
-            if chordMapping.buttonMap[Int(note)] != nil {
+            // Check for chord zone
+            let chordChannelMatches = chordZoneChannel == 0 || midiChannel == chordZoneChannel
+            if chordChannelMatches && chordMapping.buttonMap[Int(note)] != nil {
                 processChordTrigger(note: note, velocity: velocity, channel: channel, sourceName: sourceName)
+                return
             }
-            // Always return - don't let ChordPad notes fall through to instruments
+
+            // Note is from ChordPad but not mapped - don't pass through
             return
         }
+
+        // Not from ChordPad, route to normal instrument channels
+        routeToInstrumentChannels(note: note, velocity: velocity, channel: channel, sourceName: sourceName, audioEngine: audioEngine)
+    }
+
+    /// Route a note to instrument channels based on MIDI source/channel filtering
+    private func routeToInstrumentChannels(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?, audioEngine: AudioEngine) {
+        let midiChannel = Int(channel) + 1
 
         // Find target channel(s) that accept this source + channel
         let targetChannels = audioEngine.channelStrips.filter { strip in
@@ -658,12 +750,22 @@ final class MIDIEngine: ObservableObject {
                 processedNotes = [note]
             }
 
-            // Store which notes were actually sent to this specific channel
-            activeNotes[sourceKey]?[targetChannel.id] = processedNotes
+            // Apply octave transpose (each octave = 12 semitones)
+            let transposeSemitones = targetChannel.octaveTranspose * 12
+            let transposedNotes = processedNotes.map { note in
+                UInt8(clamping: Int(note) + transposeSemitones)
+            }
 
-            // Send to instrument
-            for processedNote in processedNotes {
-                targetChannel.sendMIDI(noteOn: processedNote, velocity: velocity)
+            // Store which notes were actually sent to this specific channel
+            activeNotes[sourceKey]?[targetChannel.id] = transposedNotes
+
+            // Send to instrument with reference counting
+            // This allows multiple inputs to map to the same output note (e.g., Bb and B both -> B)
+            // Always send Note-On (for retrigger/arp behavior), increment ref count
+            for transposedNote in transposedNotes {
+                let key = outputNoteKey(channelId: targetChannel.id, note: transposedNote)
+                outputNoteRefCount[key, default: 0] += 1
+                targetChannel.sendMIDI(noteOn: transposedNote, velocity: velocity)
             }
         }
 
@@ -683,7 +785,17 @@ final class MIDIEngine: ObservableObject {
                 // Find the channel strip by ID
                 if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
                     for processedNote in processedNotes {
-                        targetChannel.sendMIDI(noteOff: processedNote)
+                        // Decrement reference count - only send Note-Off when no inputs are holding this note
+                        let key = outputNoteKey(channelId: channelId, note: processedNote)
+                        let currentCount = outputNoteRefCount[key, default: 0]
+                        if currentCount <= 1 {
+                            // Last input holding this note - send Note-Off
+                            outputNoteRefCount.removeValue(forKey: key)
+                            targetChannel.sendMIDI(noteOff: processedNote)
+                        } else {
+                            // Other inputs still holding this note - just decrement
+                            outputNoteRefCount[key] = currentCount - 1
+                        }
                     }
                 }
             }
@@ -744,51 +856,51 @@ final class MIDIEngine: ObservableObject {
     // MARK: - Secondary Zone Processing (Split Controller)
 
     /// Process a note from the ChordPad's secondary zone
-    /// These notes play scale degree notes on a specific target channel
+    /// These notes play scale degree notes on all Single Note Target channels
     private func processSecondaryZoneNote(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?) {
         guard let audioEngine = audioEngine else { return }
 
-        // Get the target channel index
-        guard let targetIndex = chordMapping.secondaryTargetChannel,
-              targetIndex < audioEngine.channelStrips.count else {
-            print("MIDIEngine: Secondary zone note \(note) - no valid target channel")
-            return
-        }
-
-        // Get the scale degree for this button
+        // Get the scale degree for this input note
         guard let degree = chordMapping.secondaryDegree(note) else {
             print("MIDIEngine: Secondary zone note \(note) - no degree mapping")
             return
         }
 
-        let targetChannel = audioEngine.channelStrips[targetIndex]
+        // Find all Single Note Target channels
+        let targetChannels = audioEngine.channelStrips.filter { $0.isSingleNoteTarget }
+
+        guard !targetChannels.isEmpty else {
+            print("MIDIEngine: Secondary zone note \(note) - no target channels")
+            return
+        }
 
         // Calculate the actual MIDI note from scale degree
-        // Use ScaleEngine to get the note for this degree in the current key
         let outputNote = ScaleEngine.noteForDegree(
-            degree: degree,
+            degree,
             root: currentRootNote,
             scale: currentScaleType,
             octave: chordMapping.secondaryBaseOctave
         )
 
-        // Create key for tracking this note
+        // Track notes and send to all targets
         let sourceHash = sourceName?.hashValue ?? 0
         let sourceKey = sourceHash ^ (Int(channel) << 8) ^ Int(note)
 
-        // Initialize mapping for this note if needed
         if activeNotes[sourceKey] == nil {
             activeNotes[sourceKey] = [:]
         }
 
-        // Store which note was sent to this channel
-        activeNotes[sourceKey]?[targetChannel.id] = [outputNote]
+        for targetChannel in targetChannels {
+            // Apply octave transpose (each octave = 12 semitones)
+            let transposeSemitones = targetChannel.octaveTranspose * 12
+            let transposedNote = UInt8(clamping: Int(outputNote) + transposeSemitones)
 
-        // Send to instrument
-        targetChannel.sendMIDI(noteOn: outputNote, velocity: velocity)
+            activeNotes[sourceKey]?[targetChannel.id] = [transposedNote]
+            targetChannel.sendMIDI(noteOn: transposedNote, velocity: velocity)
+        }
 
         let degreeNames = ["1", "2", "3", "4", "5", "6", "7"]
-        updateLastMessage("Split: Deg \(degreeNames[degree - 1]) → Note \(outputNote) → Ch\(targetIndex + 1)")
+        updateLastMessage("Split: Deg \(degreeNames[degree - 1]) → Note \(outputNote)")
     }
 
     // MARK: - Chord Triggering
@@ -820,11 +932,17 @@ final class MIDIEngine: ObservableObject {
         }
 
         for targetChannel in targetChannels {
-            // Store which chord notes were sent to this channel
-            activeNotes[sourceKey]?[targetChannel.id] = chordNotes
+            // Apply octave transpose (each octave = 12 semitones)
+            let transposeSemitones = targetChannel.octaveTranspose * 12
+            let transposedChordNotes = chordNotes.map { note in
+                UInt8(clamping: Int(note) + transposeSemitones)
+            }
 
-            for chordNote in chordNotes {
-                targetChannel.sendMIDI(noteOn: chordNote, velocity: velocity)
+            // Store which chord notes were sent to this channel
+            activeNotes[sourceKey]?[targetChannel.id] = transposedChordNotes
+
+            for transposedNote in transposedChordNotes {
+                targetChannel.sendMIDI(noteOn: transposedNote, velocity: velocity)
             }
         }
 

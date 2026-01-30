@@ -3,8 +3,8 @@ import SwiftUI
 /// Editor for creating and editing performance presets - TE Style
 struct PerformanceSongEditorView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var sessionStore = SessionStore.shared
-    @StateObject private var midiEngine = MIDIEngine.shared
+    @State private var sessionStore = SessionStore.shared
+    @State private var midiEngine = MIDIEngine.shared
 
     @State var song: PerformanceSong
     let isNew: Bool
@@ -99,14 +99,14 @@ struct PerformanceSongEditorView: View {
             } label: {
                 Text("CANCEL")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
             }
             
             Spacer()
             
             Text(isNew ? "NEW PRESET" : "EDIT PRESET")
                 .font(TEFonts.display(16, weight: .black))
-                .foregroundColor(TEColors.black)
+                .foregroundStyle(TEColors.black)
                 .tracking(2)
             
             Spacer()
@@ -116,7 +116,7 @@ struct PerformanceSongEditorView: View {
             } label: {
                 Text("SAVE")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(song.name.isEmpty ? TEColors.midGray : TEColors.orange)
@@ -136,12 +136,12 @@ struct PerformanceSongEditorView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("PRESET NAME")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
                     .tracking(2)
 
                 TextField("PRESET NAME", text: $song.name)
                     .font(TEFonts.display(24, weight: .black))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .textInputAutocapitalization(.characters)
                     .padding(16)
                     .background(
@@ -155,12 +155,12 @@ struct PerformanceSongEditorView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("SONG NAME")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
                     .tracking(2)
 
                 TextField("OPTIONAL", text: songNameBinding)
                     .font(TEFonts.display(18, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .textInputAutocapitalization(.characters)
                     .padding(16)
                     .background(
@@ -188,7 +188,7 @@ struct PerformanceSongEditorView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("KEY")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
             
             VStack(spacing: 16) {
@@ -196,7 +196,7 @@ struct PerformanceSongEditorView: View {
                 HStack {
                     Text("ROOT")
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                     
                     Spacer()
                     
@@ -208,7 +208,7 @@ struct PerformanceSongEditorView: View {
                             } label: {
                                 Text(note.displayName)
                                     .font(TEFonts.mono(12, weight: .bold))
-                                    .foregroundColor(song.rootNote == note.rawValue ? .white : TEColors.black)
+                                    .foregroundStyle(song.rootNote == note.rawValue ? .white : TEColors.black)
                                     .frame(width: 28, height: 32)
                                     .background(
                                         Rectangle()
@@ -227,7 +227,7 @@ struct PerformanceSongEditorView: View {
                 HStack {
                     Text("SCALE")
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                     
                     Spacer()
                     
@@ -238,7 +238,7 @@ struct PerformanceSongEditorView: View {
                             } label: {
                                 Text(scale.rawValue.uppercased())
                                     .font(TEFonts.mono(11, weight: .bold))
-                                    .foregroundColor(song.scaleType == scale ? .white : TEColors.black)
+                                    .foregroundStyle(song.scaleType == scale ? .white : TEColors.black)
                                     .frame(width: 70, height: 36)
                                     .background(
                                         Rectangle()
@@ -257,7 +257,7 @@ struct PerformanceSongEditorView: View {
                 HStack {
                     Text("MODE")
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                     
                     Spacer()
                     
@@ -268,7 +268,7 @@ struct PerformanceSongEditorView: View {
                             } label: {
                                 Text(mode.rawValue.uppercased())
                                     .font(TEFonts.mono(11, weight: .bold))
-                                    .foregroundColor(song.filterMode == mode ? .white : TEColors.black)
+                                    .foregroundStyle(song.filterMode == mode ? .white : TEColors.black)
                                     .frame(width: 70, height: 36)
                                     .background(
                                         Rectangle()
@@ -286,7 +286,7 @@ struct PerformanceSongEditorView: View {
                 // Mode description
                 Text(song.filterMode.description.uppercased())
                     .font(TEFonts.mono(9, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
             }
             .padding(16)
             .background(
@@ -303,25 +303,25 @@ struct PerformanceSongEditorView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("TEMPO")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
             
             VStack(spacing: 16) {
                 HStack {
                     Text("BPM")
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                     
                     Spacer()
                     
                     if let bpm = song.bpm {
                         Text("\(bpm)")
                             .font(TEFonts.mono(24, weight: .bold))
-                            .foregroundColor(TEColors.black)
+                            .foregroundStyle(TEColors.black)
                     } else {
                         Text("OFF")
                             .font(TEFonts.mono(14, weight: .bold))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                     }
                 }
                 
@@ -332,7 +332,7 @@ struct PerformanceSongEditorView: View {
                     HStack {
                         Text("ENABLE BPM")
                             .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                         
                         Spacer()
                         
@@ -362,7 +362,7 @@ struct PerformanceSongEditorView: View {
                             } label: {
                                 Text("\(tempo)")
                                     .font(TEFonts.mono(11, weight: .bold))
-                                    .foregroundColor(song.bpm == tempo ? .white : TEColors.black)
+                                    .foregroundStyle(song.bpm == tempo ? .white : TEColors.black)
                                     .frame(maxWidth: .infinity)
                                     .frame(height: 36)
                                     .background(
@@ -384,7 +384,7 @@ struct PerformanceSongEditorView: View {
                         } label: {
                             Image(systemName: "minus")
                                 .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(TEColors.black)
+                                .foregroundStyle(TEColors.black)
                                 .frame(width: 44, height: 44)
                                 .background(
                                     Rectangle()
@@ -399,7 +399,7 @@ struct PerformanceSongEditorView: View {
                         } label: {
                             Image(systemName: "plus")
                                 .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(TEColors.black)
+                                .foregroundStyle(TEColors.black)
                                 .frame(width: 44, height: 44)
                                 .background(
                                     Rectangle()
@@ -424,104 +424,36 @@ struct PerformanceSongEditorView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("MIDI TRIGGER")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
 
             VStack(spacing: 16) {
                 // Source picker
-                HStack {
-                    Text("CONTROLLER")
-                        .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
-
-                    Spacer()
-
-                    let connectedNames = Set(midiEngine.connectedSources.map { $0.name })
-                    let isOffline = song.triggerSourceName != nil && !connectedNames.contains(song.triggerSourceName!)
-
-                    Menu {
-                        Button("ANY") {
-                            song.triggerSourceName = nil
-                        }
-                        ForEach(midiEngine.connectedSources) { source in
-                            Button(source.name.uppercased()) {
-                                song.triggerSourceName = source.name
-                            }
-                        }
-                        // Show saved offline source
-                        if let savedSource = song.triggerSourceName, isOffline {
-                            Button("\(savedSource.uppercased()) (OFFLINE)") {
-                                // Keep same selection
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(triggerSourceLabel(isOffline: isOffline))
-                                .font(TEFonts.mono(12, weight: .bold))
-                                .foregroundColor(isOffline ? TEColors.orange : TEColors.black)
-                                .lineLimit(1)
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(TEColors.darkGray)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Rectangle()
-                                .strokeBorder(TEColors.black, lineWidth: 2)
-                        )
-                    }
-                }
+                triggerSourcePicker
 
                 // Channel picker
-                HStack {
-                    Text("CHANNEL")
-                        .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
-
-                    Spacer()
-
-                    Menu {
-                        Button("ANY") {
-                            song.triggerChannel = nil
-                        }
-                        ForEach(1...16, id: \.self) { ch in
-                            Button("CH \(ch)") {
-                                song.triggerChannel = ch
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(song.triggerChannel.map { "CH \($0)" } ?? "ANY")
-                                .font(TEFonts.mono(12, weight: .bold))
-                                .foregroundColor(TEColors.black)
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(TEColors.darkGray)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Rectangle()
-                                .strokeBorder(TEColors.black, lineWidth: 2)
-                        )
-                    }
-                }
+                SettingsPicker(
+                    label: "CHANNEL",
+                    selection: Binding(
+                        get: { song.triggerChannel },
+                        set: { song.triggerChannel = $0 }
+                    ),
+                    options: [(nil, "ANY")] + (1...16).map { ($0 as Int?, "CH \($0)") },
+                    displayValue: song.triggerChannel.map { "CH \($0)" } ?? "ANY"
+                )
 
                 // Note Learn button
                 HStack {
                     Text("NOTE")
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
 
                     Spacer()
 
                     if let note = song.triggerNote {
                         Text("NOTE \(note)")
                             .font(TEFonts.mono(12, weight: .bold))
-                            .foregroundColor(TEColors.black)
+                            .foregroundStyle(TEColors.black)
 
                         Button {
                             song.triggerNote = nil
@@ -529,7 +461,7 @@ struct PerformanceSongEditorView: View {
                         } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(TEColors.red)
+                                .foregroundStyle(TEColors.red)
                         }
                     }
 
@@ -560,7 +492,7 @@ struct PerformanceSongEditorView: View {
                     } label: {
                         Text(isLearningTrigger ? "LISTENING..." : "LEARN")
                             .font(TEFonts.mono(11, weight: .bold))
-                            .foregroundColor(isLearningTrigger ? .white : TEColors.black)
+                            .foregroundStyle(isLearningTrigger ? .white : TEColors.black)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(isLearningTrigger ? TEColors.orange : TEColors.lightGray)
@@ -584,14 +516,14 @@ struct PerformanceSongEditorView: View {
             HStack {
                 Text("EXTERNAL MIDI OUT")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
                     .tracking(2)
 
                 Spacer()
 
                 Text("\(song.externalMIDIMessages.count)")
                     .font(TEFonts.mono(10, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
             }
 
             VStack(spacing: 8) {
@@ -619,7 +551,7 @@ struct PerformanceSongEditorView: View {
                         Text("ADD MIDI MESSAGE")
                             .font(TEFonts.mono(11, weight: .bold))
                     }
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
                     .background(
@@ -643,7 +575,7 @@ struct PerformanceSongEditorView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("CHANNEL PRESETS")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
             
             VStack(spacing: 8) {
@@ -669,7 +601,7 @@ struct PerformanceSongEditorView: View {
                 Text("DELETE PRESET")
                     .font(TEFonts.mono(12, weight: .bold))
             }
-            .foregroundColor(TEColors.red)
+            .foregroundStyle(TEColors.red)
             .frame(maxWidth: .infinity)
             .frame(height: 50)
             .background(
@@ -718,6 +650,28 @@ struct PerformanceSongEditorView: View {
         }
         return sourceName.uppercased()
     }
+    
+    /// Trigger source picker with offline device handling
+    private var triggerSourcePicker: some View {
+        let connectedNames = Set(midiEngine.connectedSources.map { $0.name })
+        let isOffline = song.triggerSourceName != nil && !connectedNames.contains(song.triggerSourceName!)
+        
+        // Build options list
+        var options: [(key: String?, value: String)] = [(nil, "ANY")]
+        options += midiEngine.connectedSources.map { ($0.name as String?, $0.name.uppercased()) }
+        // Show saved offline source as an option
+        if let savedSource = song.triggerSourceName, isOffline {
+            options.append((savedSource, "\(savedSource.uppercased()) (OFFLINE)"))
+        }
+        
+        return SettingsPicker(
+            label: "CONTROLLER",
+            selection: $song.triggerSourceName,
+            options: options,
+            displayValue: triggerSourceLabel(isOffline: isOffline),
+            valueColor: isOffline ? TEColors.orange : TEColors.black
+        )
+    }
 }
 
 // MARK: - Channel State Editor
@@ -742,18 +696,18 @@ struct ChannelStateEditor: View {
                     // Channel name
                     Text(channel.name.uppercased())
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
 
                     // Status
                     if isEnabled {
                         Text("\(Int(currentVolume * 100))%")
                             .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.orange)
+                            .foregroundStyle(TEColors.orange)
 
                         if currentMuted {
                             Text("M")
                                 .font(TEFonts.mono(10, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                                 .frame(width: 18, height: 18)
                                 .background(TEColors.red)
                         }
@@ -764,7 +718,7 @@ struct ChannelStateEditor: View {
                     // Expand indicator
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(TEColors.darkGray)
+                        .foregroundStyle(TEColors.darkGray)
                         .frame(width: 24, height: 24)
                 }
                 .padding(.leading, 16)
@@ -824,11 +778,11 @@ struct ChannelStateEditor: View {
                         HStack {
                             Text("VOLUME")
                                 .font(TEFonts.mono(9, weight: .medium))
-                                .foregroundColor(TEColors.midGray)
+                                .foregroundStyle(TEColors.midGray)
                             Spacer()
                             Text("\(Int(currentVolume * 100))")
                                 .font(TEFonts.mono(14, weight: .bold))
-                                .foregroundColor(TEColors.black)
+                                .foregroundStyle(TEColors.black)
                         }
                         
                         TESlider(value: Binding(
@@ -846,7 +800,7 @@ struct ChannelStateEditor: View {
                         HStack {
                             Text("MUTE")
                                 .font(TEFonts.mono(9, weight: .medium))
-                                .foregroundColor(TEColors.midGray)
+                                .foregroundStyle(TEColors.midGray)
                             Spacer()
                             Rectangle()
                                 .fill(currentMuted ? TEColors.red : TEColors.lightGray)
@@ -870,7 +824,7 @@ struct ChannelStateEditor: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("EFFECTS")
                                 .font(TEFonts.mono(9, weight: .bold))
-                                .foregroundColor(TEColors.midGray)
+                                .foregroundStyle(TEColors.midGray)
                             
                             ForEach(Array(channel.effects.enumerated()), id: \.element.id) { index, effect in
                                 let isBypassed = index < currentEffectBypasses.count ? currentEffectBypasses[index] : false
@@ -890,13 +844,13 @@ struct ChannelStateEditor: View {
                                         
                                         Text(effect.name.uppercased())
                                             .font(TEFonts.mono(10, weight: .medium))
-                                            .foregroundColor(isBypassed ? TEColors.midGray : TEColors.black)
+                                            .foregroundStyle(isBypassed ? TEColors.midGray : TEColors.black)
                                         
                                         Spacer()
                                         
                                         Text(isBypassed ? "OFF" : "ON")
                                             .font(TEFonts.mono(9, weight: .bold))
-                                            .foregroundColor(isBypassed ? TEColors.midGray : TEColors.green)
+                                            .foregroundStyle(isBypassed ? TEColors.midGray : TEColors.green)
                                     }
                                 }
                                 .buttonStyle(.plain)
@@ -937,7 +891,7 @@ struct ExternalMIDIMessageRow: View {
             // Type indicator
             Text(message.type.rawValue.uppercased())
                 .font(TEFonts.mono(9, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(typeColor)
@@ -945,7 +899,7 @@ struct ExternalMIDIMessageRow: View {
             // Description
             Text(message.displayDescription.uppercased())
                 .font(TEFonts.mono(12, weight: .bold))
-                .foregroundColor(TEColors.black)
+                .foregroundStyle(TEColors.black)
                 .lineLimit(1)
 
             Spacer()
@@ -954,14 +908,14 @@ struct ExternalMIDIMessageRow: View {
             Button(action: onEdit) {
                 Image(systemName: "pencil")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
             }
 
             // Delete button
             Button(action: onDelete) {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(TEColors.red)
+                    .foregroundStyle(TEColors.red)
             }
         }
         .padding(12)

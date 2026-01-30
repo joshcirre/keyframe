@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Remote mode view - connects to Mac and displays synced presets
 struct RemoteModeView: View {
-    @StateObject private var remote = KeyframeRemote.shared
+    @State private var remote = KeyframeRemote.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -41,23 +41,23 @@ struct RemoteModeView: View {
         VStack(spacing: 24) {
             Image(systemName: "link.badge.plus")
                 .font(.system(size: 48, weight: .light))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
 
             Text("REMOTE MODE")
                 .font(TEFonts.display(24, weight: .black))
-                .foregroundColor(TEColors.cream)
+                .foregroundStyle(TEColors.cream)
                 .tracking(4)
 
             Text("Connect to Keyframe on your Mac")
                 .font(TEFonts.mono(14, weight: .regular))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
 
             Button {
                 remote.startSearching()
             } label: {
                 Text("START SEARCHING")
                     .font(TEFonts.mono(12, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
                     .background(TEColors.orange)
@@ -76,16 +76,16 @@ struct RemoteModeView: View {
 
             Text("SEARCHING")
                 .font(TEFonts.display(20, weight: .black))
-                .foregroundColor(TEColors.cream)
+                .foregroundStyle(TEColors.cream)
                 .tracking(4)
 
             Text("Looking for Keyframe on your network...")
                 .font(TEFonts.mono(12, weight: .regular))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
 
             Text("Make sure Keyframe is running on your Mac")
                 .font(TEFonts.mono(11, weight: .regular))
-                .foregroundColor(TEColors.darkGray)
+                .foregroundStyle(TEColors.darkGray)
 
             exitButton
         }
@@ -101,12 +101,12 @@ struct RemoteModeView: View {
 
             Text("CONNECTING")
                 .font(TEFonts.display(20, weight: .black))
-                .foregroundColor(TEColors.cream)
+                .foregroundStyle(TEColors.cream)
                 .tracking(4)
 
             Text(name)
                 .font(TEFonts.mono(14, weight: .regular))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
         }
     }
 
@@ -142,11 +142,11 @@ struct RemoteModeView: View {
 
                 Text("CONNECTED TO")
                     .font(TEFonts.mono(10, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
 
                 Text(name.uppercased())
                     .font(TEFonts.mono(12, weight: .bold))
-                    .foregroundColor(TEColors.cream)
+                    .foregroundStyle(TEColors.cream)
             }
 
             Spacer()
@@ -162,7 +162,7 @@ struct RemoteModeView: View {
                     Text("EXIT")
                         .font(TEFonts.mono(10, weight: .bold))
                 }
-                .foregroundColor(TEColors.cream)
+                .foregroundStyle(TEColors.cream)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(TEColors.darkGray)
@@ -182,7 +182,7 @@ struct RemoteModeView: View {
                         .progressViewStyle(CircularProgressViewStyle(tint: TEColors.orange))
                     Text("Loading presets...")
                         .font(TEFonts.mono(12, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -256,7 +256,7 @@ struct RemoteModeView: View {
         VStack(spacing: 16) {
             Text("MASTER")
                 .font(TEFonts.mono(12, weight: .bold))
-                .foregroundColor(TEColors.cream)
+                .foregroundStyle(TEColors.cream)
 
             Spacer()
 
@@ -270,7 +270,7 @@ struct RemoteModeView: View {
             // Volume display
             Text("\(Int(remote.masterVolume * 100))")
                 .font(TEFonts.mono(24, weight: .bold))
-                .foregroundColor(TEColors.cream)
+                .foregroundStyle(TEColors.cream)
 
             Spacer()
         }
@@ -285,23 +285,23 @@ struct RemoteModeView: View {
         VStack(spacing: 24) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48, weight: .light))
-                .foregroundColor(TEColors.red)
+                .foregroundStyle(TEColors.red)
 
             Text("CONNECTION ERROR")
                 .font(TEFonts.display(20, weight: .black))
-                .foregroundColor(TEColors.cream)
+                .foregroundStyle(TEColors.cream)
                 .tracking(4)
 
             Text(message)
                 .font(TEFonts.mono(14, weight: .regular))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
 
             Button {
                 remote.startSearching()
             } label: {
                 Text("TRY AGAIN")
                     .font(TEFonts.mono(12, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
                     .background(TEColors.orange)
@@ -321,7 +321,7 @@ struct RemoteModeView: View {
         } label: {
             Text("EXIT REMOTE MODE")
                 .font(TEFonts.mono(11, weight: .medium))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .padding(.top, 20)
         }
     }
@@ -349,7 +349,7 @@ struct SearchingAnimation: View {
             // Center icon
             Image(systemName: "wifi")
                 .font(.system(size: 24, weight: .medium))
-                .foregroundColor(TEColors.cream)
+                .foregroundStyle(TEColors.cream)
         }
         .onAppear {
             withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
@@ -452,7 +452,7 @@ struct RemotePresetGridButton: View {
                         // Preset name (main)
                         Text(preset.name.uppercased())
                             .font(TEFonts.mono(nameFontSize, weight: .black))
-                            .foregroundColor(isActive ? .white : TEColors.cream)
+                            .foregroundStyle(isActive ? .white : TEColors.cream)
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
                             .minimumScaleFactor(0.5)
@@ -461,7 +461,7 @@ struct RemotePresetGridButton: View {
                         if let songName = preset.songName, !songName.isEmpty {
                             Text(songName.uppercased())
                                 .font(TEFonts.mono(songNameFontSize, weight: .medium))
-                                .foregroundColor(isActive ? .white.opacity(0.7) : TEColors.midGray)
+                                .foregroundStyle(isActive ? .white.opacity(0.7) : TEColors.midGray)
                                 .lineLimit(1)
                         }
 
@@ -523,13 +523,13 @@ struct RemoteStatusBar: View {
 
                 Text("REMOTE")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.cream)
+                    .foregroundStyle(TEColors.cream)
             }
 
             // Mac name
             Text(macName.uppercased())
                 .font(TEFonts.mono(10, weight: .medium))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
 
             Spacer()
 
@@ -537,17 +537,17 @@ struct RemoteStatusBar: View {
             HStack(spacing: 4) {
                 Image(systemName: "speaker.wave.2.fill")
                     .font(.system(size: 10))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
                 Text("\(Int(masterVolume * 100))")
                     .font(TEFonts.mono(10, weight: .medium))
-                    .foregroundColor(TEColors.cream)
+                    .foregroundStyle(TEColors.cream)
             }
 
             // Preset count
             if let index = activeIndex {
                 Text("\(index + 1)/\(presetCount)")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(TEColors.cream)
+                    .foregroundStyle(TEColors.cream)
             }
         }
         .padding(.horizontal, 16)
@@ -557,7 +557,7 @@ struct RemoteStatusBar: View {
         .overlay(
             Rectangle()
                 .frame(height: 1)
-                .foregroundColor(TEColors.midGray),
+                .foregroundStyle(TEColors.midGray),
             alignment: .top
         )
     }
@@ -577,20 +577,20 @@ struct RemotePresetButton: View {
 
                 Text(preset.name.uppercased())
                     .font(TEFonts.mono(14, weight: .bold))
-                    .foregroundColor(isActive ? .white : TEColors.cream)
+                    .foregroundStyle(isActive ? .white : TEColors.cream)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
 
                 if let songName = preset.songName, !songName.isEmpty {
                     Text(songName.uppercased())
                         .font(TEFonts.mono(11, weight: .medium))
-                        .foregroundColor(isActive ? .white.opacity(0.8) : TEColors.midGray)
+                        .foregroundStyle(isActive ? .white.opacity(0.8) : TEColors.midGray)
                 }
 
                 if let bpm = preset.bpm {
                     Text("\(bpm) BPM")
                         .font(TEFonts.mono(10, weight: .regular))
-                        .foregroundColor(isActive ? .white.opacity(0.6) : TEColors.darkGray)
+                        .foregroundStyle(isActive ? .white.opacity(0.6) : TEColors.darkGray)
                 }
 
                 Spacer(minLength: 8)

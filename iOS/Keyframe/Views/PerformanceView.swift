@@ -37,10 +37,10 @@ enum ViewMode: String, CaseIterable {
 // MARK: - Main Performance View
 
 struct PerformanceView: View {
-    @StateObject private var audioEngine = AudioEngine.shared
-    @StateObject private var midiEngine = MIDIEngine.shared
-    @StateObject private var sessionStore = SessionStore.shared
-    @StateObject private var pluginManager = AUv3HostManager.shared
+    @State private var audioEngine = AudioEngine.shared
+    @State private var midiEngine = MIDIEngine.shared
+    @State private var sessionStore = SessionStore.shared
+    @State private var pluginManager = AUv3HostManager.shared
     
     @State private var viewMode: ViewMode = .perform
     @State private var selectedChannelIndex: Int?
@@ -86,7 +86,9 @@ struct PerformanceView: View {
         .preferredColorScheme(.light)
         .onAppear { setupEngines() }
         .sheet(isPresented: $showingChannelDetail) {
-            if let index = selectedChannelIndex {
+            if let index = selectedChannelIndex,
+               index < audioEngine.channelStrips.count,
+               index < sessionStore.currentSession.channels.count {
                 ChannelDetailView(
                     channel: audioEngine.channelStrips[index],
                     config: binding(for: index),
@@ -124,7 +126,7 @@ struct PerformanceView: View {
             // Logo/Title
             Text("KEYFRAME")
                 .font(TEFonts.display(18, weight: .black))
-                .foregroundColor(TEColors.black)
+                .foregroundStyle(TEColors.black)
                 .tracking(3)
             
             Spacer()
@@ -139,7 +141,7 @@ struct PerformanceView: View {
                     } label: {
                         Text(mode.rawValue)
                             .font(TEFonts.mono(10, weight: .bold))
-                            .foregroundColor(viewMode == mode ? .white : TEColors.black)
+                            .foregroundStyle(viewMode == mode ? .white : TEColors.black)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
                             .background(viewMode == mode ? TEColors.orange : TEColors.cream)
@@ -164,7 +166,7 @@ struct PerformanceView: View {
                     .overlay(
                         Image(systemName: "power")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(audioEngine.isRunning ? .white : TEColors.darkGray)
+                            .foregroundStyle(audioEngine.isRunning ? .white : TEColors.darkGray)
                     )
                     .overlay(Circle().strokeBorder(TEColors.black, lineWidth: 2))
             }
@@ -179,7 +181,7 @@ struct PerformanceView: View {
                     .overlay(
                         Image(systemName: "gearshape.fill")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(TEColors.black)
+                            .foregroundStyle(TEColors.black)
                     )
                     .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
             }
@@ -287,7 +289,7 @@ struct PerformanceView: View {
             } label: {
                 Image(systemName: isPresetsOnlyMode ? "slider.horizontal.3" : "square.grid.2x2")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .frame(width: 28, height: 28)
                     .background(TEColors.cream.opacity(0.9))
                     .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
@@ -300,7 +302,7 @@ struct PerformanceView: View {
                 } label: {
                     Image(systemName: isChannelsLocked ? "lock.fill" : "lock.open")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(isChannelsLocked ? .white : TEColors.black)
+                        .foregroundStyle(isChannelsLocked ? .white : TEColors.black)
                         .frame(width: 28, height: 28)
                         .background(isChannelsLocked ? TEColors.black : TEColors.cream.opacity(0.9))
                         .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
@@ -315,7 +317,7 @@ struct PerformanceView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .frame(width: 28, height: 28)
                     .background(TEColors.cream.opacity(0.9))
                     .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
@@ -328,61 +330,64 @@ struct PerformanceView: View {
     // MARK: - Edit Mode Content (Original layout with clickable channels)
     
     private var editModeContent: some View {
-        VStack(spacing: 0) {
-            // Channel Strips (clickable for editing)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
-                        EditChannelStripView(
-                            channel: channel,
-                            config: sessionStore.currentSession.channels[safe: index],
-                            isSelected: selectedChannelIndex == index
-                        ) {
-                            selectedChannelIndex = index
-                            showingChannelDetail = true
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(spacing: 0) {
+                // Channel Strips (clickable for editing)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(Array(audioEngine.channelStrips.enumerated()), id: \.element.id) { index, channel in
+                            EditChannelStripView(
+                                channel: channel,
+                                config: sessionStore.currentSession.channels[safe: index],
+                                isSelected: selectedChannelIndex == index
+                            ) {
+                                selectedChannelIndex = index
+                                showingChannelDetail = true
+                            }
+                        }
+                        
+                        AddChannelButton {
+                            if let _ = audioEngine.addChannel() {
+                                let newConfig = ChannelConfiguration(name: "CH \(audioEngine.channelStrips.count)")
+                                sessionStore.currentSession.channels.append(newConfig)
+                                sessionStore.saveCurrentSession()
+                                // Re-sync all channel configs to ensure existing settings aren't lost
+                                syncChannelConfigs()
+                                // Debug: Log state after adding channel
+                                logChannelState("After adding channel")
+                            }
                         }
                     }
-                    
-                    AddChannelButton {
-                        if let _ = audioEngine.addChannel() {
-                            let newConfig = ChannelConfiguration(name: "CH \(audioEngine.channelStrips.count)")
-                            sessionStore.currentSession.channels.append(newConfig)
-                            sessionStore.saveCurrentSession()
-                            // Re-sync all channel configs to ensure existing settings aren't lost
-                            syncChannelConfigs()
-                            // Debug: Log state after adding channel
-                            logChannelState("After adding channel")
-                        }
-                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+                .frame(height: 200)
+                
+                // Divider
+                Rectangle()
+                    .fill(TEColors.black)
+                    .frame(height: 2)
+                    .padding(.horizontal, 20)
+                
+                // Song Grid
+                SongGridView(
+                    songs: sessionStore.currentSession.songs,
+                    activeSongId: sessionStore.currentSession.activeSongId,
+                    isEditMode: true,
+                    onSelectSong: { song in selectSong(song) },
+                    onEditSong: { preset in
+                        // Setting editingPreset triggers the sheet(item:) presentation
+                        editingPreset = preset
+                    },
+                    onAddSong: {
+                        showingNewPresetEditor = true
+                    },
+                    onMoveSong: { fromIndex, toIndex in
+                        sessionStore.moveSong(from: fromIndex, to: toIndex)
+                    }
+                )
+                .frame(minHeight: 300)  // Ensure grid has minimum height
             }
-            .frame(height: 200)
-            
-            // Divider
-            Rectangle()
-                .fill(TEColors.black)
-                .frame(height: 2)
-                .padding(.horizontal, 20)
-            
-            // Song Grid
-            SongGridView(
-                songs: sessionStore.currentSession.songs,
-                activeSongId: sessionStore.currentSession.activeSongId,
-                isEditMode: true,
-                onSelectSong: { song in selectSong(song) },
-                onEditSong: { preset in
-                    // Setting editingPreset triggers the sheet(item:) presentation
-                    editingPreset = preset
-                },
-                onAddSong: {
-                    showingNewPresetEditor = true
-                },
-                onMoveSong: { fromIndex, toIndex in
-                    sessionStore.moveSong(from: fromIndex, to: toIndex)
-                }
-            )
         }
     }
     
@@ -506,6 +511,8 @@ struct PerformanceView: View {
                         DispatchQueue.main.async {
                             if index < audioEngine.channelStrips.count {
                                 audioEngine.channelStrips[index].volume = volume
+                                // Also update the config to keep in sync
+                                sessionStore.currentSession.channels[index].volume = volume
                             }
                         }
                     }
@@ -525,6 +532,8 @@ struct PerformanceView: View {
                 strip.midiSourceName = config.midiSourceName
                 strip.scaleFilterEnabled = config.scaleFilterEnabled
                 strip.isChordPadTarget = config.isChordPadTarget
+                strip.isSingleNoteTarget = config.isSingleNoteTarget
+                strip.octaveTranspose = config.octaveTranspose
                 strip.volume = config.volume
                 strip.pan = config.pan
                 strip.isMuted = config.isMuted
@@ -618,6 +627,7 @@ struct PerformanceView: View {
                         strip.midiSourceName = newValue.midiSourceName
                         strip.scaleFilterEnabled = newValue.scaleFilterEnabled
                         strip.isChordPadTarget = newValue.isChordPadTarget
+                        strip.octaveTranspose = newValue.octaveTranspose
                     }
                 }
             }
@@ -628,7 +638,7 @@ struct PerformanceView: View {
 // MARK: - Perform Mode Channel Strip (Direct control)
 
 struct PerformChannelStrip: View {
-    @ObservedObject var channel: ChannelStrip
+    @Bindable var channel: ChannelStrip
     let config: ChannelConfiguration?
     var isLocked: Bool = false
     let onEdit: () -> Void
@@ -639,7 +649,7 @@ struct PerformChannelStrip: View {
             HStack {
                 Text(config?.name.prefix(4).uppercased() ?? "CH")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
 
                 Spacer()
 
@@ -647,7 +657,7 @@ struct PerformChannelStrip: View {
                     Button(action: onEdit) {
                         Image(systemName: "gearshape")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                     }
                 }
             }
@@ -660,7 +670,7 @@ struct PerformChannelStrip: View {
             // Volume value
             Text("\(Int(channel.volume * 100))")
                 .font(TEFonts.mono(12, weight: .bold))
-                .foregroundColor(TEColors.black)
+                .foregroundStyle(TEColors.black)
 
             // Mute button
             Button {
@@ -670,7 +680,7 @@ struct PerformChannelStrip: View {
             } label: {
                 Text("M")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(channel.isMuted ? .white : TEColors.red)
+                    .foregroundStyle(channel.isMuted ? .white : TEColors.red)
                     .frame(width: 36, height: 28)
                     .background(channel.isMuted ? TEColors.red : TEColors.cream)
                     .overlay(Rectangle().strokeBorder(TEColors.red, lineWidth: 2))
@@ -736,7 +746,7 @@ struct VerticalFader: View {
 // MARK: - Edit Mode Channel Strip (Opens detail on tap)
 
 struct EditChannelStripView: View {
-    @ObservedObject var channel: ChannelStrip
+    var channel: ChannelStrip
     let config: ChannelConfiguration?
     let isSelected: Bool
     let onTap: () -> Void
@@ -747,7 +757,7 @@ struct EditChannelStripView: View {
                 // Channel number
                 Text(config?.name.prefix(6).uppercased() ?? "CH")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .lineLimit(1)
                 
                 // Meter
@@ -757,7 +767,7 @@ struct EditChannelStripView: View {
                 // Volume display
                 Text("\(Int(channel.volume * 100))")
                     .font(TEFonts.mono(14, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                 
                 // Mute indicator
                 ZStack {
@@ -767,7 +777,7 @@ struct EditChannelStripView: View {
                     
                     Text("M")
                         .font(TEFonts.mono(10, weight: .bold))
-                        .foregroundColor(channel.isMuted ? .white : TEColors.darkGray)
+                        .foregroundStyle(channel.isMuted ? .white : TEColors.darkGray)
                 }
                 
                 // Effects loaded indicator
@@ -799,11 +809,11 @@ struct ActiveSongBanner: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("NOW")
                     .font(TEFonts.mono(9, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
                 
                 Text(song.name.uppercased())
                     .font(TEFonts.display(20, weight: .black))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .lineLimit(1)
             }
             
@@ -842,11 +852,11 @@ struct DataBlock: View {
         VStack(spacing: 2) {
             Text(label)
                 .font(TEFonts.mono(8, weight: .medium))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
             
             Text(value)
                 .font(TEFonts.mono(14, weight: .bold))
-                .foregroundColor(highlight ? TEColors.orange : TEColors.black)
+                .foregroundStyle(highlight ? TEColors.orange : TEColors.black)
         }
         .frame(minWidth: 40)
     }
@@ -913,11 +923,11 @@ struct AddChannelButton: View {
             VStack(spacing: 8) {
                 Image(systemName: "plus")
                     .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
                 
                 Text("ADD")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
             }
             .frame(width: 64)
             .padding(.vertical, 12)
@@ -966,7 +976,7 @@ struct SongGridView: View {
                             Text(isReorderMode ? "DONE" : "REORDER")
                                 .font(TEFonts.mono(10, weight: .bold))
                         }
-                        .foregroundColor(isReorderMode ? .white : TEColors.darkGray)
+                        .foregroundStyle(isReorderMode ? .white : TEColors.darkGray)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(isReorderMode ? TEColors.orange : TEColors.lightGray)
@@ -980,7 +990,7 @@ struct SongGridView: View {
                             Text("NEW")
                                 .font(TEFonts.mono(10, weight: .bold))
                         }
-                        .foregroundColor(TEColors.darkGray)
+                        .foregroundStyle(TEColors.darkGray)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(TEColors.lightGray)
@@ -1152,7 +1162,7 @@ struct SongGridButton: View {
                         // Preset name (main)
                         Text(song.name.uppercased())
                             .font(TEFonts.mono(nameFontSize, weight: isLargeText ? .black : .bold))
-                            .foregroundColor(isActive ? .white : TEColors.black)
+                            .foregroundStyle(isActive ? .white : TEColors.black)
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
                             .minimumScaleFactor(isLargeText ? 0.5 : 1.0)
@@ -1161,7 +1171,7 @@ struct SongGridButton: View {
                         if let songName = song.songName, !songName.isEmpty {
                             Text(songName.uppercased())
                                 .font(TEFonts.mono(songNameFontSize, weight: .medium))
-                                .foregroundColor(isActive ? .white.opacity(0.7) : TEColors.midGray)
+                                .foregroundStyle(isActive ? .white.opacity(0.7) : TEColors.midGray)
                                 .lineLimit(1)
                         }
 
@@ -1190,7 +1200,7 @@ struct SongGridButton: View {
                                 Spacer()
                                 Image(systemName: "line.3.horizontal")
                                     .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(isActive ? .white.opacity(0.7) : TEColors.midGray)
+                                    .foregroundStyle(isActive ? .white.opacity(0.7) : TEColors.midGray)
                                     .padding(6)
                             }
                             Spacer()
@@ -1246,8 +1256,8 @@ struct SongGridButton: View {
 // MARK: - Performance Status Bar
 
 struct PerformanceStatusBar: View {
-    @ObservedObject var audioEngine: AudioEngine
-    @ObservedObject var midiEngine: MIDIEngine
+    var audioEngine: AudioEngine
+    var midiEngine: MIDIEngine
     var bpm: Int = 90
 
     var body: some View {
@@ -1260,7 +1270,7 @@ struct PerformanceStatusBar: View {
 
                 Text(audioEngine.isRunning ? "RUN" : "OFF")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
             }
 
             // MIDI
@@ -1271,20 +1281,20 @@ struct PerformanceStatusBar: View {
 
                 Text("MIDI \(midiEngine.connectedSources.count)")
                     .font(TEFonts.mono(10, weight: .medium))
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
             }
 
             // BPM
             Text("\(bpm) BPM")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.orange)
+                .foregroundStyle(TEColors.orange)
 
             Spacer()
 
             // DSP Load
             Text("DSP \(Int(audioEngine.cpuUsage))%")
                 .font(TEFonts.mono(10, weight: .medium))
-                .foregroundColor(audioEngine.cpuUsage > 80 ? TEColors.red : TEColors.darkGray)
+                .foregroundStyle(audioEngine.cpuUsage > 80 ? TEColors.red : TEColors.darkGray)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
@@ -1295,8 +1305,8 @@ struct PerformanceStatusBar: View {
 // MARK: - Minimal Status Bar (for perform mode)
 
 struct MinimalStatusBar: View {
-    @ObservedObject var audioEngine: AudioEngine
-    @ObservedObject var midiEngine: MIDIEngine
+    var audioEngine: AudioEngine
+    var midiEngine: MIDIEngine
     var bpm: Int = 90
 
     var body: some View {
@@ -1309,20 +1319,20 @@ struct MinimalStatusBar: View {
 
                 Text("MIDI \(midiEngine.connectedSources.count)")
                     .font(TEFonts.mono(9, weight: .medium))
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
             }
 
             // BPM
             Text("\(bpm) BPM")
                 .font(TEFonts.mono(9, weight: .bold))
-                .foregroundColor(TEColors.orange)
+                .foregroundStyle(TEColors.orange)
 
             Spacer()
 
             // DSP Load
             Text("DSP \(Int(audioEngine.cpuUsage))%")
                 .font(TEFonts.mono(9, weight: .medium))
-                .foregroundColor(audioEngine.cpuUsage > 80 ? TEColors.red : TEColors.darkGray)
+                .foregroundStyle(audioEngine.cpuUsage > 80 ? TEColors.red : TEColors.darkGray)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
@@ -1389,7 +1399,7 @@ struct LoadingScreen: View {
                 VStack(spacing: 8) {
                     Text("KEYFRAME")
                         .font(TEFonts.display(32, weight: .black))
-                        .foregroundColor(TEColors.cream)
+                        .foregroundStyle(TEColors.cream)
                         .tracking(6)
                         .scaleEffect(logoScale)
 
@@ -1412,7 +1422,7 @@ struct LoadingScreen: View {
                     // Progress text
                     Text(progress.isEmpty ? "INITIALIZING" : progress.uppercased())
                         .font(TEFonts.mono(11, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                         .lineLimit(1)
                         .frame(maxWidth: 280)
                 }

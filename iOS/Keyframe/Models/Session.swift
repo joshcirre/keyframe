@@ -47,7 +47,7 @@ struct Session: Codable, Identifiable, Equatable {
 // MARK: - Channel Configuration
 
 /// Configuration for a single channel in the session
-struct ChannelConfiguration: Codable, Identifiable, Equatable {
+struct ChannelConfiguration: Identifiable, Equatable {
     let id: UUID
     var name: String
     var instrument: PluginConfiguration?
@@ -59,6 +59,10 @@ struct ChannelConfiguration: Codable, Identifiable, Equatable {
     var midiSourceName: String?  // nil = any source, or specific controller name
     var scaleFilterEnabled: Bool
     var isChordPadTarget: Bool
+    var isSingleNoteTarget: Bool
+
+    /// Octave transpose for this channel (-3 to +3 octaves)
+    var octaveTranspose: Int
 
     // MIDI Control mapping (for fader/volume control)
     var controlSourceName: String?  // MIDI device that controls this channel's fader
@@ -77,6 +81,8 @@ struct ChannelConfiguration: Codable, Identifiable, Equatable {
         midiSourceName: String? = "__none__",  // Default to NONE - user must select input
         scaleFilterEnabled: Bool = true,
         isChordPadTarget: Bool = false,
+        isSingleNoteTarget: Bool = false,
+        octaveTranspose: Int = 0,
         controlSourceName: String? = nil,
         controlChannel: Int? = nil,
         controlCC: Int? = nil
@@ -92,9 +98,44 @@ struct ChannelConfiguration: Codable, Identifiable, Equatable {
         self.midiSourceName = midiSourceName
         self.scaleFilterEnabled = scaleFilterEnabled
         self.isChordPadTarget = isChordPadTarget
+        self.isSingleNoteTarget = isSingleNoteTarget
+        self.octaveTranspose = octaveTranspose
         self.controlSourceName = controlSourceName
         self.controlChannel = controlChannel
         self.controlCC = controlCC
+    }
+}
+
+// MARK: - ChannelConfiguration Codable (backwards compatible)
+
+extension ChannelConfiguration: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, name, instrument, effects, volume, pan, isMuted
+        case midiChannel, midiSourceName, scaleFilterEnabled
+        case isChordPadTarget, isSingleNoteTarget, octaveTranspose
+        case controlSourceName, controlChannel, controlCC
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        instrument = try container.decodeIfPresent(PluginConfiguration.self, forKey: .instrument)
+        effects = try container.decodeIfPresent([PluginConfiguration].self, forKey: .effects) ?? []
+        volume = try container.decodeIfPresent(Float.self, forKey: .volume) ?? 1.0
+        pan = try container.decodeIfPresent(Float.self, forKey: .pan) ?? 0.0
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        midiChannel = try container.decodeIfPresent(Int.self, forKey: .midiChannel) ?? 0
+        midiSourceName = try container.decodeIfPresent(String.self, forKey: .midiSourceName) ?? "__none__"
+        scaleFilterEnabled = try container.decodeIfPresent(Bool.self, forKey: .scaleFilterEnabled) ?? true
+        isChordPadTarget = try container.decodeIfPresent(Bool.self, forKey: .isChordPadTarget) ?? false
+        // New fields - default to false/0 if missing
+        isSingleNoteTarget = try container.decodeIfPresent(Bool.self, forKey: .isSingleNoteTarget) ?? false
+        octaveTranspose = try container.decodeIfPresent(Int.self, forKey: .octaveTranspose) ?? 0
+        controlSourceName = try container.decodeIfPresent(String.self, forKey: .controlSourceName)
+        controlChannel = try container.decodeIfPresent(Int.self, forKey: .controlChannel)
+        controlCC = try container.decodeIfPresent(Int.self, forKey: .controlCC)
     }
 }
 
@@ -227,17 +268,19 @@ extension Session {
 // MARK: - Session Store
 
 /// Manages persistence of sessions
-final class SessionStore: ObservableObject {
-    
+@Observable
+@MainActor
+final class SessionStore {
+
     static let shared = SessionStore()
-    
-    @Published var currentSession: Session
-    @Published var savedSessions: [Session] = []
-    
-    private let userDefaults = UserDefaults.standard
-    private let currentSessionKey = "currentSession"
-    private let savedSessionsKey = "savedSessions"
-    
+
+    var currentSession: Session
+    var savedSessions: [Session] = []
+
+    @ObservationIgnored private let userDefaults = UserDefaults.standard
+    @ObservationIgnored private let currentSessionKey = "currentSession"
+    @ObservationIgnored private let savedSessionsKey = "savedSessions"
+
     private init() {
         // Load current session or create default
         if let data = userDefaults.data(forKey: currentSessionKey),
@@ -262,6 +305,42 @@ final class SessionStore: ObservableObject {
         }
     }
     
+    /// Sync plugin preset state from AudioEngine's live channel strips back to the session config.
+    /// Call this before saving to ensure instrument/effect presets are persisted.
+    func syncPluginStateFromAudioEngine() {
+        let strips = AudioEngine.shared.channelStrips
+        
+        for (index, strip) in strips.enumerated() {
+            guard index < currentSession.channels.count else { continue }
+            
+            // Update instrument preset data
+            if var instrument = currentSession.channels[index].instrument,
+               let liveInstrument = strip.instrument {
+                // Serialize the live plugin state
+                if let state = liveInstrument.auAudioUnit.fullState,
+                   let data = try? PropertyListSerialization.data(fromPropertyList: state, format: .binary, options: 0) {
+                    instrument.presetData = data
+                    currentSession.channels[index].instrument = instrument
+                }
+            }
+            
+            // Update effect preset data
+            for (effectIndex, effect) in strip.effects.enumerated() {
+                guard effectIndex < currentSession.channels[index].effects.count else { continue }
+                
+                if let state = effect.auAudioUnit.fullState,
+                   let data = try? PropertyListSerialization.data(fromPropertyList: state, format: .binary, options: 0) {
+                    currentSession.channels[index].effects[effectIndex].presetData = data
+                }
+                
+                // Also sync bypass state
+                currentSession.channels[index].effects[effectIndex].isBypassed = effect.auAudioUnit.shouldBypassEffect
+            }
+        }
+        
+        print("SessionStore: Synced plugin state from \(strips.count) channel strips")
+    }
+    
     func saveSessions() {
         if let data = try? JSONEncoder().encode(savedSessions) {
             userDefaults.set(data, forKey: savedSessionsKey)
@@ -269,6 +348,9 @@ final class SessionStore: ObservableObject {
     }
     
     func saveSessionAs(_ name: String) {
+        // Sync plugin state before saving
+        syncPluginStateFromAudioEngine()
+        
         // Create a NEW session with a new ID (standard "Save As" behavior)
         // This allows the original saved session to remain unchanged
         let newSession = Session(
@@ -295,6 +377,8 @@ final class SessionStore: ObservableObject {
     /// Returns true if an existing saved session was updated, false if not found
     @discardableResult
     func updateSavedSession() -> Bool {
+        // Sync plugin state before saving
+        syncPluginStateFromAudioEngine()
         saveCurrentSession()
 
         // Find and update the saved copy if it exists

@@ -5,19 +5,20 @@ import AudioToolbox
 /// Browser for selecting AUv3 instruments and effects - TE Style
 struct PluginBrowserView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var pluginManager = AUv3HostManager.shared
-    
+    @State private var pluginManager = AUv3HostManager.shared
+
     enum Mode {
         case instrument
         case effect
     }
-    
+
     let mode: Mode
     let onSelect: (AVAudioUnitComponent) -> Void
-    
+
     @State private var searchText = ""
     @State private var selectedManufacturer: String?
-    
+    @State private var filteredComponents: [AVAudioUnitComponent] = []
+
     private var components: [AVAudioUnitComponent] {
         switch mode {
         case .instrument:
@@ -26,24 +27,7 @@ struct PluginBrowserView: View {
             return pluginManager.availableEffects
         }
     }
-    
-    private var filteredComponents: [AVAudioUnitComponent] {
-        var result = components
-        
-        if let manufacturer = selectedManufacturer {
-            result = result.filter { $0.manufacturerName == manufacturer }
-        }
-        
-        if !searchText.isEmpty {
-            result = result.filter {
-                $0.name.localizedCaseInsensitiveContains(searchText) ||
-                $0.manufacturerName.localizedCaseInsensitiveContains(searchText)
-            }
-        }
-        
-        return result
-    }
-    
+
     private var manufacturers: [String] {
         switch mode {
         case .instrument:
@@ -51,6 +35,23 @@ struct PluginBrowserView: View {
         case .effect:
             return pluginManager.effectManufacturers
         }
+    }
+
+    private func updateFilteredComponents() {
+        var result = components
+
+        if let manufacturer = selectedManufacturer {
+            result = result.filter { $0.manufacturerName == manufacturer }
+        }
+
+        if !searchText.isEmpty {
+            result = result.filter {
+                $0.name.localizedCaseInsensitiveContains(searchText) ||
+                $0.manufacturerName.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+
+        filteredComponents = result
     }
     
     var body: some View {
@@ -80,8 +81,23 @@ struct PluginBrowserView: View {
             }
         }
         .preferredColorScheme(.light)
+        .task {
+            updateFilteredComponents()
+        }
+        .onChange(of: searchText) {
+            updateFilteredComponents()
+        }
+        .onChange(of: selectedManufacturer) {
+            updateFilteredComponents()
+        }
+        .onChange(of: pluginManager.availableInstruments) {
+            updateFilteredComponents()
+        }
+        .onChange(of: pluginManager.availableEffects) {
+            updateFilteredComponents()
+        }
     }
-    
+
     // MARK: - Header
     
     private var header: some View {
@@ -91,14 +107,14 @@ struct PluginBrowserView: View {
             } label: {
                 Text("CANCEL")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
             }
             
             Spacer()
             
             Text(mode == .instrument ? "INSTRUMENTS" : "EFFECTS")
                 .font(TEFonts.display(16, weight: .black))
-                .foregroundColor(TEColors.black)
+                .foregroundStyle(TEColors.black)
                 .tracking(2)
             
             Spacer()
@@ -108,7 +124,7 @@ struct PluginBrowserView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(TEColors.orange)
+                    .foregroundStyle(TEColors.orange)
             }
         }
         .padding(.horizontal, 20)
@@ -122,11 +138,11 @@ struct PluginBrowserView: View {
         HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
             
             TextField("SEARCH", text: $searchText)
                 .font(TEFonts.mono(12, weight: .medium))
-                .foregroundColor(TEColors.black)
+                .foregroundStyle(TEColors.black)
                 .textInputAutocapitalization(.characters)
             
             if !searchText.isEmpty {
@@ -135,7 +151,7 @@ struct PluginBrowserView: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(TEColors.darkGray)
+                        .foregroundStyle(TEColors.darkGray)
                 }
             }
         }
@@ -178,14 +194,14 @@ struct PluginBrowserView: View {
                             .tint(TEColors.orange)
                         Text("SCANNING...")
                             .font(TEFonts.mono(12, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(40)
                 } else if filteredComponents.isEmpty {
                     Text("NO PLUGINS FOUND")
                         .font(TEFonts.mono(12, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                         .frame(maxWidth: .infinity)
                         .padding(40)
                 } else {
@@ -216,7 +232,7 @@ struct FilterChip: View {
         Button(action: action) {
             Text(title)
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(isSelected ? .white : TEColors.black)
+                .foregroundStyle(isSelected ? .white : TEColors.black)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .background(
@@ -248,7 +264,7 @@ struct PluginRowView: View {
                 // Index number
                 Text(String(format: "%02d", index + 1))
                     .font(TEFonts.mono(10, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
                     .frame(width: 24)
                 
                 // Icon
@@ -259,19 +275,19 @@ struct PluginRowView: View {
                     
                     Image(systemName: isInstrument ? "pianokeys" : "waveform")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(TEColors.orange)
+                        .foregroundStyle(TEColors.orange)
                 }
                 
                 // Info
                 VStack(alignment: .leading, spacing: 4) {
                     Text(component.name.uppercased())
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                         .lineLimit(1)
                     
                     Text(component.manufacturerName.uppercased())
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                 }
                 
                 Spacer()
@@ -279,18 +295,13 @@ struct PluginRowView: View {
                 // Arrow
                 Image(systemName: "arrow.right")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
             .background(isPressed ? TEColors.lightGray : (index % 2 == 0 ? TEColors.cream : TEColors.warmWhite))
         }
         .buttonStyle(.plain)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
-                .onEnded { _ in isPressed = false }
-        )
     }
 }
 

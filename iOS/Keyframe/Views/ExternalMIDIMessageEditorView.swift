@@ -43,14 +43,14 @@ struct ExternalMIDIMessageEditorView: View {
             } label: {
                 Text("CANCEL")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
             }
 
             Spacer()
 
             Text(isNew ? "NEW MESSAGE" : "EDIT MESSAGE")
                 .font(TEFonts.display(16, weight: .black))
-                .foregroundColor(TEColors.black)
+                .foregroundStyle(TEColors.black)
                 .tracking(2)
 
             Spacer()
@@ -61,7 +61,7 @@ struct ExternalMIDIMessageEditorView: View {
             } label: {
                 Text("SAVE")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(TEColors.orange)
@@ -78,7 +78,7 @@ struct ExternalMIDIMessageEditorView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("HELIX QUICK PRESETS")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
 
             VStack(spacing: 8) {
@@ -86,7 +86,7 @@ struct ExternalMIDIMessageEditorView: View {
                 HStack {
                     Text("PRESETS")
                         .font(TEFonts.mono(9, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                         .frame(width: 80, alignment: .leading)
 
                     HStack(spacing: 4) {
@@ -96,7 +96,7 @@ struct ExternalMIDIMessageEditorView: View {
                             } label: {
                                 Text("\(preset)")
                                     .font(TEFonts.mono(11, weight: .bold))
-                                    .foregroundColor(isPresetSelected(preset) ? .white : TEColors.black)
+                                    .foregroundStyle(isPresetSelected(preset) ? .white : TEColors.black)
                                     .frame(width: 32, height: 32)
                                     .background(isPresetSelected(preset) ? TEColors.orange : TEColors.cream)
                                     .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 1))
@@ -109,7 +109,7 @@ struct ExternalMIDIMessageEditorView: View {
                 HStack {
                     Text("STOMPS")
                         .font(TEFonts.mono(9, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                         .frame(width: 80, alignment: .leading)
 
                     HStack(spacing: 4) {
@@ -119,7 +119,7 @@ struct ExternalMIDIMessageEditorView: View {
                             } label: {
                                 Text("FS\(fs)")
                                     .font(TEFonts.mono(9, weight: .bold))
-                                    .foregroundColor(isStompSelected(fs) ? .white : TEColors.black)
+                                    .foregroundStyle(isStompSelected(fs) ? .white : TEColors.black)
                                     .frame(width: 32, height: 32)
                                     .background(isStompSelected(fs) ? TEColors.orange : TEColors.cream)
                                     .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 1))
@@ -157,7 +157,7 @@ struct ExternalMIDIMessageEditorView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("MESSAGE TYPE")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
 
             HStack(spacing: 0) {
@@ -167,7 +167,7 @@ struct ExternalMIDIMessageEditorView: View {
                     } label: {
                         Text(type.rawValue.uppercased())
                             .font(TEFonts.mono(10, weight: .bold))
-                            .foregroundColor(message.type == type ? .white : TEColors.black)
+                            .foregroundStyle(message.type == type ? .white : TEColors.black)
                             .frame(maxWidth: .infinity)
                             .frame(height: 40)
                             .background(
@@ -190,7 +190,7 @@ struct ExternalMIDIMessageEditorView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("DATA")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
 
             VStack(spacing: 16) {
@@ -199,11 +199,11 @@ struct ExternalMIDIMessageEditorView: View {
                     HStack {
                         Text(message.type.data1Label)
                             .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                         Spacer()
                         Text("\(message.data1)")
                             .font(TEFonts.mono(16, weight: .bold))
-                            .foregroundColor(TEColors.black)
+                            .foregroundStyle(TEColors.black)
                     }
 
                     TESlider(value: Binding(
@@ -218,11 +218,11 @@ struct ExternalMIDIMessageEditorView: View {
                         HStack {
                             Text(message.type.data2Label)
                                 .font(TEFonts.mono(10, weight: .medium))
-                                .foregroundColor(TEColors.midGray)
+                                .foregroundStyle(TEColors.midGray)
                             Spacer()
                             Text("\(message.data2)")
                                 .font(TEFonts.mono(16, weight: .bold))
-                                .foregroundColor(TEColors.black)
+                                .foregroundStyle(TEColors.black)
                         }
 
                         TESlider(value: Binding(

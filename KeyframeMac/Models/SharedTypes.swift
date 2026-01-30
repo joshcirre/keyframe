@@ -378,27 +378,75 @@ enum ScaleEngine {
     }
 
     static func snapToScale(note: UInt8, root: Int, scale: ScaleType) -> UInt8 {
-        let noteClass = Int(note) % 12
-        let octave = Int(note) / 12
-        let relativeNote = (noteClass - root + 12) % 12
-
-        // Find nearest scale degree
-        var minDistance = 12
-        var nearestInterval = 0
-
-        for interval in scale.intervals {
-            let distance = min(abs(relativeNote - interval), 12 - abs(relativeNote - interval))
-            if distance < minDistance {
-                minDistance = distance
-                nearestInterval = interval
+        // If already in scale, return as-is
+        if isInScale(note: note, root: root, scale: scale) {
+            return note
+        }
+        
+        let noteInt = Int(note)
+        
+        // Find nearest scale note below
+        var noteBelow: Int? = nil
+        for i in stride(from: noteInt - 1, through: 0, by: -1) {
+            if isInScale(note: UInt8(i), root: root, scale: scale) {
+                noteBelow = i
+                break
             }
         }
-
-        var snappedNote = (root + nearestInterval) % 12 + octave * 12
-        if snappedNote < 0 { snappedNote += 12 }
-        if snappedNote > 127 { snappedNote = 127 }
-
-        return UInt8(snappedNote)
+        
+        // Find nearest scale note above
+        var noteAbove: Int? = nil
+        for i in (noteInt + 1)...127 {
+            if isInScale(note: UInt8(i), root: root, scale: scale) {
+                noteAbove = i
+                break
+            }
+        }
+        
+        // Choose the nearest one
+        switch (noteBelow, noteAbove) {
+        case (nil, let above?):
+            return UInt8(above)
+        case (let below?, nil):
+            return UInt8(below)
+        case (let below?, let above?):
+            let distBelow = noteInt - below
+            let distAbove = above - noteInt
+            if distBelow < distAbove {
+                return UInt8(below)
+            } else if distAbove < distBelow {
+                return UInt8(above)
+            } else {
+                // Equidistant: snap to the note with the same letter name
+                // F# → F, Bb → B, etc. (accidentals resolve to their natural)
+                return UInt8(snapEquidistantByLetter(noteInt: noteInt, below: below, above: above))
+            }
+        case (nil, nil):
+            return note // Fallback
+        }
+    }
+    
+    /// When equidistant, snap to the note that shares the same letter name
+    /// Uses common enharmonic spellings: C#, F# (sharps → down), Eb, Ab, Bb (flats → up)
+    private static func snapEquidistantByLetter(noteInt: Int, below: Int, above: Int) -> Int {
+        let pitchClass = noteInt % 12
+        
+        switch pitchClass {
+        // Black keys - use most common enharmonic spelling
+        case 1:  return below  // C# → C (sharp, resolve down)
+        case 3:  return above  // Eb → E (flat, resolve up)
+        case 6:  return below  // F# → F (sharp, resolve down)
+        case 8:  return above  // Ab → A (flat, resolve up)
+        case 10: return above  // Bb → B (flat, resolve up)
+        
+        // White keys out of scale - snap to altered version with same letter
+        case 4:  return below  // E → Eb (if Eb in scale)
+        case 11: return below  // B → Bb (if Bb in scale)
+        case 0:  return above  // C → C# (if C# in scale)
+        case 5:  return above  // F → F# (if F# in scale)
+        
+        default: return below  // D, G, A - default down
+        }
     }
 }
 

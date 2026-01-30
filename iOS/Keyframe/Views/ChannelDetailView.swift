@@ -5,12 +5,12 @@ import AudioToolbox
 /// Detailed view for editing a channel - Teenage Engineering style
 struct ChannelDetailView: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var channel: ChannelStrip
+    @Bindable var channel: ChannelStrip
     @Binding var config: ChannelConfiguration
     var onDelete: (() -> Void)?
 
-    @StateObject private var pluginManager = AUv3HostManager.shared
-    @StateObject private var midiEngine = MIDIEngine.shared
+    @State private var pluginManager = AUv3HostManager.shared
+    @State private var midiEngine = MIDIEngine.shared
 
     @State private var showingInstrumentPicker = false
     @State private var showingEffectPicker = false
@@ -59,7 +59,11 @@ struct ChannelDetailView: View {
                 loadEffect(component)
             }
         }
-        .sheet(isPresented: $showingPluginUI) {
+        .sheet(isPresented: $showingPluginUI, onDismiss: {
+            // Sync plugin preset state back to session when UI is dismissed
+            SessionStore.shared.syncPluginStateFromAudioEngine()
+            SessionStore.shared.saveCurrentSession()
+        }) {
             if let vc = pluginViewController {
                 PluginUIHostView(viewController: vc)
             }
@@ -87,7 +91,7 @@ struct ChannelDetailView: View {
                 Text("DELETE CHANNEL")
                     .font(TEFonts.mono(12, weight: .bold))
             }
-            .foregroundColor(TEColors.red)
+            .foregroundStyle(TEColors.red)
             .frame(maxWidth: .infinity)
             .frame(height: 50)
             .background(
@@ -107,19 +111,19 @@ struct ChannelDetailView: View {
                     dismiss()
                 }
                 .font(TEFonts.mono(12, weight: .bold))
-                .foregroundColor(TEColors.darkGray)
+                .foregroundStyle(TEColors.darkGray)
                 
                 Spacer()
                 
                 Text("CHANNEL")
                     .font(TEFonts.mono(10, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
             }
             
             // Editable name
             TextField("NAME", text: $config.name)
                 .font(TEFonts.display(28, weight: .black))
-                .foregroundColor(TEColors.black)
+                .foregroundStyle(TEColors.black)
                 .multilineTextAlignment(.center)
                 .textInputAutocapitalization(.characters)
         }
@@ -137,7 +141,7 @@ struct ChannelDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("INSTRUMENT")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
             
             if let instrument = config.instrument {
@@ -146,11 +150,11 @@ struct ChannelDetailView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(instrument.name.uppercased())
                             .font(TEFonts.mono(14, weight: .bold))
-                            .foregroundColor(TEColors.black)
+                            .foregroundStyle(TEColors.black)
                         
                         Text(instrument.manufacturerName.uppercased())
                             .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                     }
                     
                     Spacer()
@@ -181,7 +185,7 @@ struct ChannelDetailView: View {
                         Text("SELECT INSTRUMENT")
                             .font(TEFonts.mono(12, weight: .bold))
                     }
-                    .foregroundColor(TEColors.darkGray)
+                    .foregroundStyle(TEColors.darkGray)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
                     .background(
@@ -197,7 +201,7 @@ struct ChannelDetailView: View {
                         .tint(TEColors.orange)
                     Text("LOADING...")
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                 }
             }
         }
@@ -210,14 +214,14 @@ struct ChannelDetailView: View {
             HStack {
                 Text("EFFECTS")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
                     .tracking(2)
                 
                 Spacer()
                 
                 Text("\(config.effects.count)/\(channel.maxEffects)")
                     .font(TEFonts.mono(10, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
             }
             
             VStack(spacing: 8) {
@@ -235,7 +239,7 @@ struct ChannelDetailView: View {
                             Text("ADD EFFECT")
                                 .font(TEFonts.mono(11, weight: .bold))
                         }
-                        .foregroundColor(TEColors.darkGray)
+                        .foregroundStyle(TEColors.darkGray)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                         .background(
@@ -249,13 +253,14 @@ struct ChannelDetailView: View {
     }
     
     private func effectSlot(effect: PluginConfiguration, index: Int) -> some View {
-        let isBypassed = channel.effects[safe: index]?.auAudioUnit.shouldBypassEffect ?? false
+        // Use observable effectBypasses array for SwiftUI reactivity
+        let isBypassed = channel.effectBypasses[safe: index] ?? false
         
         return HStack(spacing: 12) {
             // Index
             Text("\(index + 1)")
                 .font(TEFonts.mono(12, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .frame(width: 24, height: 24)
                 .background(TEColors.black)
             
@@ -263,12 +268,12 @@ struct ChannelDetailView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(effect.name.uppercased())
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(isBypassed ? TEColors.midGray : TEColors.black)
+                    .foregroundStyle(isBypassed ? TEColors.midGray : TEColors.black)
                     .lineLimit(1)
                 
                 Text(effect.manufacturerName.uppercased())
                     .font(TEFonts.mono(9, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
             }
             
             Spacer()
@@ -279,7 +284,7 @@ struct ChannelDetailView: View {
             } label: {
                 Text("UI")
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(
@@ -290,7 +295,9 @@ struct ChannelDetailView: View {
             
             // Bypass toggle
             Button {
-                channel.setEffectBypassed(!isBypassed, at: index)
+                // Toggle using observable state
+                let currentBypass = channel.effectBypasses[safe: index] ?? false
+                channel.setEffectBypassed(!currentBypass, at: index)
             } label: {
                 Rectangle()
                     .fill(isBypassed ? TEColors.lightGray : TEColors.green)
@@ -298,18 +305,22 @@ struct ChannelDetailView: View {
                     .overlay(
                         Text(isBypassed ? "OFF" : "ON")
                             .font(TEFonts.mono(8, weight: .bold))
-                            .foregroundColor(isBypassed ? TEColors.darkGray : .white)
+                            .foregroundStyle(isBypassed ? TEColors.darkGray : .white)
                     )
             }
             
             // Remove
             Button {
                 channel.removeEffect(at: index)
-                config.effects.remove(at: index)
+                if index < config.effects.count {
+                    config.effects.remove(at: index)
+                }
+                // Ensure channel connections to master are maintained
+                AudioEngine.shared.ensureChannelConnections()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(TEColors.red)
+                    .foregroundStyle(TEColors.red)
                     .frame(width: 24, height: 24)
             }
         }
@@ -327,7 +338,7 @@ struct ChannelDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("MIXER")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
 
             VStack(spacing: 20) {
@@ -336,11 +347,11 @@ struct ChannelDetailView: View {
                     HStack {
                         Text("VOLUME")
                             .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                         Spacer()
                         Text("\(Int(channel.volume * 100))")
                             .font(TEFonts.mono(16, weight: .bold))
-                            .foregroundColor(TEColors.black)
+                            .foregroundStyle(TEColors.black)
                     }
 
                     TESlider(value: $channel.volume)
@@ -356,7 +367,7 @@ struct ChannelDetailView: View {
                 } label: {
                     Text("MUTE")
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(channel.isMuted ? .white : TEColors.red)
+                        .foregroundStyle(channel.isMuted ? .white : TEColors.red)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                         .background(
@@ -438,7 +449,7 @@ struct ChannelDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("MIDI")
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
             
             VStack(spacing: 16) {
@@ -456,8 +467,11 @@ struct ChannelDetailView: View {
                         set: { newValue in
                             if newValue == "__none__" {
                                 config.midiSourceName = "__none__"
+                                channel.midiSourceName = "__none__"
                             } else {
-                                config.midiSourceName = newValue.isEmpty ? nil : newValue
+                                let value = newValue.isEmpty ? nil : newValue
+                                config.midiSourceName = value
+                                channel.midiSourceName = value
                             }
                         }
                     ),
@@ -467,15 +481,73 @@ struct ChannelDetailView: View {
                 // Channel picker
                 TEPicker(
                     label: "CHANNEL",
-                    selection: $config.midiChannel,
+                    selection: Binding(
+                        get: { config.midiChannel },
+                        set: { newValue in
+                            config.midiChannel = newValue
+                            channel.midiChannel = newValue
+                        }
+                    ),
                     options: midiChannelOptions
                 )
                 
                 // Scale filter toggle
-                TEToggle(label: "SCALE FILTER", isOn: $config.scaleFilterEnabled)
+                TEToggle(label: "SCALE FILTER", isOn: Binding(
+                    get: { config.scaleFilterEnabled },
+                    set: { newValue in
+                        config.scaleFilterEnabled = newValue
+                        channel.scaleFilterEnabled = newValue
+                    }
+                ))
 
-                // ChordPad toggle
-                TEToggle(label: "CHORDPAD TARGET", isOn: $config.isChordPadTarget)
+                // ChordPad toggle - auto-selects ChordPad controller when enabled
+                TEToggle(label: "CHORDPAD TARGET", isOn: Binding(
+                    get: { config.isChordPadTarget },
+                    set: { newValue in
+                        config.isChordPadTarget = newValue
+                        channel.isChordPadTarget = newValue
+                        // Auto-select ChordPad controller when enabling
+                        if newValue && config.midiSourceName == "__none__" {
+                            if let chordPadSource = midiEngine.chordPadSourceName {
+                                config.midiSourceName = chordPadSource
+                                channel.midiSourceName = chordPadSource
+                            }
+                            config.midiChannel = midiEngine.chordPadChannel
+                            channel.midiChannel = midiEngine.chordPadChannel
+                        }
+                    }
+                ))
+
+                // Single Note toggle - auto-selects ChordPad controller when enabled
+                TEToggle(label: "SINGLE NOTE TARGET", isOn: Binding(
+                    get: { config.isSingleNoteTarget },
+                    set: { newValue in
+                        config.isSingleNoteTarget = newValue
+                        channel.isSingleNoteTarget = newValue
+                        // Auto-select ChordPad controller when enabling
+                        if newValue && config.midiSourceName == "__none__" {
+                            if let chordPadSource = midiEngine.chordPadSourceName {
+                                config.midiSourceName = chordPadSource
+                                channel.midiSourceName = chordPadSource
+                            }
+                            config.midiChannel = midiEngine.chordPadChannel
+                            channel.midiChannel = midiEngine.chordPadChannel
+                        }
+                    }
+                ))
+
+                // Octave transpose picker
+                TEPicker(
+                    label: "TRANSPOSE",
+                    selection: Binding(
+                        get: { config.octaveTranspose },
+                        set: { newValue in
+                            config.octaveTranspose = newValue
+                            channel.octaveTranspose = newValue
+                        }
+                    ),
+                    options: [-3: "-3 OCT", -2: "-2 OCT", -1: "-1 OCT", 0: "0", 1: "+1 OCT", 2: "+2 OCT", 3: "+3 OCT"]
+                )
 
                 Rectangle()
                     .fill(TEColors.lightGray)
@@ -485,7 +557,7 @@ struct ChannelDetailView: View {
                 VStack(spacing: 12) {
                     Text("FADER CONTROL")
                         .font(TEFonts.mono(9, weight: .bold))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     // Control source picker - allows selecting controller before learning CC
@@ -518,14 +590,14 @@ struct ChannelDetailView: View {
                     HStack {
                         Text("CC")
                             .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
 
                         Spacer()
 
                         if let cc = config.controlCC {
                             Text("CC \(cc)")
                                 .font(TEFonts.mono(12, weight: .bold))
-                                .foregroundColor(TEColors.black)
+                                .foregroundStyle(TEColors.black)
 
                             Button {
                                 config.controlCC = nil
@@ -533,7 +605,7 @@ struct ChannelDetailView: View {
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(TEColors.red)
+                                    .foregroundStyle(TEColors.red)
                             }
                         }
 
@@ -564,7 +636,7 @@ struct ChannelDetailView: View {
                         } label: {
                             Text(isLearningFaderCC ? "LISTENING..." : "LEARN")
                                 .font(TEFonts.mono(11, weight: .bold))
-                                .foregroundColor(isLearningFaderCC ? .white : TEColors.black)
+                                .foregroundStyle(isLearningFaderCC ? .white : TEColors.black)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(isLearningFaderCC ? TEColors.orange : TEColors.lightGray)
@@ -662,7 +734,7 @@ struct TEButton: View {
         Button(action: action) {
             Text(label)
                 .font(TEFonts.mono(11, weight: .bold))
-                .foregroundColor(style == .primary ? .white : TEColors.black)
+                .foregroundStyle(style == .primary ? .white : TEColors.black)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(
@@ -733,6 +805,7 @@ struct TEPicker<T: Hashable>: View {
     let label: String
     @Binding var selection: T
     let options: [(key: T, value: String)]
+    @State private var showingPicker = false
 
     init(label: String, selection: Binding<T>, options: [T: String]) {
         self.label = label
@@ -759,31 +832,21 @@ struct TEPicker<T: Hashable>: View {
         HStack {
             Text(label)
                 .font(TEFonts.mono(10, weight: .medium))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
             
             Spacer()
             
-            Menu {
-                ForEach(options, id: \.key) { option in
-                    Button {
-                        selection = option.key
-                    } label: {
-                        if selection == option.key {
-                            Label(option.value, systemImage: "checkmark")
-                        } else {
-                            Text(option.value)
-                        }
-                    }
-                }
+            Button {
+                showingPicker = true
             } label: {
                 HStack(spacing: 8) {
                     Text(options.first { $0.key == selection }?.value ?? "")
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                     
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(TEColors.darkGray)
+                        .foregroundStyle(TEColors.darkGray)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -792,7 +855,81 @@ struct TEPicker<T: Hashable>: View {
                         .strokeBorder(TEColors.black, lineWidth: 2)
                 )
             }
+            .buttonStyle(.plain)
         }
+        .sheet(isPresented: $showingPicker) {
+            TEPickerSheet(
+                title: label,
+                selection: $selection,
+                options: options,
+                isPresented: $showingPicker
+            )
+            .presentationDetents([.medium, .large])
+        }
+    }
+}
+
+// MARK: - TEPicker Sheet (faster than Menu on iOS 18)
+
+struct TEPickerSheet<T: Hashable>: View {
+    let title: String
+    @Binding var selection: T
+    let options: [(key: T, value: String)]
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(options.enumerated()), id: \.element.key) { index, option in
+                        Button {
+                            selection = option.key
+                            isPresented = false
+                        } label: {
+                            HStack {
+                                Text(option.value)
+                                    .font(TEFonts.mono(14, weight: selection == option.key ? .bold : .medium))
+                                    .foregroundStyle(TEColors.black)
+
+                                Spacer()
+
+                                if selection == option.key {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundStyle(TEColors.orange)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+                            .frame(maxWidth: .infinity)
+                            .background(selection == option.key ? TEColors.orange.opacity(0.1) : Color.clear)
+                            .contentShape(Rectangle())  // Full-width tap target
+                        }
+                        .buttonStyle(.plain)
+
+                        // Divider between items
+                        if index < options.count - 1 {
+                            Rectangle()
+                                .fill(TEColors.lightGray.opacity(0.6))
+                                .frame(height: 1)
+                        }
+                    }
+                }
+            }
+            .background(TEColors.cream)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("DONE") {
+                        isPresented = false
+                    }
+                    .font(TEFonts.mono(12, weight: .bold))
+                    .foregroundStyle(TEColors.orange)
+                }
+            }
+        }
+        .preferredColorScheme(.light)
     }
 }
 
@@ -807,7 +944,7 @@ struct TEToggle: View {
             HStack {
                 Text(label)
                     .font(TEFonts.mono(10, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
                 
                 Spacer()
                 
@@ -850,7 +987,7 @@ struct PluginUIHostView: View {
                     } label: {
                         Text("DONE")
                             .font(TEFonts.mono(12, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 20)
                             .padding(.vertical, 10)
                             .background(TEColors.black)

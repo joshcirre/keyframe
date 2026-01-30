@@ -3,84 +3,90 @@ import AudioToolbox
 import UIKit
 
 /// Represents a single channel strip with instrument, effects, and mixing controls
-final class ChannelStrip: ObservableObject, Identifiable {
-    
+@Observable
+@MainActor
+final class ChannelStrip: Identifiable {
+
     // MARK: - Properties
-    
+
     let id = UUID()
     var index: Int
     var name: String
-    
+
     // MARK: - Audio Nodes
-    
+
     private weak var engine: AVAudioEngine?
     private let mixer = AVAudioMixerNode()
-    
+
     /// The instrument AUv3 (synthesizer/sampler)
-    private(set) var instrument: AVAudioUnit? {
-        didSet { objectWillChange.send() }
-    }
+    private(set) var instrument: AVAudioUnit?
     var instrumentInfo: AUv3Info?
-    
+
     /// Insert effects chain (up to 4)
-    private(set) var effects: [AVAudioUnit] = [] {
-        didSet { objectWillChange.send() }
-    }
+    private(set) var effects: [AVAudioUnit] = []
     var effectInfos: [AUv3Info] = []
     let maxEffects = 4
     
+    /// Observable bypass states (SwiftUI can't observe AVAudioUnit properties directly)
+    var effectBypasses: [Bool] = []
+
     /// Output node for connecting to master
     var outputNode: AVAudioMixerNode { mixer }
-    
+
     // MARK: - Channel Controls
-    
-    @Published var volume: Float = 1.0 {
+
+    var volume: Float = 1.0 {
         didSet {
             if !isMuted {
                 mixer.outputVolume = volume
             }
         }
     }
-    
-    @Published var pan: Float = 0.0 {
+
+    var pan: Float = 0.0 {
         didSet {
             mixer.pan = pan
         }
     }
-    
-    @Published var isMuted: Bool = false {
+
+    var isMuted: Bool = false {
         didSet {
             mixer.outputVolume = isMuted ? 0 : volume
         }
     }
-    
-    @Published var isSoloed: Bool = false
-    
+
+    var isSoloed: Bool = false
+
     // MARK: - MIDI Settings
-    
+
     /// MIDI channel this strip responds to (1-16, 0 = omni)
-    @Published var midiChannel: Int = 0
-    
+    var midiChannel: Int = 0
+
     /// MIDI source name this strip responds to (nil = any source, "__none__" = disabled)
-    @Published var midiSourceName: String? = "__none__"
-    
+    var midiSourceName: String? = "__none__"
+
     /// Whether scale filtering is applied to incoming MIDI
-    @Published var scaleFilterEnabled: Bool = true
-    
+    var scaleFilterEnabled: Bool = true
+
     /// Whether this channel handles ChordPad chord triggers
-    @Published var isChordPadTarget: Bool = false
-    
+    var isChordPadTarget: Bool = false
+
+    /// Whether this channel handles Single Note (secondary zone) triggers
+    var isSingleNoteTarget: Bool = false
+
+    /// Octave transpose (-3 to +3 octaves, each octave = 12 semitones)
+    var octaveTranspose: Int = 0
+
     // MARK: - Metering
 
-    @Published var peakLevel: Float = -60.0
-    private var meterTap: Bool = false
-    private var pendingPeakLevel: Float = -60.0  // Written by audio thread
-    private var meterUpdateTimer: Timer?
-    
+    var peakLevel: Float = -60.0
+    @ObservationIgnored private var meterTap: Bool = false
+    @ObservationIgnored nonisolated(unsafe) var pendingPeakLevel: Float = -60.0  // Written by audio thread, read by AudioEngine
+
     // MARK: - State
 
     var isInstrumentLoaded: Bool { instrument != nil }
-    @Published private(set) var isLoading: Bool = false
+    private(set) var isLoading: Bool = false
 
     // MARK: - Host Musical Context
 
@@ -108,23 +114,23 @@ final class ChannelStrip: ObservableObject, Identifiable {
         // Install metering tap
         let format = mixer.outputFormat(forBus: 0)
         if format.sampleRate > 0 {
-            mixer.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            mixer.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
                 self?.processMeterData(buffer)
             }
             meterTap = true
         }
-
-        // Timer to read pending meter value (avoids main thread dispatch from audio thread)
-        meterUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            let pending = self.pendingPeakLevel
-            let newLevel = max(pending, self.peakLevel - 2.0)
-            // Guard against NaN propagation
-            self.peakLevel = newLevel.isFinite ? newLevel : -60
-        }
+        // Note: Meter updates are driven by AudioEngine's consolidated timer
     }
 
-    private func processMeterData(_ buffer: AVAudioPCMBuffer) {
+    /// Called by AudioEngine's consolidated metering timer
+    func updateMeterFromEngine() {
+        let pending = pendingPeakLevel
+        let newLevel = max(pending, peakLevel - 2.0)
+        // Guard against NaN propagation
+        peakLevel = newLevel.isFinite ? newLevel : -60
+    }
+
+    nonisolated private func processMeterData(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
 
         let frameCount = Int(buffer.frameLength)
@@ -247,6 +253,7 @@ final class ChannelStrip: ObservableObject, Identifiable {
                 }
                 
                 self.effects.append(audioUnit)
+                self.effectBypasses.append(false)  // New effects start un-bypassed
                 engine.attach(audioUnit)
 
                 // Apply musical context for tempo sync
@@ -254,10 +261,13 @@ final class ChannelStrip: ObservableObject, Identifiable {
 
                 self.rebuildAudioChain()
 
+                // CRITICAL: Reconnect mixer to master - rebuildAudioChain can disconnect it
+                AudioEngine.shared.ensureChannelConnections()
+
                 // Verify mixer is still connected to something (its output should go to masterMixer)
                 let mixerOutputConnections = engine.outputConnectionPoints(for: self.mixer, outputBus: 0)
                 if mixerOutputConnections.isEmpty {
-                    print("⚠️ ChannelStrip \(self.index): Mixer lost connection to master! Needs reconnect.")
+                    print("⚠️ ChannelStrip \(self.index): Mixer STILL disconnected after ensureChannelConnections!")
                 } else {
                     print("✅ ChannelStrip \(self.index): Mixer connected to \(mixerOutputConnections.count) output(s)")
                 }
@@ -270,10 +280,21 @@ final class ChannelStrip: ObservableObject, Identifiable {
     
     /// Remove an effect at index
     func removeEffect(at index: Int) {
-        guard index < effects.count, let engine = engine else { return }
+        guard index < effects.count, let engine = engine else {
+            print("⚠️ ChannelStrip \(self.index): removeEffect - invalid index \(index) (effects: \(effects.count))")
+            return
+        }
+
+        print("🗑️ ChannelStrip \(self.index): Removing effect at index \(index)")
 
         let effect = effects.remove(at: index)
-        effectInfos.remove(at: index)
+        // effectInfos might be out of sync (e.g., during session restore), so check bounds
+        if index < effectInfos.count {
+            effectInfos.remove(at: index)
+        }
+        if index < effectBypasses.count {
+            effectBypasses.remove(at: index)
+        }
 
         // Clear blocks before detaching to avoid dangling references
         effect.auAudioUnit.musicalContextBlock = nil
@@ -282,12 +303,46 @@ final class ChannelStrip: ObservableObject, Identifiable {
         engine.detach(effect)
 
         rebuildAudioChain()
+
+        // CRITICAL: Reconnect mixer to master - rebuildAudioChain can disconnect it
+        AudioEngine.shared.ensureChannelConnections()
+
+        // Verify mixer is still connected to master
+        let mixerOutputConnections = engine.outputConnectionPoints(for: mixer, outputBus: 0)
+        if mixerOutputConnections.isEmpty {
+            print("⚠️ ChannelStrip \(self.index): Mixer STILL disconnected after ensureChannelConnections!")
+        } else {
+            print("✅ ChannelStrip \(self.index): Effect removed, \(effects.count) remaining, mixer connected")
+        }
     }
-    
+
     /// Toggle bypass on an effect
     func setEffectBypassed(_ bypassed: Bool, at index: Int) {
-        guard index < effects.count else { return }
-        effects[index].auAudioUnit.shouldBypassEffect = bypassed
+        guard index < effects.count else {
+            print("⚠️ ChannelStrip \(self.index): setEffectBypassed - invalid index \(index) (effects: \(effects.count))")
+            return
+        }
+        
+        let effect = effects[index]
+        let auUnit = effect.auAudioUnit
+        
+        // Set bypass on the AUAudioUnit
+        auUnit.shouldBypassEffect = bypassed
+        
+        // Verify it was set
+        let actualBypass = auUnit.shouldBypassEffect
+        
+        // Update observable state so SwiftUI can react
+        if index < effectBypasses.count {
+            effectBypasses[index] = bypassed
+        }
+        
+        print("🔇 ChannelStrip \(self.index): Effect[\(index)] bypass requested=\(bypassed), actual=\(actualBypass)")
+        
+        // If bypass didn't work, some AUv3s don't support it - log a warning
+        if actualBypass != bypassed {
+            print("⚠️ ChannelStrip \(self.index): Effect[\(index)] bypass not supported by this plugin")
+        }
     }
     
     /// Apply bypass states from preset
@@ -295,6 +350,10 @@ final class ChannelStrip: ObservableObject, Identifiable {
         for (index, bypassed) in bypasses.enumerated() {
             if index < effects.count {
                 effects[index].auAudioUnit.shouldBypassEffect = bypassed
+                // Update observable state
+                if index < effectBypasses.count {
+                    effectBypasses[index] = bypassed
+                }
             }
         }
     }
@@ -348,7 +407,49 @@ final class ChannelStrip: ObservableObject, Identifiable {
             print("   ⚠️ No nodes to connect to mixer")
         }
 
+        // Debug: Verify the entire chain is connected
+        debugVerifyChain(engine: engine)
+
         print("🔧 ChannelStrip \(index): Chain rebuild complete")
+    }
+    
+    /// Debug helper to verify the audio chain is fully connected
+    private func debugVerifyChain(engine: AVAudioEngine) {
+        print("   📊 Chain verification for channel \(index):")
+        
+        // Check instrument output
+        if let instrument = instrument {
+            let instrOutput = engine.outputConnectionPoints(for: instrument, outputBus: 0)
+            if instrOutput.isEmpty {
+                print("   ❌ Instrument has NO output connection!")
+            } else {
+                let targetName = instrOutput.first.map { String(describing: type(of: $0.node ?? mixer)) } ?? "?"
+                print("   ✓ Instrument → \(targetName)")
+            }
+        }
+        
+        // Check each effect output
+        for (i, effect) in effects.enumerated() {
+            let effectOutput = engine.outputConnectionPoints(for: effect, outputBus: 0)
+            if effectOutput.isEmpty {
+                print("   ❌ Effect[\(i)] has NO output connection!")
+            } else {
+                let targetName = effectOutput.first.map { String(describing: type(of: $0.node ?? mixer)) } ?? "?"
+                print("   ✓ Effect[\(i)] → \(targetName)")
+            }
+        }
+        
+        // Check mixer input count
+        let mixerInputCount = mixer.numberOfInputs
+        print("   📥 Mixer has \(mixerInputCount) input bus(es)")
+        
+        // Check mixer output
+        let mixerOutput = engine.outputConnectionPoints(for: mixer, outputBus: 0)
+        if mixerOutput.isEmpty {
+            print("   ❌ Mixer has NO output to master!")
+        } else {
+            print("   ✓ Mixer → masterMixer")
+        }
     }
 
     // MARK: - Host Musical Context (Tempo Sync)
@@ -434,36 +535,33 @@ final class ChannelStrip: ObservableObject, Identifiable {
 
     // MARK: - MIDI Handling
     
-    /// Send MIDI note to the instrument
+    /// Send MIDI note to the instrument (stack-allocated to avoid per-event heap allocation)
     func sendMIDI(noteOn note: UInt8, velocity: UInt8) {
         guard let instrument = instrument else { return }
-
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
-            let data: [UInt8] = [0x90, note, velocity]
-            data.withUnsafeBufferPointer { bufferPointer in
-                midiBlock(AUEventSampleTimeImmediate, 0, 3, bufferPointer.baseAddress!)
+            var bytes: (UInt8, UInt8, UInt8) = (0x90, note, velocity)
+            withUnsafeBytes(of: &bytes) { raw in
+                midiBlock(AUEventSampleTimeImmediate, 0, 3, raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
             }
         }
     }
     
     func sendMIDI(noteOff note: UInt8) {
         guard let instrument = instrument else { return }
-        
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
-            let data: [UInt8] = [0x80, note, 0]
-            data.withUnsafeBufferPointer { bufferPointer in
-                midiBlock(AUEventSampleTimeImmediate, 0, 3, bufferPointer.baseAddress!)
+            var bytes: (UInt8, UInt8, UInt8) = (0x80, note, 0)
+            withUnsafeBytes(of: &bytes) { raw in
+                midiBlock(AUEventSampleTimeImmediate, 0, 3, raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
             }
         }
     }
     
     func sendMIDI(controlChange cc: UInt8, value: UInt8) {
         guard let instrument = instrument else { return }
-        
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
-            let data: [UInt8] = [0xB0, cc, value]
-            data.withUnsafeBufferPointer { bufferPointer in
-                midiBlock(AUEventSampleTimeImmediate, 0, 3, bufferPointer.baseAddress!)
+            var bytes: (UInt8, UInt8, UInt8) = (0xB0, cc, value)
+            withUnsafeBytes(of: &bytes) { raw in
+                midiBlock(AUEventSampleTimeImmediate, 0, 3, raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
             }
         }
     }
@@ -510,7 +608,7 @@ final class ChannelStrip: ObservableObject, Identifiable {
                 audioComponentDescription: effect.audioComponentDescription,
                 manufacturerName: info?.manufacturerName ?? "Unknown",
                 pluginName: info?.name ?? "Unknown",
-                presetData: try? effect.auAudioUnit.fullState as? Data,
+                presetData: serializeAUState(effect.auAudioUnit.fullState),
                 isBypassed: effect.auAudioUnit.shouldBypassEffect
             )
             effectStates.append(state)
@@ -522,7 +620,7 @@ final class ChannelStrip: ObservableObject, Identifiable {
                 audioComponentDescription: instrument.audioComponentDescription,
                 manufacturerName: instrumentInfo?.manufacturerName ?? "Unknown",
                 pluginName: instrumentInfo?.name ?? "Unknown",
-                presetData: try? instrument.auAudioUnit.fullState as? Data,
+                presetData: serializeAUState(instrument.auAudioUnit.fullState),
                 isBypassed: false
             )
         }
@@ -537,17 +635,57 @@ final class ChannelStrip: ObservableObject, Identifiable {
             isMuted: isMuted,
             midiChannel: midiChannel,
             scaleFilterEnabled: scaleFilterEnabled,
-            isChordPadTarget: isChordPadTarget
+            isChordPadTarget: isChordPadTarget,
+            isSingleNoteTarget: isSingleNoteTarget,
+            octaveTranspose: octaveTranspose
         )
+    }
+    
+    /// Serialize AU fullState dictionary to Data for persistence
+    private func serializeAUState(_ state: [String: Any]?) -> Data? {
+        guard let state = state else { return nil }
+        do {
+            return try PropertyListSerialization.data(fromPropertyList: state, format: .binary, options: 0)
+        } catch {
+            print("ChannelStrip \(index): Failed to serialize AU state: \(error)")
+            return nil
+        }
+    }
+    
+    /// Deserialize Data back to AU fullState dictionary
+    private func deserializeAUState(_ data: Data?) -> [String: Any]? {
+        guard let data = data else { return nil }
+        do {
+            let plist = try PropertyListSerialization.propertyList(from: data, format: nil)
+            return plist as? [String: Any]
+        } catch {
+            print("ChannelStrip \(index): Failed to deserialize AU state: \(error)")
+            return nil
+        }
+    }
+    
+    /// Restore the instrument's full state (preset) from saved data
+    func restoreInstrumentState(_ presetData: Data?) {
+        guard let instrument = instrument,
+              let state = deserializeAUState(presetData) else { return }
+        
+        instrument.auAudioUnit.fullState = state
+        print("ChannelStrip \(index): Restored instrument preset state")
+    }
+    
+    /// Restore an effect's full state (preset) from saved data
+    func restoreEffectState(_ presetData: Data?, at effectIndex: Int) {
+        guard effectIndex < effects.count,
+              let state = deserializeAUState(presetData) else { return }
+        
+        effects[effectIndex].auAudioUnit.fullState = state
+        print("ChannelStrip \(index): Restored effect[\(effectIndex)] preset state")
     }
     
     // MARK: - Cleanup
     
     func cleanup() {
         guard let engine = engine else { return }
-
-        meterUpdateTimer?.invalidate()
-        meterUpdateTimer = nil
 
         if meterTap {
             mixer.removeTap(onBus: 0)
@@ -658,5 +796,7 @@ struct ChannelStripState: Codable, Equatable {
     var midiChannel: Int
     var scaleFilterEnabled: Bool
     var isChordPadTarget: Bool
+    var isSingleNoteTarget: Bool
+    var octaveTranspose: Int
 }
 

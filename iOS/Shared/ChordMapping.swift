@@ -1,7 +1,7 @@
 import Foundation
 
 /// Configuration for mapping ChordPad buttons to chord degrees
-struct ChordMapping: Codable, Equatable {
+struct ChordMapping: Equatable {
     /// MIDI channel the ChordPad sends on (1-16, stored as 1-based)
     var chordPadChannel: Int
 
@@ -29,6 +29,10 @@ struct ChordMapping: Codable, Equatable {
 
     /// Base octave for secondary zone output (MIDI octave, 4 = middle C octave)
     var secondaryBaseOctave: Int
+
+    /// Map of MIDI note number to scale degree for secondary zone (1-7)
+    /// This replaces the consecutive-note approach when populated
+    var secondaryButtonMap: [Int: Int]
     
     // MARK: - Default Configuration
     
@@ -65,7 +69,8 @@ struct ChordMapping: Codable, Equatable {
         secondaryZoneEnabled: false,
         secondaryStartNote: nil,
         secondaryTargetChannel: nil,
-        secondaryBaseOctave: 4
+        secondaryBaseOctave: 4,
+        secondaryButtonMap: [:]
     )
     
     // MARK: - Initialization
@@ -77,7 +82,8 @@ struct ChordMapping: Codable, Equatable {
         secondaryZoneEnabled: Bool = false,
         secondaryStartNote: Int? = nil,
         secondaryTargetChannel: Int? = nil,
-        secondaryBaseOctave: Int = 4
+        secondaryBaseOctave: Int = 4,
+        secondaryButtonMap: [Int: Int] = [:]
     ) {
         self.chordPadChannel = chordPadChannel
         self.buttonMap = buttonMap
@@ -86,6 +92,7 @@ struct ChordMapping: Codable, Equatable {
         self.secondaryStartNote = secondaryStartNote
         self.secondaryTargetChannel = secondaryTargetChannel
         self.secondaryBaseOctave = secondaryBaseOctave
+        self.secondaryButtonMap = secondaryButtonMap
     }
 
     // MARK: - Helpers
@@ -118,16 +125,28 @@ struct ChordMapping: Codable, Equatable {
         Array(buttonMap.keys).sorted()
     }
 
-    /// Check if a note is in the secondary zone (7 consecutive notes starting from secondaryStartNote)
+    /// Check if a note is in the secondary zone
     func isSecondaryZoneNote(_ note: UInt8) -> Bool {
-        guard secondaryZoneEnabled, let startNote = secondaryStartNote else { return false }
+        guard secondaryZoneEnabled else { return false }
+        // If we have individual mappings, use them
+        if !secondaryButtonMap.isEmpty {
+            return secondaryButtonMap[Int(note)] != nil
+        }
+        // Fall back to consecutive note range (legacy)
+        guard let startNote = secondaryStartNote else { return false }
         let noteInt = Int(note)
         return noteInt >= startNote && noteInt < startNote + 7
     }
 
     /// Get the scale degree (1-7) for a secondary zone input note
     func secondaryDegree(_ note: UInt8) -> Int? {
-        guard secondaryZoneEnabled, let startNote = secondaryStartNote else { return nil }
+        guard secondaryZoneEnabled else { return nil }
+        // If we have individual mappings, use them
+        if !secondaryButtonMap.isEmpty {
+            return secondaryButtonMap[Int(note)]
+        }
+        // Fall back to consecutive note range (legacy)
+        guard let startNote = secondaryStartNote else { return nil }
         let noteInt = Int(note)
         guard noteInt >= startNote && noteInt < startNote + 7 else { return nil }
         return noteInt - startNote + 1  // 1-based degree
@@ -139,6 +158,32 @@ struct ChordMapping: Codable, Equatable {
         let chordName = ChordEngine.chordName(degree: degree, rootNote: rootNote, scaleType: scaleType)
         let roman = ChordEngine.romanNumeral(degree: degree, scaleType: scaleType)
         return "\(roman) (\(chordName))"
+    }
+}
+
+// MARK: - Codable with backwards compatibility
+
+extension ChordMapping: Codable {
+    enum CodingKeys: String, CodingKey {
+        case chordPadChannel, buttonMap, baseOctave
+        case secondaryZoneEnabled, secondaryStartNote, secondaryTargetChannel
+        case secondaryBaseOctave, secondaryButtonMap
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Required fields
+        chordPadChannel = try container.decode(Int.self, forKey: .chordPadChannel)
+        buttonMap = try container.decode([Int: Int].self, forKey: .buttonMap)
+        baseOctave = try container.decode(Int.self, forKey: .baseOctave)
+
+        // Optional fields with defaults (for backwards compatibility)
+        secondaryZoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .secondaryZoneEnabled) ?? false
+        secondaryStartNote = try container.decodeIfPresent(Int.self, forKey: .secondaryStartNote)
+        secondaryTargetChannel = try container.decodeIfPresent(Int.self, forKey: .secondaryTargetChannel)
+        secondaryBaseOctave = try container.decodeIfPresent(Int.self, forKey: .secondaryBaseOctave) ?? 4
+        secondaryButtonMap = try container.decodeIfPresent([Int: Int].self, forKey: .secondaryButtonMap) ?? [:]
     }
 }
 

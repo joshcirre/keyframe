@@ -3,11 +3,11 @@ import SwiftUI
 /// Settings view for the Performance Engine - TE Style
 struct PerformanceSettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var audioEngine = AudioEngine.shared
-    @StateObject private var midiEngine = MIDIEngine.shared
-    @StateObject private var sessionStore = SessionStore.shared
-    @StateObject private var pluginManager = AUv3HostManager.shared
-    @StateObject private var appearanceManager = AppearanceManager.shared
+    @State private var audioEngine = AudioEngine.shared
+    @State private var midiEngine = MIDIEngine.shared
+    @State private var sessionStore = SessionStore.shared
+    @State private var pluginManager = AUv3HostManager.shared
+    @State private var appearanceManager = AppearanceManager.shared
 
     @State private var showingSaveAs = false
     @State private var newSessionName = ""
@@ -131,7 +131,7 @@ struct PerformanceSettingsView: View {
         HStack {
             Text("SETTINGS")
                 .font(TEFonts.display(20, weight: .black))
-                .foregroundColor(TEColors.black)
+                .foregroundStyle(TEColors.black)
                 .tracking(4)
             
             Spacer()
@@ -141,7 +141,7 @@ struct PerformanceSettingsView: View {
             } label: {
                 Text("DONE")
                     .font(TEFonts.mono(11, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 10)
                     .background(TEColors.black)
@@ -164,25 +164,25 @@ struct PerformanceSettingsView: View {
                             .frame(width: 8, height: 8)
                         Text(audioEngine.isRunning ? "RUN" : "OFF")
                             .font(TEFonts.mono(12, weight: .bold))
-                            .foregroundColor(TEColors.black)
+                            .foregroundStyle(TEColors.black)
                     }
                 }
                 
                 TESettingsRow(label: "CHANNELS") {
                     Text("\(audioEngine.channelStrips.count)")
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                 }
                 
                 VStack(spacing: 8) {
                     HStack {
                         Text("MASTER")
                             .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                         Spacer()
                         Text("\(Int(audioEngine.masterVolume * 100))")
                             .font(TEFonts.mono(14, weight: .bold))
-                            .foregroundColor(TEColors.black)
+                            .foregroundStyle(TEColors.black)
                     }
                     
                     TESlider(value: Binding(
@@ -202,7 +202,7 @@ struct PerformanceSettingsView: View {
                 TESettingsRow(label: "SOURCES") {
                     Text("\(midiEngine.connectedSources.count)")
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                 }
                 
                 if !midiEngine.connectedSources.isEmpty {
@@ -214,7 +214,7 @@ struct PerformanceSettingsView: View {
                                     .frame(width: 6, height: 6)
                                 Text(source.name.uppercased())
                                     .font(TEFonts.mono(10, weight: .medium))
-                                    .foregroundColor(TEColors.darkGray)
+                                    .foregroundStyle(TEColors.darkGray)
                                 Spacer()
                             }
                         }
@@ -225,7 +225,7 @@ struct PerformanceSettingsView: View {
                     TESettingsRow(label: "LAST MSG") {
                         Text(lastMessage.uppercased())
                             .font(TEFonts.mono(9, weight: .medium))
-                            .foregroundColor(TEColors.orange)
+                            .foregroundStyle(TEColors.orange)
                             .lineLimit(1)
                     }
                 }
@@ -242,11 +242,11 @@ struct PerformanceSettingsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("NETWORK SESSION")
                         .font(TEFonts.mono(9, weight: .bold))
-                        .foregroundColor(TEColors.darkGray)
+                        .foregroundStyle(TEColors.darkGray)
 
                     Text("Creates a WiFi MIDI session using your device name. Other devices on your network can connect to send MIDI here.")
                         .font(TEFonts.mono(9, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                         .fixedSize(horizontal: false, vertical: true)
 
                     TEToggle(label: "ENABLED", isOn: $midiEngine.isNetworkSessionEnabled)
@@ -255,13 +255,13 @@ struct PerformanceSettingsView: View {
                         HStack {
                             Text("SESSION")
                                 .font(TEFonts.mono(10, weight: .medium))
-                                .foregroundColor(TEColors.midGray)
+                                .foregroundStyle(TEColors.midGray)
 
                             Spacer()
 
                             Text(midiEngine.networkSessionName.uppercased())
                                 .font(TEFonts.mono(12, weight: .bold))
-                                .foregroundColor(TEColors.orange)
+                                .foregroundStyle(TEColors.orange)
                         }
                     }
                 }
@@ -275,11 +275,11 @@ struct PerformanceSettingsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("BLUETOOTH DEVICES")
                         .font(TEFonts.mono(9, weight: .bold))
-                        .foregroundColor(TEColors.darkGray)
+                        .foregroundStyle(TEColors.darkGray)
 
                     Text("Pair with Bluetooth MIDI devices (like WIDI). They'll appear as destinations below.")
                         .font(TEFonts.mono(9, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                         .fixedSize(horizontal: false, vertical: true)
 
                     Button {
@@ -291,7 +291,7 @@ struct PerformanceSettingsView: View {
                             Text("PAIR DEVICE")
                                 .font(TEFonts.mono(11, weight: .bold))
                         }
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 40)
                         .background(
@@ -321,7 +321,7 @@ struct PerformanceSettingsView: View {
                         Text("SCAN DESTINATIONS")
                             .font(TEFonts.mono(11, weight: .bold))
                     }
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .frame(maxWidth: .infinity)
                     .frame(height: 40)
                     .background(
@@ -331,81 +331,31 @@ struct PerformanceSettingsView: View {
                 }
 
                 // Destination picker
-                HStack {
-                    Text("SEND TO")
-                        .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
-
-                    Spacer()
-
-                    Menu {
-                        Button("NONE") {
-                            midiEngine.selectedDestinationEndpoint = nil
-                        }
-                        ForEach(midiEngine.availableDestinations) { dest in
-                            Button(dest.name.uppercased()) {
-                                midiEngine.selectedDestinationEndpoint = dest.endpoint
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(selectedDestinationLabel)
-                                .font(TEFonts.mono(12, weight: .bold))
-                                .foregroundColor(midiEngine.selectedDestinationEndpoint == nil ? TEColors.midGray : TEColors.black)
-                                .lineLimit(1)
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(TEColors.darkGray)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Rectangle()
-                                .strokeBorder(TEColors.black, lineWidth: 2)
-                        )
-                    }
-                }
+                SettingsPicker(
+                    label: "SEND TO",
+                    selection: Binding(
+                        get: { midiEngine.selectedDestinationEndpoint },
+                        set: { midiEngine.selectedDestinationEndpoint = $0 }
+                    ),
+                    options: [(nil, "NONE")] + midiEngine.availableDestinations.map { ($0.endpoint, $0.name.uppercased()) },
+                    displayValue: selectedDestinationLabel,
+                    valueColor: midiEngine.selectedDestinationEndpoint == nil ? TEColors.midGray : TEColors.black
+                )
 
                 if midiEngine.availableDestinations.isEmpty {
                     Text("No destinations found. Enable Network Session or pair a Bluetooth device.")
                         .font(TEFonts.mono(9, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 // Channel picker
-                HStack {
-                    Text("CHANNEL")
-                        .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
-
-                    Spacer()
-
-                    Menu {
-                        ForEach(1...16, id: \.self) { ch in
-                            Button("CH \(ch)") {
-                                midiEngine.externalMIDIChannel = ch
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text("CH \(midiEngine.externalMIDIChannel)")
-                                .font(TEFonts.mono(12, weight: .bold))
-                                .foregroundColor(TEColors.black)
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(TEColors.darkGray)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Rectangle()
-                                .strokeBorder(TEColors.black, lineWidth: 2)
-                        )
-                    }
-                }
+                SettingsPicker(
+                    label: "CHANNEL",
+                    selection: $midiEngine.externalMIDIChannel,
+                    options: (1...16).map { ($0, "CH \($0)") },
+                    displayValue: "CH \(midiEngine.externalMIDIChannel)"
+                )
 
                 // Divider
                 Rectangle()
@@ -416,52 +366,24 @@ struct PerformanceSettingsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("TEMPO SYNC")
                         .font(TEFonts.mono(9, weight: .bold))
-                        .foregroundColor(TEColors.darkGray)
+                        .foregroundStyle(TEColors.darkGray)
 
                     Text("Sends tap tempo to external devices when selecting songs with BPM. Helix uses CC 64 by default.")
                         .font(TEFonts.mono(9, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                         .fixedSize(horizontal: false, vertical: true)
 
                     TEToggle(label: "ENABLED", isOn: $midiEngine.isExternalTempoSyncEnabled)
 
                     if midiEngine.isExternalTempoSyncEnabled {
-                        HStack {
-                            Text("TAP TEMPO CC")
-                                .font(TEFonts.mono(10, weight: .medium))
-                                .foregroundColor(TEColors.midGray)
-
-                            Spacer()
-
-                            Menu {
-                                Button("CC 64 (HELIX DEFAULT)") {
-                                    midiEngine.tapTempoCC = 64
-                                }
-                                ForEach([1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120], id: \.self) { cc in
-                                    if cc != 64 {
-                                        Button("CC \(cc)") {
-                                            midiEngine.tapTempoCC = cc
-                                        }
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Text("CC \(midiEngine.tapTempoCC)")
-                                        .font(TEFonts.mono(12, weight: .bold))
-                                        .foregroundColor(TEColors.black)
-
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundColor(TEColors.darkGray)
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    Rectangle()
-                                        .strokeBorder(TEColors.black, lineWidth: 2)
-                                )
-                            }
-                        }
+                        SettingsPicker(
+                            label: "TAP TEMPO CC",
+                            selection: $midiEngine.tapTempoCC,
+                            options: [64, 1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120].map { 
+                                ($0, $0 == 64 ? "CC 64 (HELIX DEFAULT)" : "CC \($0)")
+                            },
+                            displayValue: "CC \(midiEngine.tapTempoCC)"
+                        )
                     }
                 }
                 .padding(12)
@@ -491,90 +413,27 @@ struct PerformanceSettingsView: View {
                 TESettingsRow(label: "CURRENT KEY") {
                     Text("\(NoteName(rawValue: midiEngine.currentRootNote)?.displayName ?? "C") \(midiEngine.currentScaleType.rawValue.uppercased())")
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.orange)
+                        .foregroundStyle(TEColors.orange)
                 }
 
                 // ChordPad Controller (required - no "ANY" option)
-                HStack {
-                    Text("CHORDPAD")
-                        .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                chordPadSourcePicker
 
-                    Spacer()
+                // Chord Zone Channel
+                SettingsPicker(
+                    label: "CHORD CH",
+                    selection: $midiEngine.chordZoneChannel,
+                    options: [(0, "ANY")] + (1...16).map { ($0, "CH \($0)") },
+                    displayValue: midiEngine.chordZoneChannel == 0 ? "ANY" : "CH \(midiEngine.chordZoneChannel)"
+                )
 
-                    let connectedNames = Set(midiEngine.connectedSources.map { $0.name })
-                    let isOffline = midiEngine.chordPadSourceName != nil && !connectedNames.contains(midiEngine.chordPadSourceName!)
-
-                    Menu {
-                        Button("NONE (DISABLED)") {
-                            midiEngine.chordPadSourceName = nil
-                        }
-                        ForEach(midiEngine.connectedSources) { source in
-                            Button(source.name.uppercased()) {
-                                midiEngine.chordPadSourceName = source.name
-                            }
-                        }
-                        // Show saved offline source as an option to keep it selected
-                        if let savedSource = midiEngine.chordPadSourceName, isOffline {
-                            Button("\(savedSource.uppercased()) (OFFLINE)") {
-                                // Keep the same selection
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(chordPadSourceLabel(isOffline: isOffline))
-                                .font(TEFonts.mono(12, weight: .bold))
-                                .foregroundColor(midiEngine.chordPadSourceName == nil ? TEColors.midGray : (isOffline ? TEColors.orange : TEColors.black))
-                                .lineLimit(1)
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(TEColors.darkGray)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Rectangle()
-                                .strokeBorder(TEColors.black, lineWidth: 2)
-                        )
-                    }
-                }
-
-                // ChordPad Channel
-                HStack {
-                    Text("CHANNEL")
-                        .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
-
-                    Spacer()
-
-                    Menu {
-                        Button("ANY") {
-                            midiEngine.chordPadChannel = 0
-                        }
-                        ForEach(1...16, id: \.self) { ch in
-                            Button("CH \(ch)") {
-                                midiEngine.chordPadChannel = ch
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(midiEngine.chordPadChannel == 0 ? "ANY" : "CH \(midiEngine.chordPadChannel)")
-                                .font(TEFonts.mono(12, weight: .bold))
-                                .foregroundColor(TEColors.black)
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(TEColors.darkGray)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Rectangle()
-                                .strokeBorder(TEColors.black, lineWidth: 2)
-                        )
-                    }
-                }
+                // Single Note Zone Channel
+                SettingsPicker(
+                    label: "NOTE CH",
+                    selection: $midiEngine.singleNoteZoneChannel,
+                    options: [(0, "ANY")] + (1...16).map { ($0, "CH \($0)") },
+                    displayValue: midiEngine.singleNoteZoneChannel == 0 ? "ANY" : "CH \(midiEngine.singleNoteZoneChannel)"
+                )
 
                 // ChordPad Map button
                 Button {
@@ -586,7 +445,7 @@ struct PerformanceSettingsView: View {
                         Text("CHORD MAP")
                             .font(TEFonts.mono(11, weight: .bold))
                     }
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
                     .background(TEColors.orange)
@@ -604,13 +463,13 @@ struct PerformanceSettingsView: View {
                 TESettingsRow(label: "INSTRUMENTS") {
                     Text("\(pluginManager.availableInstruments.count)")
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                 }
                 
                 TESettingsRow(label: "EFFECTS") {
                     Text("\(pluginManager.availableEffects.count)")
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                 }
                 
                 Button {
@@ -622,7 +481,7 @@ struct PerformanceSettingsView: View {
                         Text("RESCAN")
                             .font(TEFonts.mono(11, weight: .bold))
                     }
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .frame(maxWidth: .infinity)
                     .frame(height: 40)
                     .background(
@@ -642,7 +501,7 @@ struct PerformanceSettingsView: View {
                 HStack {
                     Text("THEME")
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
 
                     Spacer()
 
@@ -657,7 +516,7 @@ struct PerformanceSettingsView: View {
                                     Text(appearance.displayName)
                                         .font(TEFonts.mono(9, weight: .bold))
                                 }
-                                .foregroundColor(appearanceManager.currentAppearance == appearance ? .white : TEColors.black)
+                                .foregroundStyle(appearanceManager.currentAppearance == appearance ? .white : TEColors.black)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 8)
                                 .background(appearanceManager.currentAppearance == appearance ? TEColors.orange : TEColors.cream)
@@ -665,6 +524,45 @@ struct PerformanceSettingsView: View {
                         }
                     }
                     .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                }
+
+                Rectangle()
+                    .fill(TEColors.lightGray)
+                    .frame(height: 1)
+
+                // Orientation Lock
+                VStack(spacing: 12) {
+                    TEToggle(label: "LOCK ORIENTATION", isOn: $appearanceManager.isOrientationLocked)
+
+                    if appearanceManager.isOrientationLocked {
+                        HStack {
+                            Text("LOCK TO")
+                                .font(TEFonts.mono(10, weight: .medium))
+                                .foregroundStyle(TEColors.midGray)
+
+                            Spacer()
+
+                            HStack(spacing: 0) {
+                                ForEach(LockedOrientation.allCases, id: \.self) { orientation in
+                                    Button {
+                                        appearanceManager.lockedOrientation = orientation
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: orientation.icon)
+                                                .font(.system(size: 10, weight: .bold))
+                                            Text(orientation.displayName)
+                                                .font(TEFonts.mono(9, weight: .bold))
+                                        }
+                                        .foregroundStyle(appearanceManager.lockedOrientation == orientation ? .white : TEColors.black)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .background(appearanceManager.lockedOrientation == orientation ? TEColors.orange : TEColors.cream)
+                                    }
+                                }
+                            }
+                            .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                        }
+                    }
                 }
             }
         }
@@ -678,19 +576,19 @@ struct PerformanceSettingsView: View {
                 TESettingsRow(label: "CURRENT") {
                     Text(sessionStore.currentSession.name.uppercased())
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                 }
 
                 TESettingsRow(label: "PRESETS") {
                     Text("\(sessionStore.currentSession.songs.count)")
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                 }
 
                 TESettingsRow(label: "CHANNELS") {
                     Text("\(sessionStore.currentSession.channels.count)")
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                 }
 
                 // Save button (updates existing saved session or prompts for new name)
@@ -703,7 +601,7 @@ struct PerformanceSettingsView: View {
                 } label: {
                     Text("SAVE")
                         .font(TEFonts.mono(11, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                         .background(TEColors.orange)
@@ -716,7 +614,7 @@ struct PerformanceSettingsView: View {
                     } label: {
                         Text("SAVE AS")
                             .font(TEFonts.mono(11, weight: .bold))
-                            .foregroundColor(TEColors.black)
+                            .foregroundStyle(TEColors.black)
                             .frame(maxWidth: .infinity)
                             .frame(height: 40)
                             .background(
@@ -730,7 +628,7 @@ struct PerformanceSettingsView: View {
                     } label: {
                         Text("LOAD")
                             .font(TEFonts.mono(11, weight: .bold))
-                            .foregroundColor(TEColors.black)
+                            .foregroundStyle(TEColors.black)
                             .frame(maxWidth: .infinity)
                             .frame(height: 40)
                             .background(
@@ -748,7 +646,7 @@ struct PerformanceSettingsView: View {
                     } label: {
                         Text("RESET CHANNELS")
                             .font(TEFonts.mono(11, weight: .bold))
-                            .foregroundColor(TEColors.red)
+                            .foregroundStyle(TEColors.red)
                             .frame(maxWidth: .infinity)
                             .frame(height: 40)
                             .background(
@@ -762,7 +660,7 @@ struct PerformanceSettingsView: View {
                     } label: {
                         Text("RESET PRESETS")
                             .font(TEFonts.mono(11, weight: .bold))
-                            .foregroundColor(TEColors.red)
+                            .foregroundStyle(TEColors.red)
                             .frame(maxWidth: .infinity)
                             .frame(height: 40)
                             .background(
@@ -783,12 +681,12 @@ struct PerformanceSettingsView: View {
                 TESettingsRow(label: "VERSION") {
                     Text("1.0")
                         .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                 }
 
                 Text("KEYFRAME PERFORMANCE ENGINE")
                     .font(TEFonts.mono(9, weight: .medium))
-                    .foregroundColor(TEColors.midGray)
+                    .foregroundStyle(TEColors.midGray)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -836,6 +734,7 @@ struct PerformanceSettingsView: View {
                         strip.midiSourceName = config.midiSourceName
                         strip.scaleFilterEnabled = config.scaleFilterEnabled
                         strip.isChordPadTarget = config.isChordPadTarget
+                        strip.octaveTranspose = config.octaveTranspose
                         strip.volume = config.volume
                         strip.pan = config.pan
                         strip.isMuted = config.isMuted
@@ -903,6 +802,28 @@ struct PerformanceSettingsView: View {
         }
         return sourceName.uppercased()
     }
+    
+    /// ChordPad source picker with offline device handling
+    private var chordPadSourcePicker: some View {
+        let connectedNames = Set(midiEngine.connectedSources.map { $0.name })
+        let isOffline = midiEngine.chordPadSourceName != nil && !connectedNames.contains(midiEngine.chordPadSourceName!)
+        
+        // Build options list
+        var options: [(key: String?, value: String)] = [(nil, "NONE (DISABLED)")]
+        options += midiEngine.connectedSources.map { ($0.name as String?, $0.name.uppercased()) }
+        // Show saved offline source as an option to keep it selected
+        if let savedSource = midiEngine.chordPadSourceName, isOffline {
+            options.append((savedSource, "\(savedSource.uppercased()) (OFFLINE)"))
+        }
+        
+        return SettingsPicker(
+            label: "CHORDPAD",
+            selection: $midiEngine.chordPadSourceName,
+            options: options,
+            displayValue: chordPadSourceLabel(isOffline: isOffline),
+            valueColor: midiEngine.chordPadSourceName == nil ? TEColors.midGray : (isOffline ? TEColors.orange : TEColors.black)
+        )
+    }
 }
 
 // MARK: - TE Settings Section
@@ -915,7 +836,7 @@ struct TESettingsSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(TEFonts.mono(10, weight: .bold))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
                 .tracking(2)
             
             VStack(spacing: 0) {
@@ -941,7 +862,7 @@ struct TESettingsRow<Content: View>: View {
         HStack {
             Text(label)
                 .font(TEFonts.mono(10, weight: .medium))
-                .foregroundColor(TEColors.midGray)
+                .foregroundStyle(TEColors.midGray)
             
             Spacer()
             
@@ -959,11 +880,11 @@ struct ToastView: View {
         HStack(spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 16, weight: .bold))
-                .foregroundColor(TEColors.green)
+                .foregroundStyle(TEColors.green)
 
             Text(message)
                 .font(TEFonts.mono(12, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
@@ -992,7 +913,7 @@ struct SessionListView: View {
                 HStack {
                     Text("SAVED SESSIONS")
                         .font(TEFonts.display(16, weight: .black))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                         .tracking(2)
 
                     Spacer()
@@ -1002,7 +923,7 @@ struct SessionListView: View {
                     } label: {
                         Text("CLOSE")
                             .font(TEFonts.mono(11, weight: .bold))
-                            .foregroundColor(TEColors.darkGray)
+                            .foregroundStyle(TEColors.darkGray)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -1018,13 +939,13 @@ struct SessionListView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "folder")
                             .font(.system(size: 40, weight: .light))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                         Text("NO SAVED SESSIONS")
                             .font(TEFonts.mono(12, weight: .bold))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                         Text("Use 'Save As' to save your current session")
                             .font(TEFonts.mono(10, weight: .medium))
-                            .foregroundColor(TEColors.midGray)
+                            .foregroundStyle(TEColors.midGray)
                     }
                     Spacer()
                 } else {
@@ -1057,16 +978,16 @@ struct SessionRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(session.name.uppercased())
                     .font(TEFonts.mono(14, weight: .bold))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
 
                 HStack(spacing: 12) {
                     Text("\(session.channels.count) CH")
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
 
                     Text("\(session.songs.count) PRESETS")
                         .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
                 }
             }
 
@@ -1076,7 +997,7 @@ struct SessionRow: View {
                 Button(action: onLoad) {
                     Text("LOAD")
                         .font(TEFonts.mono(10, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                         .background(TEColors.orange)
@@ -1085,7 +1006,7 @@ struct SessionRow: View {
                 Button(action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(TEColors.red)
+                        .foregroundStyle(TEColors.red)
                         .padding(8)
                 }
             }
@@ -1114,18 +1035,18 @@ struct SaveSessionSheet: View {
                 // Header
                 Text("SAVE SESSION")
                     .font(TEFonts.display(18, weight: .black))
-                    .foregroundColor(TEColors.black)
+                    .foregroundStyle(TEColors.black)
                     .tracking(2)
 
                 // Text field
                 VStack(alignment: .leading, spacing: 8) {
                     Text("SESSION NAME")
                         .font(TEFonts.mono(10, weight: .bold))
-                        .foregroundColor(TEColors.midGray)
+                        .foregroundStyle(TEColors.midGray)
 
                     TextField("Enter name", text: $sessionName)
                         .font(TEFonts.mono(14, weight: .bold))
-                        .foregroundColor(TEColors.black)
+                        .foregroundStyle(TEColors.black)
                         .textInputAutocapitalization(.characters)
                         .padding(12)
                         .background(
@@ -1140,7 +1061,7 @@ struct SaveSessionSheet: View {
                     Button(action: onCancel) {
                         Text("CANCEL")
                             .font(TEFonts.mono(11, weight: .bold))
-                            .foregroundColor(TEColors.darkGray)
+                            .foregroundStyle(TEColors.darkGray)
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
                             .background(
@@ -1152,7 +1073,7 @@ struct SaveSessionSheet: View {
                     Button(action: onSave) {
                         Text("SAVE")
                             .font(TEFonts.mono(11, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
                             .background(TEColors.orange)
@@ -1163,6 +1084,120 @@ struct SaveSessionSheet: View {
                 }
             }
             .padding(20)
+        }
+        .preferredColorScheme(AppearanceManager.shared.colorScheme)
+    }
+}
+
+// MARK: - Settings Picker (Sheet-based, faster than Menu on iOS 18)
+
+struct SettingsPicker<T: Hashable>: View {
+    let label: String
+    @Binding var selection: T
+    let options: [(key: T, value: String)]
+    let displayValue: String
+    var valueColor: Color = TEColors.black
+    
+    @State private var showingSheet = false
+    
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(TEFonts.mono(10, weight: .medium))
+                .foregroundStyle(TEColors.midGray)
+            
+            Spacer()
+            
+            Button {
+                showingSheet = true
+            } label: {
+                HStack(spacing: 8) {
+                    Text(displayValue)
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundStyle(valueColor)
+                        .lineLimit(1)
+                    
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(TEColors.darkGray)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    Rectangle()
+                        .strokeBorder(TEColors.black, lineWidth: 2)
+                )
+            }
+        }
+        .sheet(isPresented: $showingSheet) {
+            SettingsPickerSheet(
+                title: label,
+                selection: $selection,
+                options: options,
+                isPresented: $showingSheet
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+}
+
+struct SettingsPickerSheet<T: Hashable>: View {
+    let title: String
+    @Binding var selection: T
+    let options: [(key: T, value: String)]
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(options.enumerated()), id: \.element.key) { index, option in
+                        Button {
+                            selection = option.key
+                            isPresented = false
+                        } label: {
+                            HStack {
+                                Text(option.value)
+                                    .font(TEFonts.mono(14, weight: selection == option.key ? .bold : .medium))
+                                    .foregroundStyle(TEColors.black)
+
+                                Spacer()
+
+                                if selection == option.key {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundStyle(TEColors.orange)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+                            .frame(maxWidth: .infinity)
+                            .background(selection == option.key ? TEColors.orange.opacity(0.1) : Color.clear)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if index < options.count - 1 {
+                            Rectangle()
+                                .fill(TEColors.lightGray.opacity(0.6))
+                                .frame(height: 1)
+                        }
+                    }
+                }
+            }
+            .background(TEColors.cream)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("DONE") {
+                        isPresented = false
+                    }
+                    .font(TEFonts.mono(12, weight: .bold))
+                    .foregroundStyle(TEColors.orange)
+                }
+            }
         }
         .preferredColorScheme(AppearanceManager.shared.colorScheme)
     }
