@@ -834,7 +834,30 @@ final class MIDIEngine {
     }
     
     private func processPitchBend(lsb: UInt8, msb: UInt8, channel: UInt8, sourceName: String?) {
-        // TODO: Implement pitch bend forwarding
+        guard let audioEngine = audioEngine else { return }
+        
+        let midiChannel = Int(channel) + 1
+        
+        // First try strict source matching
+        var targetChannels = audioEngine.channelStrips.filter { strip in
+            channelAcceptsMIDI(strip, sourceName: sourceName, midiChannel: midiChannel)
+        }
+        
+        // Fallback: if no strict match, route to channels with instruments that match MIDI channel
+        if targetChannels.isEmpty {
+            targetChannels = audioEngine.channelStrips.filter { strip in
+                let channelMatches = strip.midiChannel == 0 || strip.midiChannel == midiChannel
+                return channelMatches && strip.instrumentInfo != nil
+            }
+        }
+        
+        for targetChannel in targetChannels {
+            targetChannel.sendMIDI(pitchBend: lsb, msb: msb)
+        }
+        
+        let src = sourceName ?? "?"
+        let value = (Int(msb) << 7) | Int(lsb)
+        updateLastMessage("\(src): PB \(value) ch \(channel + 1)")
     }
     
     // MARK: - Scale Filtering

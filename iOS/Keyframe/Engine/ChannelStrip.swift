@@ -566,6 +566,16 @@ final class ChannelStrip: Identifiable {
         }
     }
     
+    func sendMIDI(pitchBend lsb: UInt8, msb: UInt8) {
+        guard let instrument = instrument else { return }
+        if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
+            var bytes: (UInt8, UInt8, UInt8) = (0xE0, lsb, msb)
+            withUnsafeBytes(of: &bytes) { raw in
+                midiBlock(AUEventSampleTimeImmediate, 0, 3, raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
+            }
+        }
+    }
+    
     // MARK: - Plugin UI
     
     /// Get the view controller for the instrument's UI

@@ -49,6 +49,7 @@ struct PerformanceView: View {
     @State private var showingNewPresetEditor = false
     @State private var editingPreset: PerformanceSong?
     @State private var isChannelsLocked = false
+    @State private var showingAIGenerator = false
     @State private var isInitializing = true
     @AppStorage("performModeSplitRatio") private var splitRatio: Double = 0.6  // Presets take 60% by default
     @AppStorage("isPresetsOnlyMode") private var isPresetsOnlyMode = false  // Hide faders, show only presets
@@ -116,6 +117,9 @@ struct PerformanceView: View {
                 isNew: true,
                 channels: sessionStore.currentSession.channels
             )
+        }
+        .sheet(isPresented: $showingAIGenerator) {
+            AIPresetGeneratorView()
         }
     }
     
@@ -356,6 +360,10 @@ struct PerformanceView: View {
                                 // Debug: Log state after adding channel
                                 logChannelState("After adding channel")
                             }
+                        }
+                        
+                        AIGeneratorButton {
+                            showingAIGenerator = true
                         }
                     }
                     .padding(.horizontal, 20)
@@ -929,12 +937,40 @@ struct AddChannelButton: View {
                     .font(TEFonts.mono(10, weight: .bold))
                     .foregroundStyle(TEColors.darkGray)
             }
+            .frame(maxHeight: .infinity)
             .frame(width: 64)
-            .padding(.vertical, 12)
             .padding(.horizontal, 8)
             .background(
                 RoundedRectangle(cornerRadius: 0)
                     .strokeBorder(TEColors.darkGray, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - AI Generator Button
+
+struct AIGeneratorButton: View {
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(TEColors.orange)
+                
+                Text("AI")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundStyle(TEColors.orange)
+            }
+            .frame(maxHeight: .infinity)
+            .frame(width: 64)
+            .padding(.horizontal, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 0)
+                    .strokeBorder(TEColors.orange, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
             )
         }
         .buttonStyle(.plain)
