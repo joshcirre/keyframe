@@ -125,6 +125,17 @@ final class MacAudioEngine: ObservableObject {
         print("MacAudioEngine: Connected channel \(channel.index) to master (format: \(format.sampleRate)Hz, \(format.channelCount)ch)")
     }
 
+    /// Verify and fix channel connections to master mixer (call after modifying channel chains)
+    func ensureChannelConnections() {
+        for (index, channel) in channelStrips.enumerated() {
+            let connections = engine.outputConnectionPoints(for: channel.outputNode, outputBus: 0)
+            if connections.isEmpty {
+                print("🔌 MacAudioEngine: Channel \(index) disconnected from master - reconnecting...")
+                connectChannelToMaster(channel)
+            }
+        }
+    }
+
     // MARK: - Engine Control
 
     func start() {

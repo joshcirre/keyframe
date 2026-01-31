@@ -238,6 +238,9 @@ final class MacChannelStrip: ObservableObject, Identifiable {
 
                 self.applyMusicalContext(to: audioUnit.auAudioUnit)
                 self.rebuildAudioChain()
+                
+                // Ensure channel stays connected to master after chain rebuild
+                MacAudioEngine.shared.ensureChannelConnections()
 
                 // Install metering tap now that we have an instrument
                 self.installMeteringTapIfNeeded()
@@ -266,6 +269,7 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         removeMeteringTap()
 
         rebuildAudioChain()
+        MacAudioEngine.shared.ensureChannelConnections()
     }
 
     // MARK: - Effects Chain
@@ -304,10 +308,15 @@ final class MacChannelStrip: ObservableObject, Identifiable {
                 engine.attach(audioUnit)
 
                 self.applyMusicalContext(to: audioUnit.auAudioUnit)
-                self.rebuildAudioChain()
 
-                print("MacChannelStrip \(self.index): Added effect (\(self.effects.count) total)")
-                completion(true, nil)
+                // Small delay to let the audio unit initialize before rebuilding chain
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    self.rebuildAudioChain()
+                    MacAudioEngine.shared.ensureChannelConnections()
+                    
+                    print("MacChannelStrip \(self.index): Added effect (\(self.effects.count) total)")
+                    completion(true, nil)
+                }
             }
         }
     }

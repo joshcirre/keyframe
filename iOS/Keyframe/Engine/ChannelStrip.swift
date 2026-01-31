@@ -195,6 +195,9 @@ final class ChannelStrip: Identifiable {
 
                 // Connect instrument to first effect or directly to mixer
                 self.rebuildAudioChain()
+                
+                // Ensure channel stays connected to master after chain rebuild
+                AudioEngine.shared.ensureChannelConnections()
 
                 print("ChannelStrip \(self.index): Loaded instrument")
                 completion(true, nil)
@@ -215,6 +218,7 @@ final class ChannelStrip: Identifiable {
         self.instrumentInfo = nil
 
         rebuildAudioChain()
+        AudioEngine.shared.ensureChannelConnections()
     }
     
     // MARK: - Effects Chain
@@ -257,21 +261,22 @@ final class ChannelStrip: Identifiable {
                 // Apply musical context for tempo sync
                 self.applyMusicalContext(to: audioUnit.auAudioUnit)
 
-                self.rebuildAudioChain()
-
-                // CRITICAL: Reconnect mixer to master - rebuildAudioChain can disconnect it
-                AudioEngine.shared.ensureChannelConnections()
-
-                // Verify mixer is still connected to something (its output should go to masterMixer)
-                let mixerOutputConnections = engine.outputConnectionPoints(for: self.mixer, outputBus: 0)
-                if mixerOutputConnections.isEmpty {
-                    print("⚠️ ChannelStrip \(self.index): Mixer STILL disconnected after ensureChannelConnections!")
-                } else {
-                    print("✅ ChannelStrip \(self.index): Mixer connected to \(mixerOutputConnections.count) output(s)")
+                // Small delay to let the audio unit initialize before rebuilding chain
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    self.rebuildAudioChain()
+                    AudioEngine.shared.ensureChannelConnections()
+                    
+                    // Verify mixer is still connected
+                    let mixerOutputConnections = engine.outputConnectionPoints(for: self.mixer, outputBus: 0)
+                    if mixerOutputConnections.isEmpty {
+                        print("⚠️ ChannelStrip \(self.index): Mixer STILL disconnected after ensureChannelConnections!")
+                    } else {
+                        print("✅ ChannelStrip \(self.index): Mixer connected to \(mixerOutputConnections.count) output(s)")
+                    }
+                    
+                    print("ChannelStrip \(self.index): Added effect (\(self.effects.count) total)")
+                    completion(true, nil)
                 }
-
-                print("ChannelStrip \(self.index): Added effect (\(self.effects.count) total)")
-                completion(true, nil)
             }
         }
     }
@@ -459,6 +464,7 @@ final class ChannelStrip: Identifiable {
     func updateMusicalContext(tempo: Double, isPlaying: Bool) {
         hostTempo = tempo
         hostIsPlaying = isPlaying
+        print("ChannelStrip \(index): Musical context updated - tempo: \(tempo) BPM, playing: \(isPlaying)")
         // Blocks already reference hostTempo and hostIsPlaying via weak self
         // No need to re-apply them - that causes race conditions on the audio thread
     }
