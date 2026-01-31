@@ -431,6 +431,33 @@ final class MIDIEngine {
 
     /// Current session BPM for display purposes (default 90, updated when presets with BPM are selected)
     var currentBPM: Int = 90
+    
+    // MARK: - Panic CC Mapping
+    
+    /// CC number that triggers panic (all notes off). nil = disabled
+    var panicCC: Int? = nil {
+        didSet {
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+    
+    /// MIDI channel for panic CC (0 = any, 1-16 = specific)
+    var panicCCChannel: Int = 0 {
+        didSet {
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+    
+    /// Source name for panic CC (nil = any source)
+    var panicCCSourceName: String? = nil {
+        didSet {
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+    
+    @ObservationIgnored private let panicCCKey = "panicCC"
+    @ObservationIgnored private let panicCCChannelKey = "panicCCChannel"
+    @ObservationIgnored private let panicCCSourceNameKey = "panicCCSourceName"
 
     // Persistence keys for output settings
     private let selectedDestinationKey = "midiOutputDestination"
@@ -440,8 +467,9 @@ final class MIDIEngine {
     private let tapTempoCCKey = "tapTempoCC"
     
     // Track active notes for proper note-off handling
-    // Key: "sourceName|channel|note", Value: Dictionary of channelStripId -> (processedNote, midiChannel) pairs
-    private var activeNotes: [String: [UUID: [(note: UInt8, channel: UInt8)]]] = [:]
+    // Key: "sourceName|channel|note", Value: Dictionary of channelStripId -> Stack of (processedNote, midiChannel) pairs
+    // Using a stack allows proper handling of rapid note retriggers where NoteOn arrives before NoteOff
+    private var activeNotes: [String: [UUID: [[(note: UInt8, channel: UInt8)]]]] = [:]
     
     /// Generate a stable key for note tracking (avoids hash collisions)
     private func noteTrackingKey(sourceName: String?, channel: UInt8, note: UInt8) -> String {
@@ -623,6 +651,14 @@ final class MIDIEngine {
         
         // Load pitch bend routing
         forcePitchBendToChannel1 = defaults.bool(forKey: forcePitchBendToChannel1Key)
+        
+        // Load panic CC mapping
+        if defaults.object(forKey: panicCCKey) != nil {
+            let savedValue = defaults.integer(forKey: panicCCKey)
+            panicCC = savedValue == -1 ? nil : savedValue
+        }
+        panicCCChannel = defaults.integer(forKey: panicCCChannelKey)
+        panicCCSourceName = defaults.string(forKey: panicCCSourceNameKey)
     }
 
     private func saveChordPadSettings() {
@@ -682,6 +718,11 @@ final class MIDIEngine {
         
         // Save pitch bend routing
         defaults.set(forcePitchBendToChannel1, forKey: forcePitchBendToChannel1Key)
+        
+        // Save panic CC mapping
+        defaults.set(panicCC ?? -1, forKey: panicCCKey)
+        defaults.set(panicCCChannel, forKey: panicCCChannelKey)
+        defaults.set(panicCCSourceName, forKey: panicCCSourceNameKey)
         
         // Force synchronize to ensure data is written immediately
         defaults.synchronize()
@@ -1178,8 +1219,12 @@ final class MIDIEngine {
             }
 
             // Store which notes and channels were actually sent to this specific channel
+            // Push to stack to handle rapid retriggers (NoteOn before NoteOff arrives)
             let noteChannelPairs = transposedNotes.map { (note: $0, channel: channel) }
-            activeNotes[sourceKey]?[targetChannel.id] = noteChannelPairs
+            if activeNotes[sourceKey]?[targetChannel.id] == nil {
+                activeNotes[sourceKey]?[targetChannel.id] = []
+            }
+            activeNotes[sourceKey]?[targetChannel.id]?.append(noteChannelPairs)
 
             // Send to instrument with reference counting
             // This allows multiple inputs to map to the same output note (e.g., Bb and B both -> B)
@@ -1202,26 +1247,45 @@ final class MIDIEngine {
         let sourceKey = noteTrackingKey(sourceName: sourceName, channel: channel, note: note)
 
         // Look up which notes were actually sent to each channel for this input note
-        if let channelMappings = activeNotes[sourceKey] {
-            for (channelId, noteChannelPairs) in channelMappings {
-                // Find the channel strip by ID
-                if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
-                    for pair in noteChannelPairs {
-                        // Decrement reference count - only send Note-Off when no inputs are holding this note
-                        let key = outputNoteKey(channelId: channelId, note: pair.note, midiChannel: pair.channel)
-                        let currentCount = outputNoteRefCount[key, default: 0]
-                        if currentCount <= 1 {
-                            // Last input holding this note - send Note-Off on the same MIDI channel
-                            outputNoteRefCount.removeValue(forKey: key)
-                            targetChannel.sendMIDI(noteOff: pair.note, channel: pair.channel)
-                        } else {
-                            // Other inputs still holding this note - just decrement
-                            outputNoteRefCount[key] = currentCount - 1
-                        }
+        // Pop from the stack to handle rapid retriggers properly (LIFO order)
+        guard var perChannel = activeNotes[sourceKey] else { return }
+        
+        for (channelId, var stack) in perChannel {
+            guard !stack.isEmpty else { continue }
+            
+            // Pop the most recent note event for this channel
+            let noteChannelPairs = stack.removeLast()
+            
+            // Update or remove the stack
+            if stack.isEmpty {
+                perChannel.removeValue(forKey: channelId)
+            } else {
+                perChannel[channelId] = stack
+            }
+            
+            // Find the channel strip by ID
+            if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
+                for pair in noteChannelPairs {
+                    // Decrement reference count - only send Note-Off when no inputs are holding this note
+                    let key = outputNoteKey(channelId: channelId, note: pair.note, midiChannel: pair.channel)
+                    let currentCount = outputNoteRefCount[key, default: 0]
+                    if currentCount <= 1 {
+                        // Last input holding this note - send Note-Off on the same MIDI channel
+                        outputNoteRefCount.removeValue(forKey: key)
+                        targetChannel.sendMIDI(noteOff: pair.note, channel: pair.channel)
+                    } else {
+                        // Other inputs still holding this note - just decrement
+                        outputNoteRefCount[key] = currentCount - 1
                     }
                 }
             }
+        }
+        
+        // Update or remove the main entry
+        if perChannel.isEmpty {
             activeNotes.removeValue(forKey: sourceKey)
+        } else {
+            activeNotes[sourceKey] = perChannel
         }
     }
     
@@ -1233,6 +1297,16 @@ final class MIDIEngine {
             DispatchQueue.main.async { [weak self] in
                 self?.onCCLearn?(Int(cc), midiChannel, sourceName)
             }
+            return
+        }
+        
+        // Check for panic CC trigger (value > 0 to trigger, like a button press)
+        if let mappedPanicCC = panicCC,
+           Int(cc) == mappedPanicCC,
+           value > 0,
+           (panicCCChannel == 0 || midiChannel == panicCCChannel),
+           (panicCCSourceName == nil || panicCCSourceName == sourceName) {
+            panicAllNotesOff()
             return
         }
 
@@ -1252,8 +1326,16 @@ final class MIDIEngine {
         for axis in expressionAxes where axis.enabled {
             // Determine source to match (axis-specific or global)
             let axisSource = axis.sourceName ?? expressionSourceName
-            guard let requiredSource = axisSource,
-                  sourceName == requiredSource,
+            
+            // Source matching: if axisSource is set, require exact match; otherwise accept any source
+            let sourceMatches: Bool
+            if let requiredSource = axisSource {
+                sourceMatches = (sourceName == requiredSource)
+            } else {
+                sourceMatches = true  // No source filter = accept from any source
+            }
+            
+            guard sourceMatches,
                   Int(cc) == axis.inputCC,
                   channelMatches(axis.inputChannel) else {
                 continue
@@ -1442,18 +1524,12 @@ final class MIDIEngine {
             return sourceMatches
         }
         
-        print("🎹 PB: \(targetChannels.count) targets, forceToChannel1=\(forcePitchBendToChannel1)")
-        
         // Determine output channel: force to channel 1 (0-indexed = 0) for non-MPE synths
         let outputChannel: UInt8 = forcePitchBendToChannel1 ? 0 : channel
         
         for targetChannel in targetChannels {
-            print("🎹 PB OUT: strip[\(targetChannel.index)] src=\(targetChannel.midiSourceName ?? "any") outCh=\(outputChannel + 1)")
             targetChannel.sendMIDI(pitchBend: lsb, msb: msb, channel: outputChannel)
         }
-        
-        let src = sourceName ?? "?"
-        updateLastMessage("\(src): PB \(value) ch \(channel + 1)")
     }
     
     // MARK: - Scale Filtering
@@ -1507,7 +1583,11 @@ final class MIDIEngine {
             let transposedNote = UInt8(clamping: Int(outputNote) + transposeSemitones)
 
             // ChordPad routing uses channel 0 (non-MPE)
-            activeNotes[sourceKey]?[targetChannel.id] = [(note: transposedNote, channel: 0)]
+            // Push to stack to handle rapid retriggers
+            if activeNotes[sourceKey]?[targetChannel.id] == nil {
+                activeNotes[sourceKey]?[targetChannel.id] = []
+            }
+            activeNotes[sourceKey]?[targetChannel.id]?.append([(note: transposedNote, channel: 0)])
             targetChannel.sendMIDI(noteOn: transposedNote, velocity: velocity, channel: 0)
         }
 
@@ -1550,8 +1630,12 @@ final class MIDIEngine {
             }
 
             // Store which chord notes were sent to this channel (ChordPad uses channel 0)
+            // Push to stack to handle rapid retriggers
             let noteChannelPairs = transposedChordNotes.map { (note: $0, channel: UInt8(0)) }
-            activeNotes[sourceKey]?[targetChannel.id] = noteChannelPairs
+            if activeNotes[sourceKey]?[targetChannel.id] == nil {
+                activeNotes[sourceKey]?[targetChannel.id] = []
+            }
+            activeNotes[sourceKey]?[targetChannel.id]?.append(noteChannelPairs)
 
             for transposedNote in transposedChordNotes {
                 targetChannel.sendMIDI(noteOn: transposedNote, velocity: velocity, channel: 0)
@@ -1576,9 +1660,10 @@ final class MIDIEngine {
     func panicAllNotesOff() {
         guard let audioEngine = audioEngine else { return }
         
-        // Clear all tracking state
-        activeNotes.removeAll()
-        outputNoteRefCount.removeAll()
+        // DO NOT clear activeNotes/outputNoteRefCount here!
+        // If user is still holding a key when panic is pressed, we need the tracking
+        // state so that when they release, processNoteOff can send the note-off.
+        // CC 123/120 stops the sound immediately; tracking ensures clean release.
         
         // Send All Notes Off (CC 123 value 0) to all channels on all instruments
         for strip in audioEngine.channelStrips where strip.isInstrumentLoaded {

@@ -24,6 +24,7 @@ struct PerformanceSettingsView: View {
     @State private var isLearningAxis2Input = false
     @State private var isLearningAxis3Input = false
     @State private var isLearningAxis4Input = false
+    @State private var isLearningPanicCC = false
     
     var body: some View {
         ZStack {
@@ -238,47 +239,92 @@ struct PerformanceSettingsView: View {
                 }
                 
                 // Panic button - All Notes Off
-                Button {
-                    midiEngine.panicAllNotesOff()
-                    showToast("ALL NOTES OFF")
-                } label: {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 12, weight: .bold))
-                        Text("PANIC")
-                            .font(TEFonts.mono(11, weight: .bold))
+                VStack(spacing: 8) {
+                    Button {
+                        midiEngine.panicAllNotesOff()
+                        showToast("ALL NOTES OFF")
+                    } label: {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("PANIC")
+                                .font(TEFonts.mono(11, weight: .bold))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(TEColors.red)
+                        .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
                     }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
-                    .background(TEColors.red)
-                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                    
+                    // MIDI mapping for panic
+                    HStack(spacing: 8) {
+                        if let panicCC = midiEngine.panicCC {
+                            Text("MAPPED: CC\(panicCC)")
+                                .font(TEFonts.mono(10, weight: .medium))
+                                .foregroundStyle(TEColors.darkGray)
+                            
+                            Button {
+                                midiEngine.panicCC = nil
+                                midiEngine.panicCCSourceName = nil
+                                showToast("PANIC MAPPING CLEARED")
+                            } label: {
+                                Text("CLEAR")
+                                    .font(TEFonts.mono(9, weight: .bold))
+                                    .foregroundStyle(TEColors.red)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .overlay(
+                                        Rectangle()
+                                            .strokeBorder(TEColors.red, lineWidth: 1)
+                                    )
+                            }
+                        } else {
+                            Text("NO MIDI MAPPING")
+                                .font(TEFonts.mono(10, weight: .medium))
+                                .foregroundStyle(TEColors.midGray)
+                        }
+                        
+                        Spacer()
+                        
+                        panicLearnButton
+                    }
                 }
                 
-                // Divider
-                Rectangle()
-                    .fill(TEColors.lightGray)
-                    .frame(height: 1)
-                
-                // Force all MIDI to channel 1 (for LUMI/MPE keyboards with non-MPE synths)
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("MPE → SINGLE CHANNEL")
-                        .font(TEFonts.mono(9, weight: .bold))
-                        .foregroundStyle(TEColors.darkGray)
-                    
-                    Text("Force all notes and pitch bend to channel 1. Enable this when using MPE keyboards (LUMI) with non-MPE synths. Notes and pitch bend must be on the same channel for pitch bend to work.")
-                        .font(TEFonts.mono(9, weight: .medium))
-                        .foregroundStyle(TEColors.midGray)
-                        .fixedSize(horizontal: false, vertical: true)
-                    
-                    TEToggle(label: "FORCE TO CH 1", isOn: $midiEngine.forcePitchBendToChannel1)
-                }
-                .padding(12)
-                .background(
-                    Rectangle()
-                        .fill(TEColors.cream)
-                )
             }
+        }
+    }
+    
+    private var panicLearnButton: some View {
+        Button {
+            if isLearningPanicCC {
+                isLearningPanicCC = false
+                midiEngine.isCCLearningMode = false
+                midiEngine.onCCLearn = nil
+            } else {
+                isLearningPanicCC = true
+                midiEngine.isCCLearningMode = true
+                midiEngine.onCCLearn = { cc, channel, sourceName in
+                    midiEngine.panicCC = cc
+                    midiEngine.panicCCChannel = channel
+                    midiEngine.panicCCSourceName = sourceName
+                    isLearningPanicCC = false
+                    midiEngine.isCCLearningMode = false
+                    midiEngine.onCCLearn = nil
+                    showToast("PANIC MAPPED TO CC\(cc)")
+                }
+            }
+        } label: {
+            Text(isLearningPanicCC ? "CANCEL" : "LEARN")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundStyle(isLearningPanicCC ? .white : TEColors.orange)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(isLearningPanicCC ? TEColors.orange : Color.clear)
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(TEColors.orange, lineWidth: 2)
+                )
         }
     }
 
@@ -638,9 +684,9 @@ struct PerformanceSettingsView: View {
                     )
                 }
                 
-                // Scale slider for subtle vibrato
+                // Scale slider - "RANGE" for pitch bend, "SCALE" for CC
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("RANGE: \(Int(midiEngine.globalExpression3Scale * 100))%")
+                    Text("\(midiEngine.globalExpression3OutputPitchBend ? "RANGE" : "SCALE"): \(Int(midiEngine.globalExpression3Scale * 100))%")
                         .font(TEFonts.mono(10, weight: .medium))
                         .foregroundStyle(TEColors.lightGray)
                     Slider(value: $midiEngine.globalExpression3Scale, in: 0.05...1.0, step: 0.05)
@@ -687,9 +733,9 @@ struct PerformanceSettingsView: View {
                     )
                 }
                 
-                // Scale slider for Axis 4
+                // Scale slider - "RANGE" for pitch bend, "SCALE" for CC
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("RANGE: \(Int(midiEngine.globalExpression4Scale * 100))%")
+                    Text("\(midiEngine.globalExpression4OutputPitchBend ? "RANGE" : "SCALE"): \(Int(midiEngine.globalExpression4Scale * 100))%")
                         .font(TEFonts.mono(10, weight: .medium))
                         .foregroundStyle(TEColors.lightGray)
                     Slider(value: $midiEngine.globalExpression4Scale, in: 0.05...1.0, step: 0.05)
@@ -1626,9 +1672,9 @@ struct ExpressionAxisRow: View {
                 .onChange(of: editedAxis.outputCC) { _, _ in saveChanges() }
             }
             
-            // Scale slider
+            // Scale slider - "RANGE" for pitch bend (limits bend distance), "SCALE" for CC (multiplies output)
             VStack(alignment: .leading, spacing: 4) {
-                Text("RANGE: \(Int(editedAxis.scale * 100))%")
+                Text("\(editedAxis.outputAsPitchBend ? "RANGE" : "SCALE"): \(Int(editedAxis.scale * 100))%")
                     .font(TEFonts.mono(10, weight: .medium))
                     .foregroundStyle(TEColors.lightGray)
                 Slider(value: $editedAxis.scale, in: 0.05...1.0, step: 0.05)

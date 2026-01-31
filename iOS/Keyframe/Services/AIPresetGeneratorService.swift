@@ -280,6 +280,13 @@ final class AIPresetGeneratorService {
         // Small delay to allow presets to apply
         try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
         
+        // Verify MIDI routing for all created strips
+        for (strip, generatedChannel) in createdStrips {
+            let inputDisplay = strip.midiSourceName == "__none__" ? "NONE" : (strip.midiSourceName ?? "ALL")
+            let instrumentLoaded = strip.isInstrumentLoaded
+            print("AIPresetGenerator: Channel '\(generatedChannel.suggestedName)' - input='\(inputDisplay)' midiCh=\(strip.midiChannel) instrumentLoaded=\(instrumentLoaded)")
+        }
+        
         // Save session
         sessionStore.saveCurrentSession()
         

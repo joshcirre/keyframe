@@ -80,11 +80,12 @@ final class AudioEngine {
             // the app running in background as the primary audio source
             try session.setCategory(.playback, mode: .default, options: [])
 
-            // Request low latency buffer
-            try session.setPreferredIOBufferDuration(0.012) // 12ms for stability
+            // Use 10ms buffer - iPhone 16 Pro Max can handle this easily
+            // Provides good latency while leaving headroom for AUv3 plugins
+            try session.setPreferredIOBufferDuration(0.010)
 
-            // Set preferred sample rate
-            try session.setPreferredSampleRate(44100)
+            // Don't force sample rate - let iOS negotiate with connected hardware
+            // (e.g., Zoom AMS-22 supports 44.1/48/88.2/96 kHz via USB Audio Class 2.0)
 
             try session.setActive(true, options: .notifyOthersOnDeactivation)
 
@@ -99,6 +100,10 @@ final class AudioEngine {
     
     // MARK: - Audio Graph Setup
     
+    /// Inaudible noise source that keeps the audio pipeline active during silence.
+    /// Prevents iOS from throttling the audio thread when no instruments are playing.
+    private var keepAliveSource: AVAudioSourceNode?
+    
     private func setupAudioGraph() {
         // Attach master mixer to engine
         engine.attach(masterMixer)
@@ -106,15 +111,54 @@ final class AudioEngine {
         // Connect master mixer to output
         let outputFormat = engine.outputNode.inputFormat(forBus: 0)
         engine.connect(masterMixer, to: engine.outputNode, format: outputFormat)
+        
+        // Create keep-alive noise source to prevent audio thread idle throttling.
+        // Outputs imperceptible noise (~-120dB) to keep the render pipeline active.
+        setupKeepAliveSource()
 
         // No default channels - they are created dynamically when added or restored from session
 
-        // Enable metering on master mixer
-        masterMixer.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, time in
+        // Enable metering on master mixer (smaller buffer for lower latency)
+        masterMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, time in
             self?.processMeterData(buffer: buffer)
         }
 
         print("AudioEngine: Audio graph configured (no default channels)")
+    }
+    
+    private func setupKeepAliveSource() {
+        // Use engine's output format to match the audio session sample rate
+        let outputFormat = engine.outputNode.outputFormat(forBus: 0)
+        let sampleRate = outputFormat.sampleRate > 0 ? outputFormat.sampleRate : 48000
+        
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2) else {
+            print("AudioEngine: Failed to create keep-alive format")
+            return
+        }
+        
+        // Create a source node that outputs imperceptible noise
+        keepAliveSource = AVAudioSourceNode(format: format) { _, _, frameCount, audioBufferList -> OSStatus in
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            
+            // Generate imperceptible noise (~-120dB, essentially just keeping the thread alive)
+            let amplitude: Float = 0.000001  // -120dB - completely inaudible
+            
+            for buffer in ablPointer {
+                guard let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
+                for frame in 0..<Int(frameCount) {
+                    // Simple triangle wave dither - more CPU-friendly than random
+                    let dither = amplitude * Float((frame % 2) * 2 - 1)
+                    data[frame] = dither
+                }
+            }
+            return noErr
+        }
+        
+        if let source = keepAliveSource {
+            engine.attach(source)
+            engine.connect(source, to: masterMixer, format: format)
+            print("AudioEngine: Keep-alive source attached at \(sampleRate)Hz")
+        }
     }
     
     private func connectChannelToMaster(_ channel: ChannelStrip) {
@@ -130,6 +174,15 @@ final class AudioEngine {
                 print("🔌 Channel \(index) disconnected from master - reconnecting...")
                 engine.connect(channel.outputNode, to: masterMixer, format: nil)
             }
+        }
+        
+        // Log final state for debugging
+        print("📊 Channel connection status:")
+        for (index, channel) in channelStrips.enumerated() {
+            let toMaster = !engine.outputConnectionPoints(for: channel.outputNode, outputBus: 0).isEmpty
+            let hasInstrument = channel.isInstrumentLoaded
+            let muted = channel.isMuted
+            print("  [\(index)] \(channel.name): instr=\(hasInstrument), master=\(toMaster), muted=\(muted)")
         }
     }
 
@@ -369,9 +422,11 @@ final class AudioEngine {
 
             if remaining == 0 {
                 DispatchQueue.main.async {
+                    // Final verification: ensure all channels are connected to master
+                    self.ensureChannelConnections()
                     self.isRestoringPlugins = false
                     self.restorationProgress = ""
-                    print("AudioEngine: All plugins restored")
+                    print("AudioEngine: All plugins restored, connections verified")
                     completion?()
                 }
             }

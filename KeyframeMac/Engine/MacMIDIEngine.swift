@@ -1591,26 +1591,38 @@ final class MacMIDIEngine: ObservableObject {
     // MARK: - Freeze/Hold
 
     private func handleFreezeTrigger(value: UInt8) {
+        // Use lock to ensure freeze state is read/written atomically with note tracking
+        noteTrackingLock.lock()
+        let wasActive = isFreezeActive
+        let shouldRelease: Bool
+        
         switch freezeMode {
         case .sustain:
             // Sustain mode: active while pedal pressed (value > 63)
-            let wasActive = isFreezeActive
-            DispatchQueue.main.async { [weak self] in
-                self?.isFreezeActive = value > 63
-            }
-            if wasActive && value <= 63 {
-                releaseFrozenNotes()
-            }
+            let nowActive = value > 63
+            shouldRelease = wasActive && !nowActive
+            // Update freeze state synchronously within lock for correct MIDI processing
+            isFreezeActive = nowActive
         case .toggle:
             // Toggle mode: latch on/off with each press (only on press, not release)
             if value > 63 {
-                DispatchQueue.main.async { [weak self] in
-                    self?.isFreezeActive.toggle()
-                    if !(self?.isFreezeActive ?? true) {
-                        self?.releaseFrozenNotes()
-                    }
-                }
+                isFreezeActive.toggle()
+                shouldRelease = wasActive && !isFreezeActive
+            } else {
+                shouldRelease = false
             }
+        }
+        noteTrackingLock.unlock()
+        
+        // Update published property on main thread for UI
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            // Re-read current state (may have changed since lock released)
+            _ = self.isFreezeActive  // Force publish update
+        }
+        
+        if shouldRelease {
+            releaseFrozenNotes()
         }
     }
 
@@ -1618,21 +1630,47 @@ final class MacMIDIEngine: ObservableObject {
     func releaseFrozenNotes() {
         guard let audioEngine = audioEngine else { return }
 
-        // Thread-safe: copy and clear frozen notes
+        // Thread-safe: copy and clear frozen notes, and reconcile refcounts
         noteTrackingLock.lock()
         let notesToRelease = frozenNotes
         frozenNotes.removeAll()
-        noteTrackingLock.unlock()
-
-        // Send note-offs outside the lock
+        
+        // Collect notes that actually need note-off (refcount reaches 0)
+        var actualNotesToRelease: [(channel: MacChannelStrip, note: UInt8)] = []
         for (_, channelMappings) in notesToRelease {
             for (channelId, processedNotes) in channelMappings {
                 if let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) {
                     for note in processedNotes {
-                        targetChannel.sendMIDI(noteOff: note)
+                        let key = outputNoteKey(channelId: channelId, note: note)
+                        let currentCount = outputNoteRefCount[key, default: 0]
+                        if currentCount <= 1 {
+                            // Last holder - send note-off
+                            outputNoteRefCount.removeValue(forKey: key)
+                            actualNotesToRelease.append((targetChannel, note))
+                        } else {
+                            // Other inputs still holding this note - just decrement
+                            outputNoteRefCount[key] = currentCount - 1
+                        }
+                    }
+                } else {
+                    // Channel strip no longer exists - clean up refcounts anyway
+                    for note in processedNotes {
+                        let key = outputNoteKey(channelId: channelId, note: note)
+                        let currentCount = outputNoteRefCount[key, default: 0]
+                        if currentCount <= 1 {
+                            outputNoteRefCount.removeValue(forKey: key)
+                        } else {
+                            outputNoteRefCount[key] = currentCount - 1
+                        }
                     }
                 }
             }
+        }
+        noteTrackingLock.unlock()
+
+        // Send note-offs outside the lock
+        for (targetChannel, note) in actualNotesToRelease {
+            targetChannel.sendMIDI(noteOff: note)
         }
     }
 

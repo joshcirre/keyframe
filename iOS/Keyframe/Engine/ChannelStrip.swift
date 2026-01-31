@@ -111,14 +111,12 @@ final class ChannelStrip: Identifiable {
         mixer.outputVolume = volume
         mixer.pan = pan
 
-        // Install metering tap
-        let format = mixer.outputFormat(forBus: 0)
-        if format.sampleRate > 0 {
-            mixer.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
-                self?.processMeterData(buffer)
-            }
-            meterTap = true
+        // Install metering tap with nil format - let AVAudioEngine negotiate
+        // Using smaller buffer (1024) for lower latency metering
+        mixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+            self?.processMeterData(buffer)
         }
+        meterTap = true
         // Note: Meter updates are driven by AudioEngine's consolidated timer
     }
 
@@ -541,7 +539,6 @@ final class ChannelStrip: Identifiable {
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
             let statusByte = 0x90 | (channel & 0x0F)
             var bytes: (UInt8, UInt8, UInt8) = (UInt8(statusByte), note, velocity)
-            print("🎸 Strip[\(index)] NOTE ON: ch=\(channel + 1) note=\(note) vel=\(velocity) to \(instrumentInfo?.name ?? "?")")
             withUnsafeBytes(of: &bytes) { raw in
                 midiBlock(AUEventSampleTimeImmediate, 0, 3, raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
             }
@@ -569,20 +566,13 @@ final class ChannelStrip: Identifiable {
     }
     
     func sendMIDI(pitchBend lsb: UInt8, msb: UInt8, channel: UInt8 = 0) {
-        guard let instrument = instrument else { 
-            print("⚠️ Strip[\(index)] PB: No instrument loaded!")
-            return 
-        }
+        guard let instrument = instrument else { return }
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
             let statusByte = 0xE0 | (channel & 0x0F)
             var bytes: (UInt8, UInt8, UInt8) = (UInt8(statusByte), lsb, msb)
-            let pitchValue = (Int(msb) << 7) | Int(lsb)
-            print("🎸 Strip[\(index)] PB SEND: status=0x\(String(statusByte, radix: 16)) ch=\(channel + 1) val=\(pitchValue) to \(instrumentInfo?.name ?? "?")")
             withUnsafeBytes(of: &bytes) { raw in
                 midiBlock(AUEventSampleTimeImmediate, 0, 3, raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
             }
-        } else {
-            print("⚠️ Strip[\(index)] PB: No scheduleMIDIEventBlock!")
         }
     }
     
