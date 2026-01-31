@@ -44,9 +44,12 @@ struct AIPresetGeneratorView: View {
                 let isLandscape = geometry.size.width > geometry.size.height
                 
                 ZStack {
-                    // Background
+                    // Background - tap to dismiss keyboard
                     Color(uiColor: .systemBackground)
                         .ignoresSafeArea()
+                        .onTapGesture {
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        }
                     
                     // Content
                     if catalog.isScanning {
@@ -229,8 +232,13 @@ struct AIPresetGeneratorView: View {
                 .lineLimit(3...8)
                 .autocorrectionDisabled(false)
                 .textInputAutocapitalization(.sentences)
+                .submitLabel(.done)
+                .onSubmit {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
             
             Button {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                 generate()
             } label: {
                 HStack(spacing: 8) {

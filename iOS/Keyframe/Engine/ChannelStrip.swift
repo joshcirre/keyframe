@@ -536,43 +536,53 @@ final class ChannelStrip: Identifiable {
     // MARK: - MIDI Handling
     
     /// Send MIDI note to the instrument (stack-allocated to avoid per-event heap allocation)
-    func sendMIDI(noteOn note: UInt8, velocity: UInt8) {
+    func sendMIDI(noteOn note: UInt8, velocity: UInt8, channel: UInt8 = 0) {
         guard let instrument = instrument else { return }
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
-            var bytes: (UInt8, UInt8, UInt8) = (0x90, note, velocity)
+            let statusByte = 0x90 | (channel & 0x0F)
+            var bytes: (UInt8, UInt8, UInt8) = (UInt8(statusByte), note, velocity)
+            print("🎸 Strip[\(index)] NOTE ON: ch=\(channel + 1) note=\(note) vel=\(velocity) to \(instrumentInfo?.name ?? "?")")
             withUnsafeBytes(of: &bytes) { raw in
                 midiBlock(AUEventSampleTimeImmediate, 0, 3, raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
             }
         }
     }
     
-    func sendMIDI(noteOff note: UInt8) {
+    func sendMIDI(noteOff note: UInt8, channel: UInt8 = 0) {
         guard let instrument = instrument else { return }
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
-            var bytes: (UInt8, UInt8, UInt8) = (0x80, note, 0)
+            var bytes: (UInt8, UInt8, UInt8) = (0x80 | (channel & 0x0F), note, 0)
             withUnsafeBytes(of: &bytes) { raw in
                 midiBlock(AUEventSampleTimeImmediate, 0, 3, raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
             }
         }
     }
     
-    func sendMIDI(controlChange cc: UInt8, value: UInt8) {
+    func sendMIDI(controlChange cc: UInt8, value: UInt8, channel: UInt8 = 0) {
         guard let instrument = instrument else { return }
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
-            var bytes: (UInt8, UInt8, UInt8) = (0xB0, cc, value)
+            var bytes: (UInt8, UInt8, UInt8) = (0xB0 | (channel & 0x0F), cc, value)
             withUnsafeBytes(of: &bytes) { raw in
                 midiBlock(AUEventSampleTimeImmediate, 0, 3, raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
             }
         }
     }
     
-    func sendMIDI(pitchBend lsb: UInt8, msb: UInt8) {
-        guard let instrument = instrument else { return }
+    func sendMIDI(pitchBend lsb: UInt8, msb: UInt8, channel: UInt8 = 0) {
+        guard let instrument = instrument else { 
+            print("⚠️ Strip[\(index)] PB: No instrument loaded!")
+            return 
+        }
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
-            var bytes: (UInt8, UInt8, UInt8) = (0xE0, lsb, msb)
+            let statusByte = 0xE0 | (channel & 0x0F)
+            var bytes: (UInt8, UInt8, UInt8) = (UInt8(statusByte), lsb, msb)
+            let pitchValue = (Int(msb) << 7) | Int(lsb)
+            print("🎸 Strip[\(index)] PB SEND: status=0x\(String(statusByte, radix: 16)) ch=\(channel + 1) val=\(pitchValue) to \(instrumentInfo?.name ?? "?")")
             withUnsafeBytes(of: &bytes) { raw in
                 midiBlock(AUEventSampleTimeImmediate, 0, 3, raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
             }
+        } else {
+            print("⚠️ Strip[\(index)] PB: No scheduleMIDIEventBlock!")
         }
     }
     

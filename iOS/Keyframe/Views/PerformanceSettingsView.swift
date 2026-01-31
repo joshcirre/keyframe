@@ -19,6 +19,12 @@ struct PerformanceSettingsView: View {
     @State private var sessionToDelete: Session?
     @State private var toastMessage: String?
     
+    // CC Learn state
+    @State private var isLearningAxis1Input = false
+    @State private var isLearningAxis2Input = false
+    @State private var isLearningAxis3Input = false
+    @State private var isLearningAxis4Input = false
+    
     var body: some View {
         ZStack {
             TEColors.cream.ignoresSafeArea()
@@ -38,6 +44,7 @@ struct PerformanceSettingsView: View {
                         midiSection
                         midiOutputSection
                         scaleFilterSection
+                        globalExpressionSection
                         pluginsSection
                         appearanceSection
                         sessionSection
@@ -229,6 +236,48 @@ struct PerformanceSettingsView: View {
                             .lineLimit(1)
                     }
                 }
+                
+                // Panic button - All Notes Off
+                Button {
+                    midiEngine.panicAllNotesOff()
+                    showToast("ALL NOTES OFF")
+                } label: {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("PANIC")
+                            .font(TEFonts.mono(11, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 40)
+                    .background(TEColors.red)
+                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                }
+                
+                // Divider
+                Rectangle()
+                    .fill(TEColors.lightGray)
+                    .frame(height: 1)
+                
+                // Force all MIDI to channel 1 (for LUMI/MPE keyboards with non-MPE synths)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("MPE → SINGLE CHANNEL")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundStyle(TEColors.darkGray)
+                    
+                    Text("Force all notes and pitch bend to channel 1. Enable this when using MPE keyboards (LUMI) with non-MPE synths. Notes and pitch bend must be on the same channel for pitch bend to work.")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    
+                    TEToggle(label: "FORCE TO CH 1", isOn: $midiEngine.forcePitchBendToChannel1)
+                }
+                .padding(12)
+                .background(
+                    Rectangle()
+                        .fill(TEColors.cream)
+                )
             }
         }
     }
@@ -453,6 +502,306 @@ struct PerformanceSettingsView: View {
                 }
             }
         }
+    }
+    
+    // MARK: - Global Expression Section
+    
+    private var globalExpressionSection: some View {
+        TESettingsSection(title: "GLOBAL EXPRESSION") {
+            VStack(spacing: 16) {
+                // Source picker (shared for both axes)
+                globalExpressionSourcePicker
+                
+                // Axis 1 (e.g., joystick Y / up-down)
+                Text("AXIS 1")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundStyle(TEColors.midGray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpressionEnabled)
+                
+                HStack(spacing: 12) {
+                    SettingsPicker(
+                        label: "INPUT CC",
+                        selection: $midiEngine.globalExpressionInputCC,
+                        options: commonCCOptions,
+                        displayValue: ccDisplayName(midiEngine.globalExpressionInputCC)
+                    )
+                    
+                    ccLearnButton(isLearning: $isLearningAxis1Input) { cc, channel, sourceName in
+                        midiEngine.globalExpressionInputCC = cc
+                        midiEngine.globalExpressionInputChannel = channel
+                        if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
+                            midiEngine.globalExpressionSourceName = source
+                        }
+                    }
+                }
+                
+                SettingsPicker(
+                    label: "OUTPUT CC",
+                    selection: $midiEngine.globalExpressionOutputCC,
+                    options: commonCCOptions,
+                    displayValue: ccDisplayName(midiEngine.globalExpressionOutputCC)
+                )
+                
+                // Ramp slider for smooth transitions
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("RAMP: \(String(format: "%.1f", midiEngine.globalExpressionRampTime))s")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundStyle(TEColors.lightGray)
+                    Slider(value: $midiEngine.globalExpressionRampTime, in: 0...2.0, step: 0.1)
+                        .tint(TEColors.black)
+                }
+                
+                Divider()
+                
+                // Axis 2
+                Text("AXIS 2")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundStyle(TEColors.midGray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpression2Enabled)
+                
+                HStack(spacing: 12) {
+                    SettingsPicker(
+                        label: "INPUT CC",
+                        selection: $midiEngine.globalExpression2InputCC,
+                        options: commonCCOptions,
+                        displayValue: ccDisplayName(midiEngine.globalExpression2InputCC)
+                    )
+                    
+                    ccLearnButton(isLearning: $isLearningAxis2Input) { cc, channel, sourceName in
+                        midiEngine.globalExpression2InputCC = cc
+                        midiEngine.globalExpression2InputChannel = channel
+                        if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
+                            midiEngine.globalExpressionSourceName = source
+                        }
+                    }
+                }
+                
+                SettingsPicker(
+                    label: "OUTPUT CC",
+                    selection: $midiEngine.globalExpression2OutputCC,
+                    options: commonCCOptions,
+                    displayValue: ccDisplayName(midiEngine.globalExpression2OutputCC)
+                )
+                
+                TEToggle(label: "INVERT (127→0)", isOn: $midiEngine.globalExpression2Invert)
+                
+                // Ramp slider for smooth transitions
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("RAMP: \(String(format: "%.1f", midiEngine.globalExpression2RampTime))s")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundStyle(TEColors.lightGray)
+                    Slider(value: $midiEngine.globalExpression2RampTime, in: 0...2.0, step: 0.1)
+                        .tint(TEColors.black)
+                }
+                
+                Divider()
+                
+                // Axis 3 (with pitch bend option)
+                Text("AXIS 3")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundStyle(TEColors.midGray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpression3Enabled)
+                
+                HStack(spacing: 12) {
+                    SettingsPicker(
+                        label: "INPUT CC",
+                        selection: $midiEngine.globalExpression3InputCC,
+                        options: commonCCOptions,
+                        displayValue: ccDisplayName(midiEngine.globalExpression3InputCC)
+                    )
+                    
+                    ccLearnButton(isLearning: $isLearningAxis3Input) { cc, channel, sourceName in
+                        midiEngine.globalExpression3InputCC = cc
+                        midiEngine.globalExpression3InputChannel = channel
+                        if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
+                            midiEngine.globalExpressionSourceName = source
+                        }
+                    }
+                }
+                
+                TEToggle(label: "OUTPUT AS PITCH BEND", isOn: $midiEngine.globalExpression3OutputPitchBend)
+                
+                if midiEngine.globalExpression3OutputPitchBend {
+                    TEToggle(label: "BEND DOWN (VIBRATO)", isOn: $midiEngine.globalExpression3PitchBendDown)
+                } else {
+                    SettingsPicker(
+                        label: "OUTPUT CC",
+                        selection: $midiEngine.globalExpression3OutputCC,
+                        options: commonCCOptions,
+                        displayValue: ccDisplayName(midiEngine.globalExpression3OutputCC)
+                    )
+                }
+                
+                // Scale slider for subtle vibrato
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("RANGE: \(Int(midiEngine.globalExpression3Scale * 100))%")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundStyle(TEColors.lightGray)
+                    Slider(value: $midiEngine.globalExpression3Scale, in: 0.05...1.0, step: 0.05)
+                        .tint(TEColors.black)
+                }
+                
+                Divider()
+                
+                // Axis 4
+                Text("AXIS 4")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundStyle(TEColors.midGray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpression4Enabled)
+                
+                HStack(spacing: 12) {
+                    SettingsPicker(
+                        label: "INPUT CC",
+                        selection: $midiEngine.globalExpression4InputCC,
+                        options: commonCCOptions,
+                        displayValue: ccDisplayName(midiEngine.globalExpression4InputCC)
+                    )
+                    
+                    ccLearnButton(isLearning: $isLearningAxis4Input) { cc, channel, sourceName in
+                        midiEngine.globalExpression4InputCC = cc
+                        midiEngine.globalExpression4InputChannel = channel
+                        if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
+                            midiEngine.globalExpressionSourceName = source
+                        }
+                    }
+                }
+                
+                TEToggle(label: "OUTPUT AS PITCH BEND", isOn: $midiEngine.globalExpression4OutputPitchBend)
+                
+                if midiEngine.globalExpression4OutputPitchBend {
+                    TEToggle(label: "BEND DOWN (VIBRATO)", isOn: $midiEngine.globalExpression4PitchBendDown)
+                } else {
+                    SettingsPicker(
+                        label: "OUTPUT CC",
+                        selection: $midiEngine.globalExpression4OutputCC,
+                        options: commonCCOptions,
+                        displayValue: ccDisplayName(midiEngine.globalExpression4OutputCC)
+                    )
+                }
+                
+                // Scale slider for Axis 4
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("RANGE: \(Int(midiEngine.globalExpression4Scale * 100))%")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundStyle(TEColors.lightGray)
+                    Slider(value: $midiEngine.globalExpression4Scale, in: 0.05...1.0, step: 0.05)
+                        .tint(TEColors.black)
+                }
+                
+                Divider()
+                
+                // Dynamic Expression Axes
+                ForEach(midiEngine.expressionAxes.indices, id: \.self) { index in
+                    let axisNumber = 5 + index
+                    ExpressionAxisRow(axis: midiEngine.expressionAxes[index], midiEngine: midiEngine, commonCCOptions: commonCCOptions, ccDisplayName: ccDisplayName, axisNumber: axisNumber, showToast: showToast)
+                }
+                
+                if midiEngine.expressionAxes.count < midiEngine.maxExpressionAxes {
+                    Button {
+                        midiEngine.addExpressionAxis()
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("ADD ADDITIONAL EXPRESSION")
+                                .font(TEFonts.mono(10, weight: .bold))
+                            Spacer()
+                        }
+                        .foregroundStyle(TEColors.midGray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func ccLearnButton(isLearning: Binding<Bool>, onLearn: @escaping (Int, Int, String?) -> Void) -> some View {
+        Button {
+            if isLearning.wrappedValue {
+                // Cancel learning
+                isLearning.wrappedValue = false
+                midiEngine.isCCLearningMode = false
+                midiEngine.onCCLearn = nil
+            } else {
+                // Start learning
+                isLearning.wrappedValue = true
+                midiEngine.isCCLearningMode = true
+                midiEngine.onCCLearn = { cc, channel, sourceName in
+                    onLearn(cc, channel, sourceName)
+                    isLearning.wrappedValue = false
+                    midiEngine.isCCLearningMode = false
+                    midiEngine.onCCLearn = nil
+                    showToast("LEARNED CC\(cc) CH\(channel)")
+                }
+            }
+        } label: {
+            Text(isLearning.wrappedValue ? "CANCEL" : "LEARN")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundStyle(isLearning.wrappedValue ? .white : TEColors.orange)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(isLearning.wrappedValue ? TEColors.orange : Color.clear)
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(TEColors.orange, lineWidth: 2)
+                )
+        }
+    }
+    
+    private var commonCCOptions: [(Int, String)] {
+        [
+            (1, "CC1 - MODULATION"),
+            (2, "CC2 - BREATH"),
+            (7, "CC7 - VOLUME"),
+            (11, "CC11 - EXPRESSION"),
+            (64, "CC64 - SUSTAIN"),
+            (74, "CC74 - FILTER"),
+        ]
+    }
+    
+    private func ccDisplayName(_ cc: Int) -> String {
+        switch cc {
+        case 1: return "CC1 MOD"
+        case 2: return "CC2 BREATH"
+        case 7: return "CC7 VOL"
+        case 11: return "CC11 EXPR"
+        case 64: return "CC64 SUST"
+        case 74: return "CC74 FILT"
+        default: return "CC\(cc)"
+        }
+    }
+    
+    private var globalExpressionSourcePicker: some View {
+        let connectedNames = Set(midiEngine.connectedSources.map { $0.name })
+        let isOffline = midiEngine.globalExpressionSourceName != nil && !connectedNames.contains(midiEngine.globalExpressionSourceName!)
+        
+        var options: [(key: String?, value: String)] = [(nil, "NONE (DISABLED)")]
+        options += midiEngine.connectedSources.map { ($0.name as String?, $0.name.uppercased()) }
+        if let savedSource = midiEngine.globalExpressionSourceName, isOffline {
+            options.append((savedSource, "\(savedSource.uppercased()) (OFFLINE)"))
+        }
+        
+        let displayValue: String = {
+            guard let sourceName = midiEngine.globalExpressionSourceName else { return "NONE" }
+            return isOffline ? "\(sourceName.uppercased()) (OFFLINE)" : sourceName.uppercased()
+        }()
+        
+        return SettingsPicker(
+            label: "SOURCE",
+            selection: $midiEngine.globalExpressionSourceName,
+            options: options,
+            displayValue: displayValue,
+            valueColor: midiEngine.globalExpressionSourceName == nil ? TEColors.midGray : (isOffline ? TEColors.orange : TEColors.black)
+        )
     }
     
     // MARK: - Plugins Section
@@ -1200,6 +1549,132 @@ struct SettingsPickerSheet<T: Hashable>: View {
             }
         }
         .preferredColorScheme(AppearanceManager.shared.colorScheme)
+    }
+}
+
+// MARK: - Expression Axis Row
+
+struct ExpressionAxisRow: View {
+    let axis: ExpressionAxisMapping
+    let midiEngine: MIDIEngine
+    let commonCCOptions: [(Int, String)]
+    let ccDisplayName: (Int) -> String
+    let axisNumber: Int
+    let showToast: (String) -> Void
+    
+    @State private var isExpanded = false
+    @State private var editedAxis: ExpressionAxisMapping
+    @State private var isLearningInput = false
+    
+    init(axis: ExpressionAxisMapping, midiEngine: MIDIEngine, commonCCOptions: [(Int, String)], ccDisplayName: @escaping (Int) -> String, axisNumber: Int, showToast: @escaping (String) -> Void) {
+        self.axis = axis
+        self.midiEngine = midiEngine
+        self.commonCCOptions = commonCCOptions
+        self.ccDisplayName = ccDisplayName
+        self.axisNumber = axisNumber
+        self.showToast = showToast
+        self._editedAxis = State(initialValue: axis)
+    }
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            // Header row - matches AXIS 2, 3, 4 styling
+            HStack {
+                Text("AXIS \(axisNumber)")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundStyle(TEColors.midGray)
+                Spacer()
+                Button {
+                    midiEngine.removeExpressionAxis(id: axis.id)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(TEColors.midGray)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            TEToggle(label: "ENABLED", isOn: $editedAxis.enabled)
+                .onChange(of: editedAxis.enabled) { _, _ in saveChanges() }
+            
+            // Input CC with Learn button
+            HStack(spacing: 12) {
+                SettingsPicker(
+                    label: "INPUT CC",
+                    selection: $editedAxis.inputCC,
+                    options: commonCCOptions,
+                    displayValue: ccDisplayName(editedAxis.inputCC)
+                )
+                .onChange(of: editedAxis.inputCC) { _, _ in saveChanges() }
+                
+                ccLearnButton
+            }
+            
+            TEToggle(label: "OUTPUT AS PITCH BEND", isOn: $editedAxis.outputAsPitchBend)
+                .onChange(of: editedAxis.outputAsPitchBend) { _, _ in saveChanges() }
+            
+            if editedAxis.outputAsPitchBend {
+                TEToggle(label: "BEND DOWN (VIBRATO)", isOn: $editedAxis.pitchBendDown)
+                    .onChange(of: editedAxis.pitchBendDown) { _, _ in saveChanges() }
+            } else {
+                SettingsPicker(
+                    label: "OUTPUT CC",
+                    selection: $editedAxis.outputCC,
+                    options: commonCCOptions,
+                    displayValue: ccDisplayName(editedAxis.outputCC)
+                )
+                .onChange(of: editedAxis.outputCC) { _, _ in saveChanges() }
+            }
+            
+            // Scale slider
+            VStack(alignment: .leading, spacing: 4) {
+                Text("RANGE: \(Int(editedAxis.scale * 100))%")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundStyle(TEColors.lightGray)
+                Slider(value: $editedAxis.scale, in: 0.05...1.0, step: 0.05)
+                    .tint(TEColors.black)
+                    .onChange(of: editedAxis.scale) { _, _ in saveChanges() }
+            }
+            
+            Divider()
+        }
+    }
+    
+    private var ccLearnButton: some View {
+        Button {
+            if isLearningInput {
+                isLearningInput = false
+                midiEngine.isCCLearningMode = false
+                midiEngine.onCCLearn = nil
+            } else {
+                isLearningInput = true
+                midiEngine.isCCLearningMode = true
+                midiEngine.onCCLearn = { cc, channel, sourceName in
+                    editedAxis.inputCC = cc
+                    editedAxis.inputChannel = channel
+                    saveChanges()
+                    isLearningInput = false
+                    midiEngine.isCCLearningMode = false
+                    midiEngine.onCCLearn = nil
+                    showToast("LEARNED CC\(cc) CH\(channel)")
+                }
+            }
+        } label: {
+            Text(isLearningInput ? "CANCEL" : "LEARN")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundStyle(isLearningInput ? .white : TEColors.orange)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(isLearningInput ? TEColors.orange : Color.clear)
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(TEColors.orange, lineWidth: 2)
+                )
+        }
+    }
+    
+    private func saveChanges() {
+        midiEngine.updateExpressionAxis(editedAxis)
     }
 }
 
