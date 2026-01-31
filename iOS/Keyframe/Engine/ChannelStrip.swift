@@ -38,7 +38,7 @@ final class ChannelStrip: Identifiable {
     var volume: Float = 1.0 {
         didSet {
             if !isMuted {
-                mixer.outputVolume = volume
+                mixer.outputVolume = pow(volume, 2.2)
             }
         }
     }
@@ -51,7 +51,7 @@ final class ChannelStrip: Identifiable {
 
     var isMuted: Bool = false {
         didSet {
-            mixer.outputVolume = isMuted ? 0 : volume
+            mixer.outputVolume = isMuted ? 0 : pow(volume, 2.2)
         }
     }
 
