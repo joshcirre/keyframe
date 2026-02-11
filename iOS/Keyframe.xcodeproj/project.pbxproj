@@ -36,6 +36,7 @@
 		8A1B2C3D4E5F6070 /* PluginCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6070 /* PluginCatalogService.swift */; };
 		8A1B2C3D4E5F6071 /* AIPresetGeneratorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6071 /* AIPresetGeneratorService.swift */; };
 		8A1B2C3D4E5F6072 /* AIPresetGeneratorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6072 /* AIPresetGeneratorView.swift */; };
+		8A1B2C3D4E5F600E /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F600E /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -70,6 +71,7 @@
 		9A1B2C3D4E5F6070 /* PluginCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginCatalogService.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6071 /* AIPresetGeneratorService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIPresetGeneratorService.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6072 /* AIPresetGeneratorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIPresetGeneratorView.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F600E /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		CA1B2C3D4E5F6000 /* Keyframe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Keyframe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -105,6 +107,7 @@
 				9A1B2C3D4E5F600B /* Assets.xcassets */,
 				9A1B2C3D4E5F600C /* Info.plist */,
 				9A1B2C3D4E5F600D /* Keyframe.entitlements */,
+				9A1B2C3D4E5F600E /* PrivacyInfo.xcprivacy */,
 			);
 			path = Keyframe;
 			sourceTree = "<group>";
@@ -245,6 +248,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8A1B2C3D4E5F600B /* Assets.xcassets in Resources */,
+				8A1B2C3D4E5F600E /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

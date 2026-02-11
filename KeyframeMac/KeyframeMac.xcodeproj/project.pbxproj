@@ -29,6 +29,7 @@
 		MAC001020 /* TEDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002022 /* TEDesignSystem.swift */; };
 		MAC001021 /* LayoutDebugger.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002023 /* LayoutDebugger.swift */; };
 		MAC001022 /* KeyframeDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAC002024 /* KeyframeDiscovery.swift */; };
+		MAC001023 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = MAC002025 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -57,6 +58,7 @@
 		MAC002022 /* TEDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TEDesignSystem.swift; sourceTree = "<group>"; };
 		MAC002023 /* LayoutDebugger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutDebugger.swift; sourceTree = "<group>"; };
 		MAC002024 /* KeyframeDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeDiscovery.swift; sourceTree = "<group>"; };
+		MAC002025 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -90,6 +92,7 @@
 				MAC002010 /* Assets.xcassets */,
 				MAC002011 /* KeyframeMac.entitlements */,
 				MAC002016 /* Info.plist */,
+				MAC002025 /* PrivacyInfo.xcprivacy */,
 			);
 			path = ".";
 			sourceTree = "<group>";
@@ -216,6 +219,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				MAC001010 /* Assets.xcassets in Resources */,
+				MAC001023 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -380,6 +384,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
@@ -407,6 +412,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
