@@ -141,13 +141,13 @@ final class AudioEngine {
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
             
             // Generate imperceptible noise (~-120dB, essentially just keeping the thread alive)
-            let amplitude: Float = 0.000001  // -120dB - completely inaudible
+            let noiseLevel: Float = 0.000001  // -120dB - completely inaudible
             
             for buffer in ablPointer {
                 guard let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
                 for frame in 0..<Int(frameCount) {
                     // Simple triangle wave dither - more CPU-friendly than random
-                    let dither = amplitude * Float((frame % 2) * 2 - 1)
+                    let dither = noiseLevel * Float((frame % 2) * 2 - 1)
                     data[frame] = dither
                 }
             }
