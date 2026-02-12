@@ -5,6 +5,7 @@ struct ModeSelectionView: View {
     @State private var showingRemoteMode = false
     @State private var showingLocalMode = false
     @State private var logoScale: CGFloat = 0.8
+    @State private var appearance = AppearanceManager.shared
 
     var body: some View {
         ZStack {
@@ -60,8 +61,18 @@ struct ModeSelectionView: View {
                     .foregroundStyle(TEColors.darkGray)
                     .padding(.bottom, 20)
             }
+
+            // Bottom-right appearance toggle
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    AppearanceToggleButton()
+                        .padding(16)
+                }
+            }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(appearance.colorScheme)
         .onAppear {
             withAnimation(.easeOut(duration: 0.5)) {
                 logoScale = 1.0
