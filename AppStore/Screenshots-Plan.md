@@ -64,3 +64,5 @@ Tip: capture at native resolution for the chosen simulator/display scale, then c
 
 ## Blocker / prerequisites
 Requires a Mac machine (physical or node) with KeyframeMac buildable, plus a known-good demo session file.
+
+See also: `Mac-Node-Pairing-and-Tunnel.md` for the pairing/tunnel plan.

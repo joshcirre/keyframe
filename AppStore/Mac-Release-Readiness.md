@@ -50,3 +50,4 @@ Use this as a preflight before cutting a Mac App Store build.
 
 ## Known current blocker
 - Capturing screenshots + verifying Mac build requires access to a paired Mac node or an SSH tunnel to the loopback-only gateway.
+  - Plan: see `Mac-Node-Pairing-and-Tunnel.md`.
