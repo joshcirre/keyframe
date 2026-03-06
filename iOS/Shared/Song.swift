@@ -7,6 +7,8 @@ struct Song: Codable, Identifiable, Equatable {
     var rootNote: Int           // 0-11 (C=0, Db=1, D=2, etc.)
     var scaleType: ScaleType    // Major or Minor
     var filterMode: FilterMode  // Block or Snap
+    var transposeEnabled: Bool
+    var transposeBaseNote: Int
     var preset: MIDIPreset      // Channel levels and plugin states
     
     // BPM settings
@@ -28,6 +30,37 @@ struct Song: Codable, Identifiable, Equatable {
         let scaleSuffix = scaleType == .major ? "maj" : "min"
         return "\(noteName)\(scaleSuffix)"
     }
+
+    /// The key the player performs in before any song transposition is applied.
+    var playedRootNote: Int {
+        transposeEnabled ? transposeBaseNote : rootNote
+    }
+
+    var playedKeyDisplayName: String {
+        let noteName = NoteName(rawValue: playedRootNote)?.displayName ?? "?"
+        return "\(noteName) \(scaleType.rawValue)"
+    }
+
+    var playedKeyShortName: String {
+        let noteName = NoteName(rawValue: playedRootNote)?.displayName ?? "?"
+        let scaleSuffix = scaleType == .major ? "maj" : "min"
+        return "\(noteName)\(scaleSuffix)"
+    }
+
+    var transposeSemitones: Int {
+        guard transposeEnabled else { return 0 }
+        return NoteName.signedSemitoneDistance(from: playedRootNote, to: rootNote)
+    }
+
+    var transposeSemitoneDescription: String {
+        let semitones = transposeSemitones
+        if semitones == 0 {
+            return "0 st"
+        }
+
+        let direction = semitones > 0 ? "up" : "down"
+        return "\(direction) \(abs(semitones)) st"
+    }
     
     /// BPM display string
     var bpmDisplayString: String {
@@ -45,6 +78,8 @@ struct Song: Codable, Identifiable, Equatable {
         rootNote: Int,
         scaleType: ScaleType,
         filterMode: FilterMode = .snap,
+        transposeEnabled: Bool = false,
+        transposeBaseNote: Int? = nil,
         preset: MIDIPreset = MIDIPreset(),
         bpm: Int? = nil,
         bpmCC: Int = Int(MIDIConstants.defaultBPMCC),
@@ -55,6 +90,8 @@ struct Song: Codable, Identifiable, Equatable {
         self.rootNote = rootNote
         self.scaleType = scaleType
         self.filterMode = filterMode
+        self.transposeEnabled = transposeEnabled
+        self.transposeBaseNote = transposeBaseNote ?? rootNote
         self.preset = preset
         self.bpm = bpm
         self.bpmCC = bpmCC

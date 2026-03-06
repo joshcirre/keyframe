@@ -182,6 +182,29 @@ struct PerformanceSongEditorView: View {
         )
     }
 
+    private func notePicker(selection: Binding<Int>, selectedFill: Color) -> some View {
+        HStack(spacing: 4) {
+            ForEach(NoteName.allCases) { note in
+                Button {
+                    selection.wrappedValue = note.rawValue
+                } label: {
+                    Text(note.displayName)
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundStyle(selection.wrappedValue == note.rawValue ? .white : TEColors.black)
+                        .frame(width: 28, height: 32)
+                        .background(
+                            Rectangle()
+                                .fill(selection.wrappedValue == note.rawValue ? selectedFill : TEColors.cream)
+                        )
+                        .overlay(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: selection.wrappedValue == note.rawValue ? 0 : 1)
+                        )
+                }
+            }
+        }
+    }
+
     // MARK: - Key Section
     
     private var keySection: some View {
@@ -192,34 +215,70 @@ struct PerformanceSongEditorView: View {
                 .tracking(2)
             
             VStack(spacing: 16) {
-                // Root note picker
                 HStack {
-                    Text("ROOT")
+                    Text("SOUND")
                         .font(TEFonts.mono(10, weight: .medium))
                         .foregroundStyle(TEColors.midGray)
                     
                     Spacer()
-                    
-                    // Note buttons
-                    HStack(spacing: 4) {
-                        ForEach(NoteName.allCases) { note in
-                            Button {
-                                song.rootNote = note.rawValue
-                            } label: {
-                                Text(note.displayName)
-                                    .font(TEFonts.mono(12, weight: .bold))
-                                    .foregroundStyle(song.rootNote == note.rawValue ? .white : TEColors.black)
-                                    .frame(width: 28, height: 32)
-                                    .background(
-                                        Rectangle()
-                                            .fill(song.rootNote == note.rawValue ? TEColors.orange : TEColors.cream)
-                                    )
-                                    .overlay(
-                                        Rectangle()
-                                            .strokeBorder(TEColors.black, lineWidth: song.rootNote == note.rawValue ? 0 : 1)
-                                    )
+
+                    notePicker(
+                        selection: Binding(
+                            get: { song.rootNote },
+                            set: { newValue in
+                                song.rootNote = newValue
+                                if !song.transposeEnabled {
+                                    song.transposeBaseNote = newValue
+                                }
                             }
-                        }
+                        ),
+                        selectedFill: TEColors.orange
+                    )
+                }
+
+                Button {
+                    if !song.transposeEnabled {
+                        song.transposeBaseNote = song.rootNote
+                    }
+                    song.transposeEnabled.toggle()
+                } label: {
+                    HStack {
+                        Text("TRANSPOSE")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.midGray)
+
+                        Spacer()
+
+                        Text(song.transposeEnabled ? "ON" : "OFF")
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .foregroundStyle(song.transposeEnabled ? TEColors.orange : TEColors.midGray)
+
+                        Rectangle()
+                            .fill(song.transposeEnabled ? TEColors.orange : TEColors.lightGray)
+                            .frame(width: 48, height: 24)
+                            .overlay(
+                                Rectangle()
+                                    .fill(TEColors.warmWhite)
+                                    .frame(width: 20, height: 20)
+                                    .offset(x: song.transposeEnabled ? 12 : -12)
+                            )
+                            .overlay(
+                                Rectangle()
+                                    .strokeBorder(TEColors.black, lineWidth: 2)
+                            )
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if song.transposeEnabled {
+                    HStack {
+                        Text("PLAY IN")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.midGray)
+
+                        Spacer()
+
+                        notePicker(selection: $song.transposeBaseNote, selectedFill: TEColors.black)
                     }
                 }
                 
@@ -287,6 +346,12 @@ struct PerformanceSongEditorView: View {
                 Text(song.filterMode.description.uppercased())
                     .font(TEFonts.mono(9, weight: .medium))
                     .foregroundStyle(TEColors.midGray)
+
+                if let transposeDescription = song.transposeDescription {
+                    Text(transposeDescription)
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundStyle(TEColors.orange)
+                }
             }
             .padding(16)
             .background(

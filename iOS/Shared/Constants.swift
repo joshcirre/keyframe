@@ -113,6 +113,16 @@ enum NoteName: Int, CaseIterable, Identifiable {
     static func from(midiNote: UInt8) -> NoteName {
         NoteName(rawValue: Int(midiNote) % 12)!
     }
+
+    static func normalizedPitchClass(_ value: Int) -> Int {
+        let normalized = value % 12
+        return normalized >= 0 ? normalized : normalized + 12
+    }
+
+    static func signedSemitoneDistance(from source: Int, to destination: Int) -> Int {
+        let upwardDistance = normalizedPitchClass(destination - source)
+        return upwardDistance > 6 ? upwardDistance - 12 : upwardDistance
+    }
 }
 
 // MARK: - MIDI Constants

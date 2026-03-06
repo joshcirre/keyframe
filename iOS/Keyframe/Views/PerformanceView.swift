@@ -475,6 +475,8 @@ struct PerformanceView: View {
                                 rootNote: song.rootNote,
                                 scaleType: song.scaleType,
                                 filterMode: song.filterMode,
+                                transposeEnabled: song.transposeEnabled,
+                                transposeBaseNote: song.transposeBaseNote,
                                 preset: .empty,
                                 bpm: song.bpm
                             )
@@ -596,6 +598,8 @@ struct PerformanceView: View {
             rootNote: song.rootNote,
             scaleType: song.scaleType,
             filterMode: song.filterMode,
+            transposeEnabled: song.transposeEnabled,
+            transposeBaseNote: song.transposeBaseNote,
             preset: MIDIPreset.empty,
             bpm: song.bpm
         )
@@ -830,7 +834,12 @@ struct ActiveSongBanner: View {
             // Data blocks
             HStack(spacing: 12) {
                 DataBlock(label: "KEY", value: song.keyShortName.uppercased())
-                
+
+                if song.transposeEnabled {
+                    DataBlock(label: "PLAY", value: song.playedKeyShortName.uppercased())
+                    DataBlock(label: "TRN", value: song.transposeSemitoneDisplay, highlight: true)
+                }
+
                 if let bpm = song.bpm {
                     DataBlock(label: "BPM", value: "\(bpm)")
                 }

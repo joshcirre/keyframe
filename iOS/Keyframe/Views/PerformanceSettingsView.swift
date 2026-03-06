@@ -1143,6 +1143,8 @@ struct PerformanceSettingsView: View {
                         rootNote: activeSong.rootNote,
                         scaleType: activeSong.scaleType,
                         filterMode: activeSong.filterMode,
+                        transposeEnabled: activeSong.transposeEnabled,
+                        transposeBaseNote: activeSong.transposeBaseNote,
                         preset: .empty,
                         bpm: activeSong.bpm
                     )

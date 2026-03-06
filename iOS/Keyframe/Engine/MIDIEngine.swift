@@ -54,6 +54,7 @@ final class MIDIEngine {
     var currentRootNote: Int = 0  // C
     var currentScaleType: ScaleType = .major
     var filterMode: FilterMode = .snap
+    var currentTransposeSemitones: Int = 0
     var isScaleFilterEnabled = true
 
     // MARK: - ChordPad Settings (persisted)
@@ -1212,9 +1213,11 @@ final class MIDIEngine {
                 processedNotes = [note]
             }
 
+            let songAdjustedNotes = applySongTranspose(to: processedNotes)
+
             // Apply octave transpose (each octave = 12 semitones)
             let transposeSemitones = targetChannel.octaveTranspose * 12
-            let transposedNotes = processedNotes.map { note in
+            let transposedNotes = songAdjustedNotes.map { note in
                 UInt8(clamping: Int(note) + transposeSemitones)
             }
 
@@ -1547,6 +1550,14 @@ final class MIDIEngine {
             return [snapped]
         }
     }
+
+    private func applySongTranspose(to notes: [UInt8]) -> [UInt8] {
+        notes.map(applySongTranspose(to:))
+    }
+
+    private func applySongTranspose(to note: UInt8) -> UInt8 {
+        UInt8(clamping: Int(note) + currentTransposeSemitones)
+    }
     
     // MARK: - Secondary Zone Processing (Split Controller)
 
@@ -1569,6 +1580,7 @@ final class MIDIEngine {
             scale: currentScaleType,
             octave: chordMapping.secondaryBaseOctave
         )
+        let songAdjustedNote = applySongTranspose(to: outputNote)
 
         // Track notes and send to all targets
         let sourceKey = noteTrackingKey(sourceName: sourceName, channel: channel, note: note)
@@ -1580,7 +1592,7 @@ final class MIDIEngine {
         for targetChannel in targetChannels {
             // Apply octave transpose (each octave = 12 semitones)
             let transposeSemitones = targetChannel.octaveTranspose * 12
-            let transposedNote = UInt8(clamping: Int(outputNote) + transposeSemitones)
+            let transposedNote = UInt8(clamping: Int(songAdjustedNote) + transposeSemitones)
 
             // ChordPad routing uses channel 0 (non-MPE)
             // Push to stack to handle rapid retriggers
@@ -1592,7 +1604,7 @@ final class MIDIEngine {
         }
 
         let degreeNames = ["1", "2", "3", "4", "5", "6", "7"]
-        updateLastMessage("Split: Deg \(degreeNames[degree - 1]) → Note \(outputNote)")
+        updateLastMessage("Split: Deg \(degreeNames[degree - 1]) → Note \(songAdjustedNote)")
     }
 
     // MARK: - Chord Triggering
@@ -1610,6 +1622,7 @@ final class MIDIEngine {
         ) else {
             return
         }
+        let songAdjustedChordNotes = applySongTranspose(to: chordNotes)
 
         // Find the ChordPad target channels
         let targetChannels = audioEngine.channelStrips.filter { $0.isChordPadTarget }
@@ -1625,7 +1638,7 @@ final class MIDIEngine {
         for targetChannel in targetChannels {
             // Apply octave transpose (each octave = 12 semitones)
             let transposeSemitones = targetChannel.octaveTranspose * 12
-            let transposedChordNotes = chordNotes.map { note in
+            let transposedChordNotes = songAdjustedChordNotes.map { note in
                 UInt8(clamping: Int(note) + transposeSemitones)
             }
 
@@ -1642,16 +1655,17 @@ final class MIDIEngine {
             }
         }
 
-        updateLastMessage("Chord: \(chordNotes.map { String($0) }.joined(separator: ","))")
+        updateLastMessage("Chord: \(songAdjustedChordNotes.map { String($0) }.joined(separator: ","))")
     }
     
     // MARK: - Song/Preset Changes
     
     /// Update scale settings when song changes
     func applySongSettings(_ song: Song) {
-        currentRootNote = song.rootNote
+        currentRootNote = song.playedRootNote
         currentScaleType = song.scaleType
         filterMode = song.filterMode
+        currentTransposeSemitones = song.transposeSemitones
     }
     
     // MARK: - Panic / All Notes Off

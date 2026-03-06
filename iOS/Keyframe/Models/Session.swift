@@ -193,6 +193,8 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
     var rootNote: Int
     var scaleType: ScaleType
     var filterMode: FilterMode
+    var transposeEnabled: Bool
+    var transposeBaseNote: Int
     var bpm: Int?
     var channelStates: [ChannelPresetState]
     var order: Int  // For setlist ordering
@@ -212,6 +214,8 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
         rootNote: Int = 0,
         scaleType: ScaleType = .major,
         filterMode: FilterMode = .snap,
+        transposeEnabled: Bool = false,
+        transposeBaseNote: Int? = nil,
         bpm: Int? = nil,
         channelStates: [ChannelPresetState] = [],
         order: Int = 0,
@@ -226,6 +230,8 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
         self.rootNote = rootNote
         self.scaleType = scaleType
         self.filterMode = filterMode
+        self.transposeEnabled = transposeEnabled
+        self.transposeBaseNote = transposeBaseNote ?? rootNote
         self.bpm = bpm
         self.channelStates = channelStates
         self.order = order
@@ -244,6 +250,103 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
         let noteName = NoteName(rawValue: rootNote)?.displayName ?? "?"
         let suffix = scaleType == .major ? "maj" : "min"
         return "\(noteName)\(suffix)"
+    }
+
+    var playedRootNote: Int {
+        transposeEnabled ? transposeBaseNote : rootNote
+    }
+
+    var playedKeyDisplayName: String {
+        let noteName = NoteName(rawValue: playedRootNote)?.displayName ?? "?"
+        return "\(noteName) \(scaleType.rawValue)"
+    }
+
+    var playedKeyShortName: String {
+        let noteName = NoteName(rawValue: playedRootNote)?.displayName ?? "?"
+        let suffix = scaleType == .major ? "maj" : "min"
+        return "\(noteName)\(suffix)"
+    }
+
+    var transposeSemitones: Int {
+        guard transposeEnabled else { return 0 }
+        return NoteName.signedSemitoneDistance(from: playedRootNote, to: rootNote)
+    }
+
+    var transposeSemitoneDisplay: String {
+        let semitones = transposeSemitones
+        if semitones == 0 {
+            return "0 ST"
+        }
+
+        let sign = semitones > 0 ? "+" : ""
+        return "\(sign)\(semitones) ST"
+    }
+
+    var transposeDescription: String? {
+        guard transposeEnabled else { return nil }
+
+        let direction: String
+        if transposeSemitones == 0 {
+            direction = "UNISON"
+        } else if transposeSemitones > 0 {
+            direction = "UP \(abs(transposeSemitones)) SEMITONE\(abs(transposeSemitones) == 1 ? "" : "S")"
+        } else {
+            direction = "DOWN \(abs(transposeSemitones)) SEMITONE\(abs(transposeSemitones) == 1 ? "" : "S")"
+        }
+
+        return "PLAY \(playedKeyDisplayName.uppercased()) -> SOUND \(keyDisplayName.uppercased()) (\(direction))"
+    }
+}
+
+// MARK: - PerformanceSong Codable (backwards compatible)
+
+extension PerformanceSong {
+    enum CodingKeys: String, CodingKey {
+        case id, name, songName, rootNote, scaleType, filterMode
+        case transposeEnabled, transposeBaseNote
+        case bpm, channelStates, order
+        case triggerSourceName, triggerChannel, triggerNote
+        case externalMIDIMessages
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        songName = try container.decodeIfPresent(String.self, forKey: .songName)
+        rootNote = try container.decodeIfPresent(Int.self, forKey: .rootNote) ?? 0
+        scaleType = try container.decodeIfPresent(ScaleType.self, forKey: .scaleType) ?? .major
+        filterMode = try container.decodeIfPresent(FilterMode.self, forKey: .filterMode) ?? .snap
+        transposeEnabled = try container.decodeIfPresent(Bool.self, forKey: .transposeEnabled) ?? false
+        transposeBaseNote = try container.decodeIfPresent(Int.self, forKey: .transposeBaseNote) ?? rootNote
+        bpm = try container.decodeIfPresent(Int.self, forKey: .bpm)
+        channelStates = try container.decodeIfPresent([ChannelPresetState].self, forKey: .channelStates) ?? []
+        order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
+        triggerSourceName = try container.decodeIfPresent(String.self, forKey: .triggerSourceName)
+        triggerChannel = try container.decodeIfPresent(Int.self, forKey: .triggerChannel)
+        triggerNote = try container.decodeIfPresent(Int.self, forKey: .triggerNote)
+        externalMIDIMessages = try container.decodeIfPresent([ExternalMIDIMessage].self, forKey: .externalMIDIMessages) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(songName, forKey: .songName)
+        try container.encode(rootNote, forKey: .rootNote)
+        try container.encode(scaleType, forKey: .scaleType)
+        try container.encode(filterMode, forKey: .filterMode)
+        try container.encode(transposeEnabled, forKey: .transposeEnabled)
+        try container.encode(transposeBaseNote, forKey: .transposeBaseNote)
+        try container.encodeIfPresent(bpm, forKey: .bpm)
+        try container.encode(channelStates, forKey: .channelStates)
+        try container.encode(order, forKey: .order)
+        try container.encodeIfPresent(triggerSourceName, forKey: .triggerSourceName)
+        try container.encodeIfPresent(triggerChannel, forKey: .triggerChannel)
+        try container.encodeIfPresent(triggerNote, forKey: .triggerNote)
+        try container.encode(externalMIDIMessages, forKey: .externalMIDIMessages)
     }
 }
 
