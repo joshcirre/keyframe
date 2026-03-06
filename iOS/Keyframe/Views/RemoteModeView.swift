@@ -3,6 +3,7 @@ import SwiftUI
 /// Remote mode view - connects to Mac and displays synced presets
 struct RemoteModeView: View {
     @State private var remote = KeyframeRemote.shared
+    @State private var appearance = AppearanceManager.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -25,8 +26,18 @@ struct RemoteModeView: View {
             case .error(let message):
                 errorView(message: message)
             }
+
+            // Bottom-right appearance toggle
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    AppearanceToggleButton()
+                        .padding(16)
+                }
+            }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(appearance.colorScheme)
         .onAppear {
             remote.startSearching()
         }
