@@ -251,41 +251,41 @@ struct PerformanceView: View {
                 .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
             }
 
-            if isFreeModeEnabled {
-                HStack(spacing: 0) {
-                    Button {
-                        shiftFreeModeKey(-1)
-                    } label: {
-                        Image(systemName: "minus")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(TEColors.black)
-                            .frame(width: 28, height: 28)
-                            .background(TEColors.cream.opacity(0.95))
-                    }
-
-                    VStack(spacing: 1) {
-                        Text("KEY")
-                            .font(TEFonts.mono(8, weight: .medium))
-                            .foregroundStyle(TEColors.midGray)
-                        Text(freeModeKeyDisplay)
-                            .font(TEFonts.mono(12, weight: .bold))
-                            .foregroundStyle(TEColors.orange)
-                    }
-                    .frame(width: 52, height: 28)
-                    .background(TEColors.warmWhite)
-
-                    Button {
-                        shiftFreeModeKey(1)
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(TEColors.black)
-                            .frame(width: 28, height: 28)
-                            .background(TEColors.cream.opacity(0.95))
-                    }
+            HStack(spacing: 0) {
+                Button {
+                    shiftFreeModeKey(-1)
+                } label: {
+                    Image(systemName: "minus")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(TEColors.black)
+                        .frame(width: 28, height: 28)
+                        .background(TEColors.cream.opacity(0.95))
                 }
-                .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+
+                VStack(spacing: 1) {
+                    Text("KEY")
+                        .font(TEFonts.mono(8, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+                    Text(freeModeKeyDisplay)
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundStyle(TEColors.orange)
+                }
+                .frame(width: 52, height: 28)
+                .background(TEColors.warmWhite)
+
+                Button {
+                    shiftFreeModeKey(1)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(TEColors.black)
+                        .frame(width: 28, height: 28)
+                        .background(TEColors.cream.opacity(0.95))
+                }
             }
+            .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+            .opacity(isFreeModeEnabled ? 1 : 0)
+            .allowsHitTesting(isFreeModeEnabled)
         }
         .padding(.top, 8)
         .padding(.leading, 8)
@@ -692,7 +692,9 @@ struct PerformanceView: View {
 
     private func toggleFreeMode() {
         if isFreeModeEnabled {
-            midiEngine.panicAllNotesOff()
+            if midiEngine.hasActiveNoteState {
+                midiEngine.panicAllNotesOff()
+            }
             isFreeModeEnabled = false
             if let activeSong = sessionStore.currentSession.activeSong {
                 applyPerformanceSong(activeSong)
@@ -700,7 +702,9 @@ struct PerformanceView: View {
         } else {
             if let activeSong = sessionStore.currentSession.activeSong {
                 freeModeRootNote = activeSong.rootNote
-                midiEngine.panicAllNotesOff()
+                if midiEngine.hasActiveNoteState {
+                    midiEngine.panicAllNotesOff()
+                }
                 applyPerformanceSong(activeSong)
             }
             isFreeModeEnabled = true
@@ -713,7 +717,9 @@ struct PerformanceView: View {
     private func shiftFreeModeKey(_ delta: Int) {
         freeModeRootNote = (freeModeRootNote + delta + 12) % 12
         guard let activeSong = sessionStore.currentSession.activeSong else { return }
-        midiEngine.panicAllNotesOff()
+        if midiEngine.hasActiveNoteState {
+            midiEngine.panicAllNotesOff()
+        }
         applyFreeModeOverride(using: activeSong)
     }
 

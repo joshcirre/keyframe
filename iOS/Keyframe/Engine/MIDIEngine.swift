@@ -1785,8 +1785,14 @@ final class MIDIEngine {
     // MARK: - Panic / All Notes Off
     
     /// Send All Notes Off (CC 123) to all instruments - use to stop stuck notes
+    var hasActiveNoteState: Bool {
+        !activeNotes.isEmpty || outputNoteRefCount.contains(where: { $0.value > 0 })
+    }
+
     func panicAllNotesOff() {
         guard let audioEngine = audioEngine else { return }
+
+        guard hasActiveNoteState else { return }
 
         if !activeNotes.isEmpty || !outputNoteRefCount.isEmpty {
             let trackedInputs = activeNotes.keys.sorted()
