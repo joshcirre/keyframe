@@ -82,6 +82,13 @@ struct PerformanceView: View {
                             .padding(.top, 12)
                     }
 
+                    HStack {
+                        freeModePanel
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+
                     // Edit mode content
                     editModeContent
 
@@ -1383,40 +1390,20 @@ struct SongGridButton: View {
                                 .lineLimit(1)
                         }
 
-                        if isLargeText {
-                            VStack(spacing: 2) {
-                                Text(song.keyShortName.uppercased())
-                                    .font(TEFonts.mono(metaFontSize, weight: .bold))
-                                    .foregroundStyle(isActive ? .white.opacity(0.95) : TEColors.orange)
+                        VStack(spacing: 2) {
+                            Text(song.keyShortName.uppercased())
+                                .font(TEFonts.mono(metaFontSize, weight: .bold))
+                                .foregroundStyle(isActive ? .white.opacity(0.95) : TEColors.orange)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+
+                            if song.transposeEnabled {
+                                Text(song.playedKeyShortName.uppercased())
+                                    .font(TEFonts.mono(subMetaFontSize, weight: .medium))
+                                    .foregroundStyle(isActive ? .white.opacity(0.72) : TEColors.darkGray)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.7)
-
-                                if song.transposeEnabled {
-                                    Text(song.playedKeyShortName.uppercased())
-                                        .font(TEFonts.mono(subMetaFontSize, weight: .medium))
-                                        .foregroundStyle(isActive ? .white.opacity(0.72) : TEColors.darkGray)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.7)
-                                }
                             }
-                        } else {
-                            HStack(spacing: 6) {
-                                Text(song.keyShortName.uppercased())
-                                    .font(TEFonts.mono(metaFontSize, weight: .bold))
-                                    .foregroundStyle(isActive ? .white.opacity(0.9) : TEColors.orange)
-
-                                if song.transposeEnabled {
-                                    Text("PLAY \(song.playedKeyShortName.uppercased())")
-                                        .font(TEFonts.mono(metaFontSize, weight: .medium))
-                                        .foregroundStyle(isActive ? .white.opacity(0.8) : TEColors.darkGray)
-
-                                    Text(song.transposeSemitoneDisplay)
-                                        .font(TEFonts.mono(metaFontSize, weight: .bold))
-                                        .foregroundStyle(isActive ? .white : TEColors.orange)
-                                }
-                            }
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.65)
                         }
 
                         Spacer(minLength: 4)
