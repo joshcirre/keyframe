@@ -179,6 +179,7 @@ final class AIPresetGeneratorService {
             
             guard instrumentSuccess else {
                 print("AIPresetGenerator: Skipping channel \(channelIndex) due to instrument load failure")
+                audioEngine.removeChannel(at: strip.index)
                 continue
             }
             
@@ -268,6 +269,18 @@ final class AIPresetGeneratorService {
             
             // Add to session
             sessionStore.currentSession.channels.append(channelConfig)
+
+            // Apply the persisted config back onto the live strip so AI-created channels
+            // follow the same config->strip flow as manually created/restored channels.
+            strip.midiChannel = channelConfig.midiChannel
+            strip.midiSourceName = channelConfig.midiSourceName
+            strip.scaleFilterEnabled = channelConfig.scaleFilterEnabled
+            strip.isChordPadTarget = channelConfig.isChordPadTarget
+            strip.isSingleNoteTarget = channelConfig.isSingleNoteTarget
+            strip.octaveTranspose = channelConfig.octaveTranspose
+            strip.volume = channelConfig.volume
+            strip.pan = channelConfig.pan
+            strip.isMuted = channelConfig.isMuted
         }
         
         // Final verification: ensure all channels are properly connected
@@ -279,7 +292,14 @@ final class AIPresetGeneratorService {
         
         // Small delay to allow presets to apply
         try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-        
+
+        // Normalize all newly created chains once more now that instruments, effects,
+        // presets, and session configs are all in place.
+        for (strip, _) in createdStrips {
+            strip.rebuildAudioChain()
+        }
+        audioEngine.ensureChannelConnections()
+
         // Verify MIDI routing for all created strips
         for (strip, generatedChannel) in createdStrips {
             let inputDisplay = strip.midiSourceName == "__none__" ? "NONE" : (strip.midiSourceName ?? "ALL")
@@ -287,8 +307,35 @@ final class AIPresetGeneratorService {
             print("AIPresetGenerator: Channel '\(generatedChannel.suggestedName)' - input='\(inputDisplay)' midiCh=\(strip.midiChannel) instrumentLoaded=\(instrumentLoaded)")
         }
         
-        // Save session
+        // Persist the actual AU fullState after preset application so we can rebuild
+        // AI-created channels through the same restore path that works on app relaunch.
+        sessionStore.syncPluginStateFromAudioEngine()
         sessionStore.saveCurrentSession()
+
+        let savedConfigs = sessionStore.currentSession.channels
+
+        // Rebuild from persisted configs immediately. This makes fresh AI generation use
+        // the same code path as the post-relaunch restore path, which is more reliable.
+        audioEngine.removeAllChannels()
+        await withCheckedContinuation { continuation in
+            audioEngine.restorePlugins(from: savedConfigs) {
+                for (index, config) in savedConfigs.enumerated() {
+                    guard index < audioEngine.channelStrips.count else { continue }
+                    let strip = audioEngine.channelStrips[index]
+                    strip.midiChannel = config.midiChannel
+                    strip.midiSourceName = config.midiSourceName
+                    strip.scaleFilterEnabled = config.scaleFilterEnabled
+                    strip.isChordPadTarget = config.isChordPadTarget
+                    strip.isSingleNoteTarget = config.isSingleNoteTarget
+                    strip.octaveTranspose = config.octaveTranspose
+                    strip.volume = config.volume
+                    strip.pan = config.pan
+                    strip.isMuted = config.isMuted
+                }
+
+                continuation.resume()
+            }
+        }
         
         print("AIPresetGenerator: Setup complete - \(createdStrips.count) channels created")
     }
@@ -298,14 +345,20 @@ final class AIPresetGeneratorService {
         for (strip, generatedChannel) in createdStrips {
             // Apply instrument factory preset if specified
             if let presetName = generatedChannel.presetName,
-               let instrumentEntry = catalog.findInstrument(named: generatedChannel.instrumentName),
-               let preset = catalog.findPreset(named: presetName, in: instrumentEntry),
                let instrument = strip.instrument {
-                
-                // Find the matching factory preset from the audio unit
-                if let factoryPreset = instrument.auAudioUnit.factoryPresets?.first(where: { $0.number == preset.id }) {
+                let catalogPresetId = catalog
+                    .findInstrument(named: generatedChannel.instrumentName)
+                    .flatMap { catalog.findPreset(named: presetName, in: $0)?.id }
+
+                if let factoryPreset = bestMatchingFactoryPreset(
+                    named: presetName,
+                    catalogPresetId: catalogPresetId,
+                    presets: instrument.auAudioUnit.factoryPresets
+                ) {
                     instrument.auAudioUnit.currentPreset = factoryPreset
-                    print("AIPresetGenerator: Applied preset '\(preset.name)' to \(instrumentEntry.name)")
+                    print("AIPresetGenerator: Applied preset '\(factoryPreset.name)' to \(generatedChannel.instrumentName)")
+                } else {
+                    print("AIPresetGenerator: Could not match preset '\(presetName)' for \(generatedChannel.instrumentName)")
                 }
             }
             
@@ -313,19 +366,48 @@ final class AIPresetGeneratorService {
             for (effectIndex, generatedEffect) in generatedChannel.effects.enumerated() {
                 guard effectIndex < strip.effects.count,
                       let presetName = generatedEffect.presetName,
-                      let effectEntry = catalog.findEffect(named: generatedEffect.effectName),
-                      let preset = catalog.findPreset(named: presetName, in: effectEntry) else {
+                      let effectEntry = catalog.findEffect(named: generatedEffect.effectName) else {
                     continue
                 }
                 
                 let effect = strip.effects[effectIndex]
-                // Find the matching factory preset from the audio unit
-                if let factoryPreset = effect.auAudioUnit.factoryPresets?.first(where: { $0.number == preset.id }) {
+                let catalogPresetId = catalog.findPreset(named: presetName, in: effectEntry)?.id
+
+                if let factoryPreset = bestMatchingFactoryPreset(
+                    named: presetName,
+                    catalogPresetId: catalogPresetId,
+                    presets: effect.auAudioUnit.factoryPresets
+                ) {
                     effect.auAudioUnit.currentPreset = factoryPreset
-                    print("AIPresetGenerator: Applied preset '\(preset.name)' to \(effectEntry.name)")
+                    print("AIPresetGenerator: Applied preset '\(factoryPreset.name)' to \(effectEntry.name)")
+                } else {
+                    print("AIPresetGenerator: Could not match preset '\(presetName)' for \(effectEntry.name)")
                 }
             }
         }
+    }
+
+    private func bestMatchingFactoryPreset(named presetName: String, catalogPresetId: Int?, presets: [AUAudioUnitPreset]?) -> AUAudioUnitPreset? {
+        guard let presets else { return nil }
+
+        let normalizedRequested = normalizePresetName(presetName)
+
+        if let exactNameMatch = presets.first(where: { normalizePresetName($0.name) == normalizedRequested }) {
+            return exactNameMatch
+        }
+
+        if let catalogPresetId,
+           let idMatch = presets.first(where: { $0.number == catalogPresetId }) {
+            return idMatch
+        }
+
+        return nil
+    }
+
+    private func normalizePresetName(_ name: String) -> String {
+        name
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
     }
     
     // MARK: - API Calls

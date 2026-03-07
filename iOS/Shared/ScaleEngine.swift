@@ -153,10 +153,12 @@ struct ScaleEngine {
     ///   - note: Input MIDI note
     ///   - root: Scale root (0-11)
     ///   - scale: Scale type
-    ///   - mode: Filter mode (block or snap)
+    ///   - mode: Filter mode (off, block, or snap)
     /// - Returns: Processed note, or nil if blocked
     static func filterNote(_ note: UInt8, root: Int, scale: ScaleType, mode: FilterMode) -> UInt8? {
         switch mode {
+        case .off:
+            return note
         case .block:
             return isInScale(note: note, root: root, scale: scale) ? note : nil
         case .snap:

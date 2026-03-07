@@ -169,6 +169,11 @@ final class AudioEngine {
     /// Verify and fix channel connections to master mixer (call after modifying channel chains)
     func ensureChannelConnections() {
         for (index, channel) in channelStrips.enumerated() {
+            if !channel.hasCompleteAudioChain() {
+                print("🔧 Channel \(index) chain incomplete - rebuilding...")
+                channel.rebuildAudioChain()
+            }
+
             let connections = engine.outputConnectionPoints(for: channel.outputNode, outputBus: 0)
             if connections.isEmpty {
                 print("🔌 Channel \(index) disconnected from master - reconnecting...")

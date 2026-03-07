@@ -42,6 +42,7 @@ enum ScaleType: String, Codable, CaseIterable, Identifiable {
 
 // MARK: - Filter Mode
 enum FilterMode: String, Codable, CaseIterable, Identifiable {
+    case off = "Off"
     case block = "Block"
     case snap = "Snap"
     
@@ -49,6 +50,8 @@ enum FilterMode: String, Codable, CaseIterable, Identifiable {
     
     var description: String {
         switch self {
+        case .off:
+            return "Pass notes through unchanged"
         case .block:
             return "Block notes outside scale"
         case .snap:

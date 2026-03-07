@@ -1129,6 +1129,7 @@ struct PerformanceSettingsView: View {
                         strip.midiSourceName = config.midiSourceName
                         strip.scaleFilterEnabled = config.scaleFilterEnabled
                         strip.isChordPadTarget = config.isChordPadTarget
+                        strip.isSingleNoteTarget = config.isSingleNoteTarget
                         strip.octaveTranspose = config.octaveTranspose
                         strip.volume = config.volume
                         strip.pan = config.pan

@@ -363,6 +363,35 @@ final class ChannelStrip: Identifiable {
     
     // MARK: - Audio Chain Management
 
+    /// Verify the full strip chain reaches the channel mixer.
+    func hasCompleteAudioChain() -> Bool {
+        guard let engine = engine else { return false }
+
+        let mixerConnectedToMaster = !engine.outputConnectionPoints(for: mixer, outputBus: 0).isEmpty
+        guard mixerConnectedToMaster else { return false }
+
+        if instrument == nil && effects.isEmpty {
+            return true
+        }
+
+        var previousNode: AVAudioNode? = instrument
+
+        for effect in effects {
+            guard let prev = previousNode else { return false }
+
+            let connections = engine.outputConnectionPoints(for: prev, outputBus: 0)
+            let isConnectedToEffect = connections.contains { $0.node === effect }
+            guard isConnectedToEffect else { return false }
+
+            previousNode = effect
+        }
+
+        guard let finalNode = previousNode else { return false }
+
+        let finalConnections = engine.outputConnectionPoints(for: finalNode, outputBus: 0)
+        return finalConnections.contains { $0.node === mixer }
+    }
+
     /// Rebuild the audio signal chain after changes (also called by AudioEngine after stop/start)
     func rebuildAudioChain() {
         guard let engine = engine else {
@@ -815,4 +844,3 @@ struct ChannelStripState: Codable, Equatable {
     var isSingleNoteTarget: Bool
     var octaveTranspose: Int
 }
-

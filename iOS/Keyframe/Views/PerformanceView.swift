@@ -53,6 +53,8 @@ struct PerformanceView: View {
     @State private var isInitializing = true
     @AppStorage("performModeSplitRatio") private var splitRatio: Double = 0.6  // Presets take 60% by default
     @AppStorage("isPresetsOnlyMode") private var isPresetsOnlyMode = false  // Hide faders, show only presets
+    @AppStorage("performFreeModeEnabled") private var isFreeModeEnabled = false
+    @AppStorage("performFreeModeRootNote") private var freeModeRootNote = 0
     
     var body: some View {
         ZStack {
@@ -71,7 +73,11 @@ struct PerformanceView: View {
 
                     // Active Song Display (only in edit mode)
                     if let activeSong = sessionStore.currentSession.activeSong {
-                        ActiveSongBanner(song: activeSong)
+                        ActiveSongBanner(
+                            song: activeSong,
+                            isFreeModeEnabled: isFreeModeEnabled,
+                            freeModeRootNote: freeModeRootNote
+                        )
                             .padding(.horizontal, 20)
                             .padding(.top, 12)
                     }
@@ -206,10 +212,76 @@ struct PerformanceView: View {
                     splitViewContent(geometry: geometry)
                 }
 
+                VStack {
+                    HStack {
+                        freeModePanel
+                        Spacer()
+                    }
+                    Spacer()
+                }
+
                 // Control buttons (top-right)
                 performModeButtons
             }
         }
+    }
+
+    private var freeModePanel: some View {
+        HStack(spacing: 6) {
+            Button {
+                toggleFreeMode()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isFreeModeEnabled ? "waveform.path" : "waveform.path.badge.minus")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("FREE")
+                        .font(TEFonts.mono(11, weight: .bold))
+                }
+                .foregroundStyle(isFreeModeEnabled ? .white : TEColors.black)
+                .frame(height: 28)
+                .padding(.horizontal, 10)
+                .background(isFreeModeEnabled ? TEColors.orange : TEColors.cream.opacity(0.9))
+                .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+            }
+
+            if isFreeModeEnabled {
+                HStack(spacing: 0) {
+                    Button {
+                        shiftFreeModeKey(-1)
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(TEColors.black)
+                            .frame(width: 28, height: 28)
+                            .background(TEColors.cream.opacity(0.95))
+                    }
+
+                    VStack(spacing: 1) {
+                        Text("KEY")
+                            .font(TEFonts.mono(8, weight: .medium))
+                            .foregroundStyle(TEColors.midGray)
+                        Text(freeModeKeyDisplay)
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundStyle(TEColors.orange)
+                    }
+                    .frame(width: 52, height: 28)
+                    .background(TEColors.warmWhite)
+
+                    Button {
+                        shiftFreeModeKey(1)
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(TEColors.black)
+                            .frame(width: 28, height: 28)
+                            .background(TEColors.cream.opacity(0.95))
+                    }
+                }
+                .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+            }
+        }
+        .padding(.top, 8)
+        .padding(.leading, 8)
     }
 
     // MARK: - Split View Content (Presets + Faders)
@@ -221,6 +293,8 @@ struct PerformanceView: View {
                 SongGridView(
                     songs: sessionStore.currentSession.songs,
                     activeSongId: sessionStore.currentSession.activeSongId,
+                    isFreeModeEnabled: isFreeModeEnabled,
+                    freeModeRootNote: freeModeRootNote,
                     isEditMode: false,
                     onSelectSong: { song in selectSong(song) },
                     onEditSong: { _ in },
@@ -268,6 +342,8 @@ struct PerformanceView: View {
             SongGridView(
                 songs: sessionStore.currentSession.songs,
                 activeSongId: sessionStore.currentSession.activeSongId,
+                isFreeModeEnabled: isFreeModeEnabled,
+                freeModeRootNote: freeModeRootNote,
                 isEditMode: false,
                 onSelectSong: { song in selectSong(song) },
                 onEditSong: { _ in },
@@ -381,6 +457,8 @@ struct PerformanceView: View {
                 SongGridView(
                     songs: sessionStore.currentSession.songs,
                     activeSongId: sessionStore.currentSession.activeSongId,
+                    isFreeModeEnabled: isFreeModeEnabled,
+                    freeModeRootNote: freeModeRootNote,
                     isEditMode: true,
                     onSelectSong: { song in selectSong(song) },
                     onEditSong: { preset in
@@ -421,12 +499,7 @@ struct PerformanceView: View {
                 self.syncChannelConfigs()
 
                 if let activeSong = sessionStore.currentSession.activeSong {
-                    midiEngine.applySongSettings(self.convertToLegacySong(activeSong))
-                    // Set initial tempo for hosted plugins
-                    if let bpm = activeSong.bpm {
-                        midiEngine.currentBPM = bpm
-                        audioEngine.setTempo(Double(bpm))
-                    }
+                    self.applyPerformanceSong(activeSong)
                 }
 
                 // Start the audio engine after plugins are loaded
@@ -439,10 +512,7 @@ struct PerformanceView: View {
         // but we also need to handle the case where there are no saved plugins
         if sessionStore.currentSession.channels.allSatisfy({ $0.instrument == nil && $0.effects.isEmpty }) {
             if let activeSong = sessionStore.currentSession.activeSong {
-                midiEngine.applySongSettings(convertToLegacySong(activeSong))
-                if let bpm = activeSong.bpm {
-                    audioEngine.setTempo(Double(bpm))
-                }
+                applyPerformanceSong(activeSong)
             }
             audioEngine.start()
             isInitializing = false
@@ -481,6 +551,7 @@ struct PerformanceView: View {
                                 bpm: song.bpm
                             )
                             midiEngine.applySongSettings(legacySong)
+                            self.applyFreeModeOverride(using: song)
                             audioEngine.applyChannelStates(song.channelStates, configs: sessionStore.currentSession.channels)
 
                             // Set tempo for hosted plugins
@@ -575,7 +646,10 @@ struct PerformanceView: View {
         generator.impactOccurred()
 
         sessionStore.setActiveSong(song)
-        midiEngine.applySongSettings(convertToLegacySong(song))
+        if isFreeModeEnabled {
+            isFreeModeEnabled = false
+        }
+        applyPerformanceSong(song)
         audioEngine.applyChannelStates(song.channelStates, configs: sessionStore.currentSession.channels)
 
         // Set tempo for hosted plugins (arpeggiators, tempo-synced effects, etc.)
@@ -603,6 +677,56 @@ struct PerformanceView: View {
             preset: MIDIPreset.empty,
             bpm: song.bpm
         )
+    }
+
+    private var freeModeKeyDisplay: String {
+        NoteName(rawValue: freeModeRootNote)?.displayName.uppercased() ?? "?"
+    }
+
+    private func toggleFreeMode() {
+        if isFreeModeEnabled {
+            midiEngine.panicAllNotesOff()
+            isFreeModeEnabled = false
+            if let activeSong = sessionStore.currentSession.activeSong {
+                applyPerformanceSong(activeSong)
+            }
+        } else {
+            if let activeSong = sessionStore.currentSession.activeSong {
+                freeModeRootNote = activeSong.rootNote
+                midiEngine.panicAllNotesOff()
+                applyPerformanceSong(activeSong)
+            }
+            isFreeModeEnabled = true
+            if let activeSong = sessionStore.currentSession.activeSong {
+                applyFreeModeOverride(using: activeSong)
+            }
+        }
+    }
+
+    private func shiftFreeModeKey(_ delta: Int) {
+        freeModeRootNote = (freeModeRootNote + delta + 12) % 12
+        guard let activeSong = sessionStore.currentSession.activeSong else { return }
+        midiEngine.panicAllNotesOff()
+        applyFreeModeOverride(using: activeSong)
+    }
+
+    private func applyPerformanceSong(_ song: PerformanceSong) {
+        midiEngine.applySongSettings(convertToLegacySong(song))
+        applyFreeModeOverride(using: song)
+
+        if let bpm = song.bpm {
+            midiEngine.currentBPM = bpm
+            audioEngine.setTempo(Double(bpm))
+        }
+    }
+
+    private func applyFreeModeOverride(using song: PerformanceSong) {
+        guard isFreeModeEnabled else { return }
+        midiEngine.currentRootNote = freeModeRootNote
+        midiEngine.currentChordRootNote = freeModeRootNote
+        midiEngine.currentScaleType = song.scaleType
+        midiEngine.filterMode = .off
+        midiEngine.currentTransposeSemitones = 0
     }
     
     private func deleteChannel(at index: Int) {
@@ -814,6 +938,15 @@ struct EditChannelStripView: View {
 
 struct ActiveSongBanner: View {
     let song: PerformanceSong
+    var isFreeModeEnabled: Bool = false
+    var freeModeRootNote: Int? = nil
+
+    private var freeModeKeyDisplay: String? {
+        guard isFreeModeEnabled,
+              let freeModeRootNote,
+              let note = NoteName(rawValue: freeModeRootNote) else { return nil }
+        return note.displayName.uppercased()
+    }
     
     var body: some View {
         HStack(spacing: 0) {
@@ -827,6 +960,12 @@ struct ActiveSongBanner: View {
                     .font(TEFonts.display(20, weight: .black))
                     .foregroundStyle(TEColors.black)
                     .lineLimit(1)
+
+                if let freeModeKeyDisplay {
+                    Text("FREE MODE - CHORD KEY \(freeModeKeyDisplay)")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundStyle(TEColors.orange)
+                }
             }
             
             Spacer()
@@ -834,6 +973,10 @@ struct ActiveSongBanner: View {
             // Data blocks
             HStack(spacing: 12) {
                 DataBlock(label: "KEY", value: song.keyShortName.uppercased())
+
+                if let freeModeKeyDisplay {
+                    DataBlock(label: "FREE", value: freeModeKeyDisplay, highlight: true)
+                }
 
                 if song.transposeEnabled {
                     DataBlock(label: "PLAY", value: song.playedKeyShortName.uppercased())
@@ -846,7 +989,13 @@ struct ActiveSongBanner: View {
                 
                 DataBlock(
                     label: "MODE",
-                    value: song.filterMode == .snap ? "SNP" : "BLK",
+                    value: {
+                        switch song.filterMode {
+                        case .off: return "OFF"
+                        case .snap: return "SNP"
+                        case .block: return "BLK"
+                        }
+                    }(),
                     highlight: song.filterMode == .block
                 )
             }
@@ -991,6 +1140,8 @@ struct AIGeneratorButton: View {
 struct SongGridView: View {
     let songs: [PerformanceSong]
     let activeSongId: UUID?
+    var isFreeModeEnabled: Bool = false
+    var freeModeRootNote: Int? = nil
     let isEditMode: Bool
     let onSelectSong: (PerformanceSong) -> Void
     let onEditSong: (PerformanceSong) -> Void
@@ -1070,6 +1221,7 @@ struct SongGridView: View {
                         SongGridButton(
                             song: song,
                             isActive: song.id == activeSongId,
+                            freeBadgeText: freeBadgeText(for: song),
                             isDragging: draggingSongId == song.id,
                             isReorderMode: isReorderMode,
                             isLargeText: !isEditMode,  // Large text only in perform mode
@@ -1137,6 +1289,14 @@ struct SongGridView: View {
         let bestRows = Int(ceil(Double(itemCount) / Double(bestColumns)))
         return (bestColumns, bestRows)
     }
+
+    private func freeBadgeText(for song: PerformanceSong) -> String? {
+        guard isFreeModeEnabled,
+              song.id == activeSongId,
+              let freeModeRootNote,
+              let note = NoteName(rawValue: freeModeRootNote) else { return nil }
+        return "FREE \(note.displayName.uppercased())"
+    }
 }
 
 // MARK: - Song Drop Delegate
@@ -1181,6 +1341,7 @@ struct SongDropDelegate: DropDelegate {
 struct SongGridButton: View {
     let song: PerformanceSong
     let isActive: Bool
+    var freeBadgeText: String? = nil
     var isDragging: Bool = false
     var isReorderMode: Bool = false
     var isLargeText: Bool = false  // Use large dynamic text (for perform mode)
@@ -1198,6 +1359,8 @@ struct SongGridButton: View {
                 ? max(16, min(minDimension * 0.35, 48))  // 35% of cell, clamped 16-48
                 : 14
             let songNameFontSize: CGFloat = isLargeText ? max(12, nameFontSize * 0.5) : 11
+            let metaFontSize: CGFloat = isLargeText ? max(9, minDimension * 0.09) : 9
+            let subMetaFontSize: CGFloat = isLargeText ? max(8, metaFontSize * 0.82) : 8
 
             Button(action: onTap) {
                 ZStack {
@@ -1220,6 +1383,42 @@ struct SongGridButton: View {
                                 .lineLimit(1)
                         }
 
+                        if isLargeText {
+                            VStack(spacing: 2) {
+                                Text(song.keyShortName.uppercased())
+                                    .font(TEFonts.mono(metaFontSize, weight: .bold))
+                                    .foregroundStyle(isActive ? .white.opacity(0.95) : TEColors.orange)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+
+                                if song.transposeEnabled {
+                                    Text(song.playedKeyShortName.uppercased())
+                                        .font(TEFonts.mono(subMetaFontSize, weight: .medium))
+                                        .foregroundStyle(isActive ? .white.opacity(0.72) : TEColors.darkGray)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
+                                }
+                            }
+                        } else {
+                            HStack(spacing: 6) {
+                                Text(song.keyShortName.uppercased())
+                                    .font(TEFonts.mono(metaFontSize, weight: .bold))
+                                    .foregroundStyle(isActive ? .white.opacity(0.9) : TEColors.orange)
+
+                                if song.transposeEnabled {
+                                    Text("PLAY \(song.playedKeyShortName.uppercased())")
+                                        .font(TEFonts.mono(metaFontSize, weight: .medium))
+                                        .foregroundStyle(isActive ? .white.opacity(0.8) : TEColors.darkGray)
+
+                                    Text(song.transposeSemitoneDisplay)
+                                        .font(TEFonts.mono(metaFontSize, weight: .bold))
+                                        .foregroundStyle(isActive ? .white : TEColors.orange)
+                                }
+                            }
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.65)
+                        }
+
                         Spacer(minLength: 4)
                     }
                     .padding(.horizontal, isLargeText ? 8 : 4)
@@ -1233,6 +1432,23 @@ struct SongGridButton: View {
                                     .frame(width: isLargeText ? 10 : 8, height: isLargeText ? 10 : 8)
                                     .padding(6)
                                 Spacer()
+                            }
+                            Spacer()
+                        }
+                    }
+
+                    if let freeBadgeText {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Text(freeBadgeText)
+                                    .font(TEFonts.mono(isLargeText ? 9 : 8, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 4)
+                                    .background(TEColors.orange)
+                                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 1.5))
+                                    .padding(6)
                             }
                             Spacer()
                         }

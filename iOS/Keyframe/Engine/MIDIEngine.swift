@@ -38,6 +38,12 @@ struct ExpressionAxisMapping: Codable, Identifiable, Equatable {
 @MainActor
 final class MIDIEngine {
 
+    private struct MIDIChannelVoiceMessage: Sendable {
+        let status: UInt8
+        let data1: UInt8
+        let data2: UInt8
+    }
+
     // MARK: - Singleton
 
     static let shared = MIDIEngine()
@@ -52,6 +58,7 @@ final class MIDIEngine {
     // MARK: - Scale/Chord Settings
 
     var currentRootNote: Int = 0  // C
+    var currentChordRootNote: Int = 0  // ChordPad/song harmonic root
     var currentScaleType: ScaleType = .major
     var filterMode: FilterMode = .snap
     var currentTransposeSemitones: Int = 0
@@ -485,6 +492,55 @@ final class MIDIEngine {
     private func outputNoteKey(channelId: UUID, note: UInt8, midiChannel: UInt8 = 0) -> String {
         "\(channelId.uuidString)-\(note)-\(midiChannel)"
     }
+
+    private func matchingSourceKeys(sourceName: String?, note: UInt8) -> [String] {
+        return activeNotes.keys.filter { key in
+            let parts = key.split(separator: "|", omittingEmptySubsequences: false)
+            guard parts.count == 3 else { return false }
+
+            let noteMatches = String(parts[2]) == String(note)
+            guard noteMatches else { return false }
+
+            if let sourceName {
+                return String(parts[0]) == sourceName
+            }
+
+            return String(parts[0]) == "_"
+        }
+    }
+
+    private func matchingKeysIgnoringSource(note: UInt8) -> [String] {
+        activeNotes.keys.filter { key in
+            let parts = key.split(separator: "|", omittingEmptySubsequences: false)
+            guard parts.count == 3 else { return false }
+            return String(parts[2]) == String(note)
+        }
+    }
+
+    private func releaseTrackedNotes(for sourceKey: String, audioEngine: AudioEngine, reason: String) {
+        guard let perChannel = activeNotes[sourceKey] else { return }
+
+        print("⚠️ Releasing stale tracked notes for \(sourceKey) [\(reason)]")
+
+        for (channelId, stacks) in perChannel {
+            guard let targetChannel = audioEngine.channelStrips.first(where: { $0.id == channelId }) else { continue }
+
+            for noteChannelPairs in stacks {
+                for pair in noteChannelPairs {
+                    let key = outputNoteKey(channelId: channelId, note: pair.note, midiChannel: pair.channel)
+                    if let currentCount = outputNoteRefCount[key], currentCount > 1 {
+                        outputNoteRefCount[key] = currentCount - 1
+                    } else {
+                        outputNoteRefCount.removeValue(forKey: key)
+                    }
+
+                    targetChannel.sendMIDI(noteOff: pair.note, channel: pair.channel)
+                }
+            }
+        }
+
+        activeNotes.removeValue(forKey: sourceKey)
+    }
     
     // Legacy for non-MPE contexts
     private func outputNoteKeyLegacy(channelId: UUID, note: UInt8) -> String {
@@ -823,14 +879,22 @@ final class MIDIEngine {
             ._1_0,
             &inputPort
         ) { [weak self] eventList, srcConnRefCon in
+            guard let self = self else { return }
+
             // srcConnRefCon is the endpoint ref we passed when connecting
             var sourceName: String? = nil
             if let refCon = srcConnRefCon {
                 // Convert pointer back to MIDIEndpointRef (UInt32)
                 let endpoint = MIDIEndpointRef(truncatingIfNeeded: UInt(bitPattern: refCon))
-                sourceName = self?.sourceNameMap[endpoint]
+                sourceName = self.sourceNameMap[endpoint]
             }
-            self?.handleMIDIEventList(eventList, sourceName: sourceName)
+
+            let messages = self.extractChannelVoiceMessages(from: eventList)
+            guard !messages.isEmpty else { return }
+
+            Task { @MainActor [weak self] in
+                self?.handleChannelVoiceMessages(messages, sourceName: sourceName)
+            }
         }
         
         guard status == noErr else {
@@ -1060,35 +1124,51 @@ final class MIDIEngine {
     }
 
     // MARK: - MIDI Event Processing
-    
-    private func handleMIDIEventList(_ eventList: UnsafePointer<MIDIEventList>, sourceName: String?) {
-        let numPackets = Int(eventList.pointee.numPackets)
-        guard numPackets > 0 else { return }
 
-        // Use unsafeBitCast to get a pointer to the first packet in the original memory
-        // This avoids copying the variable-length packet data
+    nonisolated private func extractChannelVoiceMessages(from eventList: UnsafePointer<MIDIEventList>) -> [MIDIChannelVoiceMessage] {
+        let numPackets = Int(eventList.pointee.numPackets)
+        guard numPackets > 0 else { return [] }
+
+        var messages: [MIDIChannelVoiceMessage] = []
+        messages.reserveCapacity(numPackets * 2)
+
         var packet = UnsafeRawPointer(eventList)
             .advanced(by: MemoryLayout<MIDIEventList>.offset(of: \.packet)!)
             .assumingMemoryBound(to: MIDIEventPacket.self)
 
         for _ in 0..<numPackets {
-            handleMIDIEventPacket(packet.pointee, sourceName: sourceName)
+            let wordCount = Int(packet.pointee.wordCount)
+            let words = withUnsafeBytes(of: packet.pointee.words) { rawBuffer in
+                Array(rawBuffer.bindMemory(to: UInt32.self).prefix(wordCount))
+            }
+
+            for word in words {
+                let status = UInt8((word >> 16) & 0xFF)
+                let data1 = UInt8((word >> 8) & 0xFF)
+                let data2 = UInt8(word & 0xFF)
+
+                let messageType = status & 0xF0
+                switch messageType {
+                case 0x80, 0x90, 0xB0, 0xE0:
+                    messages.append(MIDIChannelVoiceMessage(status: status, data1: data1, data2: data2))
+                default:
+                    continue
+                }
+            }
+
             packet = UnsafePointer(MIDIEventPacketNext(packet))
+        }
+
+        return messages
+    }
+    
+    private func handleChannelVoiceMessages(_ messages: [MIDIChannelVoiceMessage], sourceName: String?) {
+        for message in messages {
+            handleChannelVoiceMessage(status: message.status, data1: message.data1, data2: message.data2, sourceName: sourceName)
         }
     }
     
-    private func handleMIDIEventPacket(_ packet: MIDIEventPacket, sourceName: String?) {
-        // Extract MIDI bytes from the Universal MIDI Packet
-        let words = [packet.words.0, packet.words.1, packet.words.2, packet.words.3]
-        
-        // For MIDI 1.0, the data is in the first word
-        let word = words[0]
-        
-        // Extract channel voice message
-        let status = UInt8((word >> 16) & 0xFF)
-        let data1 = UInt8((word >> 8) & 0xFF)
-        let data2 = UInt8(word & 0xFF)
-        
+    private func handleChannelVoiceMessage(status: UInt8, data1: UInt8, data2: UInt8, sourceName: String?) {
         let messageType = status & 0xF0
         let channel = status & 0x0F
         
@@ -1199,6 +1279,13 @@ final class MIDIEngine {
         // Create key for tracking this note (using stable string key, not hash)
         let sourceKey = noteTrackingKey(sourceName: sourceName, channel: channel, note: note)
 
+        // Some controllers can emit duplicate Note-On events for a still-held key.
+        // If we already have tracked state for this exact input note, flush it first
+        // so ref-counting cannot drift upward and leave the note hanging forever.
+        if activeNotes[sourceKey] != nil {
+            releaseTrackedNotes(for: sourceKey, audioEngine: audioEngine, reason: "duplicate note-on")
+        }
+
         // Initialize mapping for this note if needed
         if activeNotes[sourceKey] == nil {
             activeNotes[sourceKey] = [:]
@@ -1247,7 +1334,33 @@ final class MIDIEngine {
     private func processNoteOff(note: UInt8, channel: UInt8, sourceName: String?) {
         guard let audioEngine = audioEngine else { return }
 
-        let sourceKey = noteTrackingKey(sourceName: sourceName, channel: channel, note: note)
+        let exactSourceKey = noteTrackingKey(sourceName: sourceName, channel: channel, note: note)
+
+        let sourceKey: String
+        if activeNotes[exactSourceKey] != nil {
+            sourceKey = exactSourceKey
+        } else {
+            let fallbackKeys = matchingSourceKeys(sourceName: sourceName, note: note)
+            if fallbackKeys.count == 1, let matchedKey = fallbackKeys.first {
+                sourceKey = matchedKey
+                print("⚠️ NoteOff fallback matched note \(note) from ch \(channel + 1) to tracked key '\(matchedKey)'")
+            } else {
+                let noteOnlyKeys = matchingKeysIgnoringSource(note: note)
+                if noteOnlyKeys.count == 1, let matchedKey = noteOnlyKeys.first {
+                    sourceKey = matchedKey
+                    print("⚠️ NoteOff source fallback matched note \(note) from src=\(sourceName ?? "?") ch \(channel + 1) to tracked key '\(matchedKey)'")
+                } else {
+                    if !fallbackKeys.isEmpty {
+                        print("⚠️ NoteOff ambiguous for note \(note) ch \(channel + 1) src=\(sourceName ?? "?") matches=\(fallbackKeys)")
+                    } else if !noteOnlyKeys.isEmpty {
+                        print("⚠️ NoteOff source ambiguous for note \(note) ch \(channel + 1) src=\(sourceName ?? "?") matches=\(noteOnlyKeys)")
+                    } else {
+                        print("⚠️ NoteOff dropped for note \(note) ch \(channel + 1) src=\(sourceName ?? "?") - no tracked key")
+                    }
+                    return
+                }
+            }
+        }
 
         // Look up which notes were actually sent to each channel for this input note
         // Pop from the stack to handle rapid retriggers properly (LIFO order)
@@ -1539,6 +1652,8 @@ final class MIDIEngine {
     
     private func applyScaleFilter(note: UInt8) -> [UInt8] {
         switch filterMode {
+        case .off:
+            return [note]
         case .block:
             if ScaleEngine.isInScale(note: note, root: currentRootNote, scale: currentScaleType) {
                 return [note]
@@ -1576,11 +1691,10 @@ final class MIDIEngine {
         // Calculate the actual MIDI note from scale degree
         let outputNote = ScaleEngine.noteForDegree(
             degree,
-            root: currentRootNote,
+            root: currentChordRootNote,
             scale: currentScaleType,
             octave: chordMapping.secondaryBaseOctave
         )
-        let songAdjustedNote = applySongTranspose(to: outputNote)
 
         // Track notes and send to all targets
         let sourceKey = noteTrackingKey(sourceName: sourceName, channel: channel, note: note)
@@ -1592,7 +1706,7 @@ final class MIDIEngine {
         for targetChannel in targetChannels {
             // Apply octave transpose (each octave = 12 semitones)
             let transposeSemitones = targetChannel.octaveTranspose * 12
-            let transposedNote = UInt8(clamping: Int(songAdjustedNote) + transposeSemitones)
+            let transposedNote = UInt8(clamping: Int(outputNote) + transposeSemitones)
 
             // ChordPad routing uses channel 0 (non-MPE)
             // Push to stack to handle rapid retriggers
@@ -1604,7 +1718,7 @@ final class MIDIEngine {
         }
 
         let degreeNames = ["1", "2", "3", "4", "5", "6", "7"]
-        updateLastMessage("Split: Deg \(degreeNames[degree - 1]) → Note \(songAdjustedNote)")
+        updateLastMessage("Split: Deg \(degreeNames[degree - 1]) → Note \(outputNote)")
     }
 
     // MARK: - Chord Triggering
@@ -1616,13 +1730,12 @@ final class MIDIEngine {
         guard let chordNotes = ChordEngine.processChordTrigger(
             inputNote: note,
             mapping: chordMapping,
-            rootNote: currentRootNote,
+            rootNote: currentChordRootNote,
             scaleType: currentScaleType,
             baseOctave: chordMapping.baseOctave
         ) else {
             return
         }
-        let songAdjustedChordNotes = applySongTranspose(to: chordNotes)
 
         // Find the ChordPad target channels
         let targetChannels = audioEngine.channelStrips.filter { $0.isChordPadTarget }
@@ -1638,7 +1751,7 @@ final class MIDIEngine {
         for targetChannel in targetChannels {
             // Apply octave transpose (each octave = 12 semitones)
             let transposeSemitones = targetChannel.octaveTranspose * 12
-            let transposedChordNotes = songAdjustedChordNotes.map { note in
+            let transposedChordNotes = chordNotes.map { note in
                 UInt8(clamping: Int(note) + transposeSemitones)
             }
 
@@ -1655,7 +1768,7 @@ final class MIDIEngine {
             }
         }
 
-        updateLastMessage("Chord: \(songAdjustedChordNotes.map { String($0) }.joined(separator: ","))")
+        updateLastMessage("Chord: \(chordNotes.map { String($0) }.joined(separator: ","))")
     }
     
     // MARK: - Song/Preset Changes
@@ -1663,6 +1776,7 @@ final class MIDIEngine {
     /// Update scale settings when song changes
     func applySongSettings(_ song: Song) {
         currentRootNote = song.playedRootNote
+        currentChordRootNote = song.rootNote
         currentScaleType = song.scaleType
         filterMode = song.filterMode
         currentTransposeSemitones = song.transposeSemitones
@@ -1673,23 +1787,45 @@ final class MIDIEngine {
     /// Send All Notes Off (CC 123) to all instruments - use to stop stuck notes
     func panicAllNotesOff() {
         guard let audioEngine = audioEngine else { return }
+
+        if !activeNotes.isEmpty || !outputNoteRefCount.isEmpty {
+            let trackedInputs = activeNotes.keys.sorted()
+            let trackedOutputs = outputNoteRefCount
+                .filter { $0.value > 0 }
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }
+
+            print("⚠️ PANIC snapshot inputs=\(trackedInputs)")
+            print("⚠️ PANIC snapshot outputs=\(trackedOutputs)")
+        }
         
-        // DO NOT clear activeNotes/outputNoteRefCount here!
-        // If user is still holding a key when panic is pressed, we need the tracking
-        // state so that when they release, processNoteOff can send the note-off.
-        // CC 123/120 stops the sound immediately; tracking ensures clean release.
-        
-        // Send All Notes Off (CC 123 value 0) to all channels on all instruments
+        // Prefer explicit note-offs first so synths can follow their normal release
+        // envelopes instead of being hard-cut by an emergency all-sound-off.
+        var releasedAnyTrackedNotes = false
+        for (sourceKey, perChannel) in activeNotes {
+            for (channelId, stacks) in perChannel {
+                guard let strip = audioEngine.channelStrips.first(where: { $0.id == channelId }) else { continue }
+
+                for noteChannelPairs in stacks {
+                    for pair in noteChannelPairs {
+                        strip.sendMIDI(noteOff: pair.note, channel: pair.channel)
+                        outputNoteRefCount.removeValue(forKey: outputNoteKey(channelId: channelId, note: pair.note, midiChannel: pair.channel))
+                        releasedAnyTrackedNotes = true
+                    }
+                }
+            }
+
+            activeNotes.removeValue(forKey: sourceKey)
+        }
+
+        // Follow up with MIDI All Notes Off as a soft fallback.
         for strip in audioEngine.channelStrips where strip.isInstrumentLoaded {
-            // Send to all 16 MIDI channels for thoroughness
             for ch: UInt8 in 0..<16 {
                 strip.sendMIDI(controlChange: 123, value: 0, channel: ch)
-                // Also send All Sound Off (CC 120) for synths that need it
-                strip.sendMIDI(controlChange: 120, value: 0, channel: ch)
             }
         }
         
-        updateLastMessage("PANIC: All Notes Off")
+        updateLastMessage(releasedAnyTrackedNotes ? "RELEASE: Sent Note Offs" : "PANIC: All Notes Off")
     }
     
     // MARK: - Helpers
