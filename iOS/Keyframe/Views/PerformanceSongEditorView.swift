@@ -347,6 +347,138 @@ struct PerformanceSongEditorView: View {
                     .font(TEFonts.mono(9, weight: .medium))
                     .foregroundStyle(TEColors.midGray)
 
+                Divider()
+
+                HStack {
+                    Text("CHORDPAD")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+
+                    Spacer()
+
+                    HStack(spacing: 0) {
+                        ForEach(ChordPadPerformanceMode.allCases, id: \.self) { mode in
+                            Button {
+                                song.chordPadPerformanceMode = mode
+                            } label: {
+                                Text(mode.rawValue.uppercased())
+                                    .font(TEFonts.mono(10, weight: .bold))
+                                    .foregroundStyle(song.chordPadPerformanceMode == mode ? .white : TEColors.black)
+                                    .frame(width: 62, height: 36)
+                                    .background(
+                                        Rectangle()
+                                            .fill(song.chordPadPerformanceMode == mode ? TEColors.orange : TEColors.cream)
+                                    )
+                            }
+                        }
+                    }
+                    .overlay(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                    )
+                }
+
+                HStack {
+                    Text("NOTES")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+
+                    Spacer()
+
+                    HStack(spacing: 0) {
+                        ForEach(ChordPadNoteCount.allCases, id: \.self) { noteCount in
+                            Button {
+                                song.chordPadNoteCount = noteCount
+                            } label: {
+                                Text(noteCount.displayName)
+                                    .font(TEFonts.mono(10, weight: .bold))
+                                    .foregroundStyle(song.chordPadNoteCount == noteCount ? .white : TEColors.black)
+                                    .frame(width: 44, height: 36)
+                                    .background(
+                                        Rectangle()
+                                            .fill(song.chordPadNoteCount == noteCount ? TEColors.orange : TEColors.cream)
+                                    )
+                            }
+                        }
+                    }
+                    .overlay(
+                        Rectangle()
+                            .strokeBorder(TEColors.black, lineWidth: 2)
+                    )
+                }
+
+                if song.chordPadPerformanceMode == .strum {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("STRUM SPEED: \(Int(song.chordPadStrumIntervalMs))MS")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.lightGray)
+                        Slider(value: $song.chordPadStrumIntervalMs, in: 0...120, step: 2)
+                            .tint(TEColors.orange)
+                    }
+                }
+
+                if song.chordPadPerformanceMode == .arp {
+                    HStack {
+                        Text("ARP RATE")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.midGray)
+
+                        Spacer()
+
+                        HStack(spacing: 0) {
+                            ForEach(ChordPadArpRate.allCases, id: \.self) { rate in
+                                Button {
+                                    song.chordPadArpRate = rate
+                                } label: {
+                                    Text(rate.rawValue)
+                                        .font(TEFonts.mono(10, weight: .bold))
+                                        .foregroundStyle(song.chordPadArpRate == rate ? .white : TEColors.black)
+                                        .frame(width: 54, height: 36)
+                                        .background(
+                                            Rectangle()
+                                                .fill(song.chordPadArpRate == rate ? TEColors.orange : TEColors.cream)
+                                        )
+                                }
+                            }
+                        }
+                        .overlay(
+                            Rectangle()
+                                .strokeBorder(TEColors.black, lineWidth: 2)
+                        )
+                    }
+
+                    HStack {
+                        Text("PATTERN")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.midGray)
+
+                        Spacer()
+
+                        Menu {
+                            ForEach(ChordPadArpPattern.allCases, id: \.self) { pattern in
+                                Button(pattern.rawValue.uppercased()) {
+                                    song.chordPadArpPattern = pattern
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text(song.chordPadArpPattern.rawValue.uppercased())
+                                    .font(TEFonts.mono(11, weight: .bold))
+                                    .foregroundStyle(TEColors.orange)
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(TEColors.darkGray)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                Rectangle()
+                                    .strokeBorder(TEColors.black, lineWidth: 2)
+                            )
+                        }
+                    }
+                }
+
                 if let transposeDescription = song.transposeDescription {
                     Text(transposeDescription)
                         .font(TEFonts.mono(9, weight: .bold))

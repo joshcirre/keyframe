@@ -32,6 +32,49 @@ struct ExpressionAxisMapping: Codable, Identifiable, Equatable {
     }
 }
 
+enum ChordPadPerformanceMode: String, Codable, CaseIterable, Hashable {
+    case hit = "Hit"
+    case strum = "Strum"
+    case arp = "Arp"
+}
+
+enum ChordPadArpPattern: String, Codable, CaseIterable, Hashable {
+    case up = "Up"
+    case down = "Down"
+    case upDown = "Up-Down"
+    case random = "Random"
+}
+
+enum ChordPadArpRate: String, Codable, CaseIterable, Hashable {
+    case quarter = "1/4"
+    case eighth = "1/8"
+    case sixteenth = "1/16"
+
+    var quarterNoteMultiplier: Double {
+        switch self {
+        case .quarter: return 1.0
+        case .eighth: return 0.5
+        case .sixteenth: return 0.25
+        }
+    }
+}
+
+enum ChordPadNoteCount: Int, Codable, CaseIterable, Hashable {
+    case three = 3
+    case four = 4
+    case five = 5
+
+    var displayName: String {
+        "\(rawValue)"
+    }
+}
+
+private struct ChordArpState {
+    var targetNotes: [UUID: [UInt8]]
+    var stepIndex: Int = 0
+    var direction: Int = 1
+}
+
 /// Integrated MIDI Engine with built-in scale filtering and chord generation
 /// Replaces the need for a separate Scale Filter AUv3
 @Observable
@@ -91,6 +134,41 @@ final class MIDIEngine {
 
     var chordMapping: ChordMapping = .defaultMapping {
         didSet { 
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+
+    var chordPadPerformanceMode: ChordPadPerformanceMode = .hit {
+        didSet {
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+
+    var chordPadStrumIntervalMs: Double = 22 {
+        didSet {
+            let clampedValue = min(max(chordPadStrumIntervalMs, 0), 120)
+            if chordPadStrumIntervalMs != clampedValue {
+                chordPadStrumIntervalMs = clampedValue
+                return
+            }
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+
+    var chordPadArpPattern: ChordPadArpPattern = .up {
+        didSet {
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+
+    var chordPadArpRate: ChordPadArpRate = .eighth {
+        didSet {
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+
+    var chordPadNoteCount: ChordPadNoteCount = .three {
+        didSet {
             if !isLoadingSettings { saveChordPadSettings() }
         }
     }
@@ -343,6 +421,11 @@ final class MIDIEngine {
     @ObservationIgnored private let singleNoteZoneChannelKey = "singleNoteZoneChannel"
     @ObservationIgnored private let chordPadSourceNameKey = "chordPadSourceName"
     @ObservationIgnored private let chordMappingKey = "chordMapping"
+    @ObservationIgnored private let chordPadPerformanceModeKey = "chordPadPerformanceMode"
+    @ObservationIgnored private let chordPadStrumIntervalMsKey = "chordPadStrumIntervalMs"
+    @ObservationIgnored private let chordPadArpPatternKey = "chordPadArpPattern"
+    @ObservationIgnored private let chordPadArpRateKey = "chordPadArpRate"
+    @ObservationIgnored private let chordPadNoteCountKey = "chordPadNoteCount"
     // Expression axes (new dynamic system)
     @ObservationIgnored private let expressionSourceNameKey = "expressionSourceName"
     @ObservationIgnored private let expressionAxesKey = "expressionAxes"
@@ -466,6 +549,10 @@ final class MIDIEngine {
     @ObservationIgnored private let panicCCKey = "panicCC"
     @ObservationIgnored private let panicCCChannelKey = "panicCCChannel"
     @ObservationIgnored private let panicCCSourceNameKey = "panicCCSourceName"
+
+    @ObservationIgnored private var pendingChordStrums: [String: [DispatchWorkItem]] = [:]
+    @ObservationIgnored private var chordArpTimers: [String: Timer] = [:]
+    @ObservationIgnored private var chordArpStates: [String: ChordArpState] = [:]
 
     // Persistence keys for output settings
     private let selectedDestinationKey = "midiOutputDestination"
@@ -642,6 +729,30 @@ final class MIDIEngine {
            let mapping = try? JSONDecoder().decode(ChordMapping.self, from: data) {
             chordMapping = mapping
         }
+
+        if let rawMode = defaults.string(forKey: chordPadPerformanceModeKey),
+           let mode = ChordPadPerformanceMode(rawValue: rawMode) {
+            chordPadPerformanceMode = mode
+        }
+
+        if defaults.object(forKey: chordPadStrumIntervalMsKey) != nil {
+            chordPadStrumIntervalMs = defaults.double(forKey: chordPadStrumIntervalMsKey)
+        }
+
+        if let rawPattern = defaults.string(forKey: chordPadArpPatternKey),
+           let pattern = ChordPadArpPattern(rawValue: rawPattern) {
+            chordPadArpPattern = pattern
+        }
+
+        if let rawRate = defaults.string(forKey: chordPadArpRateKey),
+           let rate = ChordPadArpRate(rawValue: rawRate) {
+            chordPadArpRate = rate
+        }
+
+        let savedNoteCount = defaults.integer(forKey: chordPadNoteCountKey)
+        if let noteCount = ChordPadNoteCount(rawValue: savedNoteCount) {
+            chordPadNoteCount = noteCount
+        }
         
         // Load expression axes (new dynamic system)
         expressionSourceName = defaults.string(forKey: expressionSourceNameKey)
@@ -730,6 +841,12 @@ final class MIDIEngine {
         if let data = try? JSONEncoder().encode(chordMapping) {
             defaults.set(data, forKey: chordMappingKey)
         }
+
+        defaults.set(chordPadPerformanceMode.rawValue, forKey: chordPadPerformanceModeKey)
+        defaults.set(chordPadStrumIntervalMs, forKey: chordPadStrumIntervalMsKey)
+        defaults.set(chordPadArpPattern.rawValue, forKey: chordPadArpPatternKey)
+        defaults.set(chordPadArpRate.rawValue, forKey: chordPadArpRateKey)
+        defaults.set(chordPadNoteCount.rawValue, forKey: chordPadNoteCountKey)
         
         // Save expression axes (new dynamic system)
         defaults.set(expressionSourceName, forKey: expressionSourceNameKey)
@@ -1362,6 +1479,8 @@ final class MIDIEngine {
             }
         }
 
+        cancelPendingChordPlayback(for: sourceKey)
+
         // Look up which notes were actually sent to each channel for this input note
         // Pop from the stack to handle rapid retriggers properly (LIFO order)
         guard var perChannel = activeNotes[sourceKey] else { return }
@@ -1666,6 +1785,103 @@ final class MIDIEngine {
         }
     }
 
+    private func cancelPendingChordPlayback(for sourceKey: String) {
+        pendingChordStrums[sourceKey]?.forEach { $0.cancel() }
+        pendingChordStrums.removeValue(forKey: sourceKey)
+
+        chordArpTimers[sourceKey]?.invalidate()
+        chordArpTimers.removeValue(forKey: sourceKey)
+        chordArpStates.removeValue(forKey: sourceKey)
+    }
+
+    private func ensureChordTrackingEntry(sourceKey: String, targetChannelId: UUID) {
+        if activeNotes[sourceKey] == nil {
+            activeNotes[sourceKey] = [:]
+        }
+
+        if activeNotes[sourceKey]?[targetChannelId] == nil {
+            activeNotes[sourceKey]?[targetChannelId] = [[]]
+        } else if activeNotes[sourceKey]?[targetChannelId]?.isEmpty == true {
+            activeNotes[sourceKey]?[targetChannelId] = [[]]
+        }
+    }
+
+    private func appendTrackedChordNote(sourceKey: String, channelId: UUID, note: UInt8, midiChannel: UInt8) {
+        ensureChordTrackingEntry(sourceKey: sourceKey, targetChannelId: channelId)
+        activeNotes[sourceKey]?[channelId]?[0].append((note: note, channel: midiChannel))
+    }
+
+    private func sendTrackedChordNoteOn(sourceKey: String, targetChannel: ChannelStrip, note: UInt8, velocity: UInt8, midiChannel: UInt8 = 0) {
+        appendTrackedChordNote(sourceKey: sourceKey, channelId: targetChannel.id, note: note, midiChannel: midiChannel)
+
+        let key = outputNoteKey(channelId: targetChannel.id, note: note, midiChannel: midiChannel)
+        outputNoteRefCount[key, default: 0] += 1
+        targetChannel.sendMIDI(noteOn: note, velocity: velocity, channel: midiChannel)
+    }
+
+    private func replaceTrackedChordNotes(sourceKey: String, targetChannel: ChannelStrip, notes: [UInt8], velocity: UInt8, midiChannel: UInt8 = 0) {
+        ensureChordTrackingEntry(sourceKey: sourceKey, targetChannelId: targetChannel.id)
+
+        let previousNotes = activeNotes[sourceKey]?[targetChannel.id]?[0] ?? []
+        for pair in previousNotes {
+            let key = outputNoteKey(channelId: targetChannel.id, note: pair.note, midiChannel: pair.channel)
+            let currentCount = outputNoteRefCount[key, default: 0]
+            if currentCount <= 1 {
+                outputNoteRefCount.removeValue(forKey: key)
+                targetChannel.sendMIDI(noteOff: pair.note, channel: pair.channel)
+            } else {
+                outputNoteRefCount[key] = currentCount - 1
+            }
+        }
+
+        activeNotes[sourceKey]?[targetChannel.id]?[0] = []
+
+        for note in notes {
+            sendTrackedChordNoteOn(sourceKey: sourceKey, targetChannel: targetChannel, note: note, velocity: velocity, midiChannel: midiChannel)
+        }
+    }
+
+    private func transposedChordNotes(_ chordNotes: [UInt8], for targetChannel: ChannelStrip) -> [UInt8] {
+        let transposeSemitones = targetChannel.octaveTranspose * 12
+        return chordNotes.map { note in
+            UInt8(clamping: Int(note) + transposeSemitones)
+        }
+    }
+
+    private func chordArpIntervalSeconds() -> TimeInterval {
+        let bpm = max(Double(currentBPM), 1)
+        return (60.0 / bpm) * chordPadArpRate.quarterNoteMultiplier
+    }
+
+    private func nextArpNotes(from notes: [UInt8], state: inout ChordArpState) -> [UInt8] {
+        guard !notes.isEmpty else { return [] }
+
+        switch chordPadArpPattern {
+        case .up:
+            let note = notes[state.stepIndex % notes.count]
+            state.stepIndex = (state.stepIndex + 1) % notes.count
+            return [note]
+        case .down:
+            let descending = notes.sorted(by: >)
+            let note = descending[state.stepIndex % descending.count]
+            state.stepIndex = (state.stepIndex + 1) % descending.count
+            return [note]
+        case .random:
+            return [notes.randomElement() ?? notes[0]]
+        case .upDown:
+            if notes.count == 1 { return notes }
+            let clampedIndex = min(max(state.stepIndex, 0), notes.count - 1)
+            let note = notes[clampedIndex]
+            if clampedIndex == notes.count - 1 {
+                state.direction = -1
+            } else if clampedIndex == 0 {
+                state.direction = 1
+            }
+            state.stepIndex = clampedIndex + state.direction
+            return [note]
+        }
+    }
+
     private func applySongTranspose(to notes: [UInt8]) -> [UInt8] {
         notes.map(applySongTranspose(to:))
     }
@@ -1732,7 +1948,8 @@ final class MIDIEngine {
             mapping: chordMapping,
             rootNote: currentChordRootNote,
             scaleType: currentScaleType,
-            baseOctave: chordMapping.baseOctave
+            baseOctave: chordMapping.baseOctave,
+            noteCount: chordPadNoteCount.rawValue
         ) else {
             return
         }
@@ -1743,29 +1960,68 @@ final class MIDIEngine {
         // Create key for tracking this note
         let sourceKey = noteTrackingKey(sourceName: sourceName, channel: channel, note: note)
 
-        // Initialize mapping for this note if needed
-        if activeNotes[sourceKey] == nil {
-            activeNotes[sourceKey] = [:]
+        if activeNotes[sourceKey] != nil {
+            cancelPendingChordPlayback(for: sourceKey)
+            releaseTrackedNotes(for: sourceKey, audioEngine: audioEngine, reason: "duplicate chord trigger")
         }
 
-        for targetChannel in targetChannels {
-            // Apply octave transpose (each octave = 12 semitones)
-            let transposeSemitones = targetChannel.octaveTranspose * 12
-            let transposedChordNotes = chordNotes.map { note in
-                UInt8(clamping: Int(note) + transposeSemitones)
+        switch chordPadPerformanceMode {
+        case .hit:
+            for targetChannel in targetChannels {
+                let transposedChordNotes = transposedChordNotes(chordNotes, for: targetChannel)
+                for transposedNote in transposedChordNotes {
+                    sendTrackedChordNoteOn(sourceKey: sourceKey, targetChannel: targetChannel, note: transposedNote, velocity: velocity)
+                }
+            }
+        case .strum:
+            for targetChannel in targetChannels {
+                let transposedNotes = transposedChordNotes(chordNotes, for: targetChannel)
+                ensureChordTrackingEntry(sourceKey: sourceKey, targetChannelId: targetChannel.id)
+
+                var workItems: [DispatchWorkItem] = []
+                for (index, transposedNote) in transposedNotes.enumerated() {
+                    let workItem = DispatchWorkItem { [weak self, weak targetChannel] in
+                        guard let self, let targetChannel else { return }
+                        self.sendTrackedChordNoteOn(sourceKey: sourceKey, targetChannel: targetChannel, note: transposedNote, velocity: velocity)
+                    }
+                    workItems.append(workItem)
+
+                    let delay = Double(index) * chordPadStrumIntervalMs / 1000.0
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+                }
+
+                pendingChordStrums[sourceKey, default: []].append(contentsOf: workItems)
+            }
+        case .arp:
+            var arpState = ChordArpState(
+                targetNotes: Dictionary(uniqueKeysWithValues: targetChannels.map { ($0.id, transposedChordNotes(chordNotes, for: $0)) })
+            )
+
+            for targetChannel in targetChannels {
+                ensureChordTrackingEntry(sourceKey: sourceKey, targetChannelId: targetChannel.id)
+                let notes = arpState.targetNotes[targetChannel.id] ?? []
+                let nextNotes = nextArpNotes(from: notes, state: &arpState)
+                replaceTrackedChordNotes(sourceKey: sourceKey, targetChannel: targetChannel, notes: nextNotes, velocity: velocity)
             }
 
-            // Store which chord notes were sent to this channel (ChordPad uses channel 0)
-            // Push to stack to handle rapid retriggers
-            let noteChannelPairs = transposedChordNotes.map { (note: $0, channel: UInt8(0)) }
-            if activeNotes[sourceKey]?[targetChannel.id] == nil {
-                activeNotes[sourceKey]?[targetChannel.id] = []
-            }
-            activeNotes[sourceKey]?[targetChannel.id]?.append(noteChannelPairs)
+            chordArpStates[sourceKey] = arpState
 
-            for transposedNote in transposedChordNotes {
-                targetChannel.sendMIDI(noteOn: transposedNote, velocity: velocity, channel: 0)
+            let timer = Timer.scheduledTimer(withTimeInterval: chordArpIntervalSeconds(), repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          let audioEngine = self.audioEngine,
+                          var state = self.chordArpStates[sourceKey] else { return }
+
+                    for targetChannel in audioEngine.channelStrips where targetChannels.contains(where: { $0.id == targetChannel.id }) {
+                        let notes = state.targetNotes[targetChannel.id] ?? []
+                        let nextNotes = self.nextArpNotes(from: notes, state: &state)
+                        self.replaceTrackedChordNotes(sourceKey: sourceKey, targetChannel: targetChannel, notes: nextNotes, velocity: velocity)
+                    }
+
+                    self.chordArpStates[sourceKey] = state
+                }
             }
+            chordArpTimers[sourceKey] = timer
         }
 
         updateLastMessage("Chord: \(chordNotes.map { String($0) }.joined(separator: ","))")
@@ -1808,6 +2064,9 @@ final class MIDIEngine {
         // Prefer explicit note-offs first so synths can follow their normal release
         // envelopes instead of being hard-cut by an emergency all-sound-off.
         var releasedAnyTrackedNotes = false
+        for sourceKey in activeNotes.keys {
+            cancelPendingChordPlayback(for: sourceKey)
+        }
         for (sourceKey, perChannel) in activeNotes {
             for (channelId, stacks) in perChannel {
                 guard let strip = audioEngine.channelStrips.first(where: { $0.id == channelId }) else { continue }

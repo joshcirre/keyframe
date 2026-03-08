@@ -547,18 +547,7 @@ struct PerformanceView: View {
                             #endif
 
                             sessionStore.setActiveSong(song)
-                            let legacySong = Song(
-                                name: song.name,
-                                rootNote: song.rootNote,
-                                scaleType: song.scaleType,
-                                filterMode: song.filterMode,
-                                transposeEnabled: song.transposeEnabled,
-                                transposeBaseNote: song.transposeBaseNote,
-                                preset: .empty,
-                                bpm: song.bpm
-                            )
-                            midiEngine.applySongSettings(legacySong)
-                            self.applyFreeModeOverride(using: song)
+                            self.applyPerformanceSong(song)
                             audioEngine.applyChannelStates(song.channelStates, configs: sessionStore.currentSession.channels)
 
                             // Set tempo for hosted plugins
@@ -725,6 +714,11 @@ struct PerformanceView: View {
 
     private func applyPerformanceSong(_ song: PerformanceSong) {
         midiEngine.applySongSettings(convertToLegacySong(song))
+        midiEngine.chordPadPerformanceMode = song.chordPadPerformanceMode
+        midiEngine.chordPadNoteCount = song.chordPadNoteCount
+        midiEngine.chordPadStrumIntervalMs = song.chordPadStrumIntervalMs
+        midiEngine.chordPadArpPattern = song.chordPadArpPattern
+        midiEngine.chordPadArpRate = song.chordPadArpRate
         applyFreeModeOverride(using: song)
 
         if let bpm = song.bpm {

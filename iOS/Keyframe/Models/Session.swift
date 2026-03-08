@@ -193,6 +193,11 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
     var rootNote: Int
     var scaleType: ScaleType
     var filterMode: FilterMode
+    var chordPadPerformanceMode: ChordPadPerformanceMode
+    var chordPadNoteCount: ChordPadNoteCount
+    var chordPadStrumIntervalMs: Double
+    var chordPadArpPattern: ChordPadArpPattern
+    var chordPadArpRate: ChordPadArpRate
     var transposeEnabled: Bool
     var transposeBaseNote: Int
     var bpm: Int?
@@ -214,6 +219,11 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
         rootNote: Int = 0,
         scaleType: ScaleType = .major,
         filterMode: FilterMode = .snap,
+        chordPadPerformanceMode: ChordPadPerformanceMode = .hit,
+        chordPadNoteCount: ChordPadNoteCount = .three,
+        chordPadStrumIntervalMs: Double = 22,
+        chordPadArpPattern: ChordPadArpPattern = .up,
+        chordPadArpRate: ChordPadArpRate = .eighth,
         transposeEnabled: Bool = false,
         transposeBaseNote: Int? = nil,
         bpm: Int? = nil,
@@ -230,6 +240,11 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
         self.rootNote = rootNote
         self.scaleType = scaleType
         self.filterMode = filterMode
+        self.chordPadPerformanceMode = chordPadPerformanceMode
+        self.chordPadNoteCount = chordPadNoteCount
+        self.chordPadStrumIntervalMs = chordPadStrumIntervalMs
+        self.chordPadArpPattern = chordPadArpPattern
+        self.chordPadArpRate = chordPadArpRate
         self.transposeEnabled = transposeEnabled
         self.transposeBaseNote = transposeBaseNote ?? rootNote
         self.bpm = bpm
@@ -303,6 +318,7 @@ struct PerformanceSong: Codable, Identifiable, Equatable {
 extension PerformanceSong {
     enum CodingKeys: String, CodingKey {
         case id, name, songName, rootNote, scaleType, filterMode
+        case chordPadPerformanceMode, chordPadNoteCount, chordPadStrumIntervalMs, chordPadArpPattern, chordPadArpRate
         case transposeEnabled, transposeBaseNote
         case bpm, channelStates, order
         case triggerSourceName, triggerChannel, triggerNote
@@ -318,6 +334,11 @@ extension PerformanceSong {
         rootNote = try container.decodeIfPresent(Int.self, forKey: .rootNote) ?? 0
         scaleType = try container.decodeIfPresent(ScaleType.self, forKey: .scaleType) ?? .major
         filterMode = try container.decodeIfPresent(FilterMode.self, forKey: .filterMode) ?? .snap
+        chordPadPerformanceMode = try container.decodeIfPresent(ChordPadPerformanceMode.self, forKey: .chordPadPerformanceMode) ?? .hit
+        chordPadNoteCount = try container.decodeIfPresent(ChordPadNoteCount.self, forKey: .chordPadNoteCount) ?? .three
+        chordPadStrumIntervalMs = try container.decodeIfPresent(Double.self, forKey: .chordPadStrumIntervalMs) ?? 22
+        chordPadArpPattern = try container.decodeIfPresent(ChordPadArpPattern.self, forKey: .chordPadArpPattern) ?? .up
+        chordPadArpRate = try container.decodeIfPresent(ChordPadArpRate.self, forKey: .chordPadArpRate) ?? .eighth
         transposeEnabled = try container.decodeIfPresent(Bool.self, forKey: .transposeEnabled) ?? false
         transposeBaseNote = try container.decodeIfPresent(Int.self, forKey: .transposeBaseNote) ?? rootNote
         bpm = try container.decodeIfPresent(Int.self, forKey: .bpm)
@@ -338,6 +359,11 @@ extension PerformanceSong {
         try container.encode(rootNote, forKey: .rootNote)
         try container.encode(scaleType, forKey: .scaleType)
         try container.encode(filterMode, forKey: .filterMode)
+        try container.encode(chordPadPerformanceMode, forKey: .chordPadPerformanceMode)
+        try container.encode(chordPadNoteCount, forKey: .chordPadNoteCount)
+        try container.encode(chordPadStrumIntervalMs, forKey: .chordPadStrumIntervalMs)
+        try container.encode(chordPadArpPattern, forKey: .chordPadArpPattern)
+        try container.encode(chordPadArpRate, forKey: .chordPadArpRate)
         try container.encode(transposeEnabled, forKey: .transposeEnabled)
         try container.encode(transposeBaseNote, forKey: .transposeBaseNote)
         try container.encodeIfPresent(bpm, forKey: .bpm)

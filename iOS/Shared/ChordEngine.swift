@@ -5,41 +5,52 @@ struct ChordEngine {
     
     // MARK: - Triad Generation
     
-    /// Generate a diatonic triad for a scale degree
+    /// Generate a diatonic tertian chord for a scale degree
     /// - Parameters:
     ///   - degree: Scale degree (1-7)
     ///   - rootNote: Root note of the key (0-11, where 0 = C)
     ///   - scaleType: Scale type (major or minor)
     ///   - octave: Base octave for the chord (MIDI octave, 4 = middle C octave)
-    /// - Returns: Array of 3 MIDI note numbers forming the triad
+    /// - Returns: Array of MIDI note numbers forming the chord
+    static func tertianChord(
+        degree: Int,
+        rootNote: Int,
+        scaleType: ScaleType,
+        octave: Int = 4,
+        noteCount: Int = 3
+    ) -> [UInt8] {
+        guard degree >= 1 && degree <= 7 else { return [] }
+
+        let resolvedNoteCount = max(1, noteCount)
+        var notes: [UInt8] = []
+
+        for chordToneIndex in 0..<resolvedNoteCount {
+            let scaleDegreeIndex = (degree - 1) + (chordToneIndex * 2)
+            let octaveOffset = scaleDegreeIndex / scaleType.intervals.count
+            let wrappedScaleIndex = scaleDegreeIndex % scaleType.intervals.count
+            let midiNote = (octave * 12) + rootNote + scaleType.intervals[wrappedScaleIndex] + (octaveOffset * 12)
+            if midiNote >= 0 && midiNote <= 127 {
+                notes.append(UInt8(midiNote))
+            }
+        }
+
+        return notes
+    }
+
+    /// Generate a diatonic triad for a scale degree
     static func triad(
         degree: Int,
         rootNote: Int,
         scaleType: ScaleType,
         octave: Int = 4
     ) -> [UInt8] {
-        guard degree >= 1 && degree <= 7 else { return [] }
-        
-        // Get the scale interval for this degree (0-indexed)
-        let degreeInterval = scaleType.intervals[degree - 1]
-        
-        // Calculate the root of the chord
-        let chordRoot = (rootNote + degreeInterval) % 12
-        let chordRootMidi = octave * 12 + chordRoot
-        
-        // Get the chord quality for this degree
-        let quality = scaleType.chordQualities[degree - 1]
-        
-        // Build the triad using the quality's intervals
-        var notes: [UInt8] = []
-        for interval in quality.intervals {
-            let midiNote = chordRootMidi + interval
-            if midiNote >= 0 && midiNote <= 127 {
-                notes.append(UInt8(midiNote))
-            }
-        }
-        
-        return notes
+        tertianChord(
+            degree: degree,
+            rootNote: rootNote,
+            scaleType: scaleType,
+            octave: octave,
+            noteCount: 3
+        )
     }
     
     /// Get the chord name for a scale degree
@@ -107,7 +118,8 @@ struct ChordEngine {
         mapping: ChordMapping,
         rootNote: Int,
         scaleType: ScaleType,
-        baseOctave: Int = 4
+        baseOctave: Int = 4,
+        noteCount: Int = 3
     ) -> [UInt8]? {
         // Look up the scale degree for this button/note
         guard let degree = mapping.buttonMap[Int(inputNote)] else {
@@ -115,7 +127,13 @@ struct ChordEngine {
         }
         
         // Generate the chord for this degree
-        return triad(degree: degree, rootNote: rootNote, scaleType: scaleType, octave: baseOctave)
+        return tertianChord(
+            degree: degree,
+            rootNote: rootNote,
+            scaleType: scaleType,
+            octave: baseOctave,
+            noteCount: noteCount
+        )
     }
     
     // MARK: - Inversions (Future Enhancement)
