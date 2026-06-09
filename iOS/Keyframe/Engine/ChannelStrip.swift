@@ -77,6 +77,16 @@ final class ChannelStrip: Identifiable {
     /// Octave transpose (-3 to +3 octaves, each octave = 12 semitones)
     var octaveTranspose: Int = 0
 
+    // MARK: - CC to Parameter Mappings
+
+    /// Maps MIDI CC numbers to AUParameter addresses for direct parameter control.
+    /// When a CC has a mapping, we set the parameter value directly instead of
+    /// (or in addition to) sending raw MIDI CC which most synths ignore.
+    var ccParameterMappings: [CCParameterMapping] = []
+
+    /// Cached parameter references for fast lookup during CC processing
+    @ObservationIgnored private var ccParamCache: [UInt8: (param: AUParameter, minValue: Float, range: Float)] = [:]
+
     // MARK: - Metering
 
     var peakLevel: Float = -60.0
@@ -198,6 +208,9 @@ final class ChannelStrip: Identifiable {
                 
                 // Ensure channel stays connected to master after chain rebuild
                 AudioEngine.shared.ensureChannelConnections()
+
+                // Rebuild CC-to-parameter cache now that instrument is loaded
+                self.rebuildCCParamCache()
 
                 print("ChannelStrip \(self.index): Loaded instrument")
                 completion(true, nil)
@@ -592,6 +605,15 @@ final class ChannelStrip: Identifiable {
     
     func sendMIDI(controlChange cc: UInt8, value: UInt8, channel: UInt8 = 0) {
         guard let instrument = instrument else { return }
+
+        // Check for CC-to-parameter mapping — set the parameter directly
+        if let cached = ccParamCache[cc] {
+            let normalized = Float(value) / 127.0
+            let paramValue = cached.minValue + normalized * cached.range
+            cached.param.setValue(paramValue, originator: nil)
+        }
+
+        // Also send as raw MIDI CC (some synths do handle certain CCs natively)
         if let midiBlock = instrument.auAudioUnit.scheduleMIDIEventBlock {
             var bytes: (UInt8, UInt8, UInt8) = (0xB0 | (channel & 0x0F), cc, value)
             withUnsafeBytes(of: &bytes) { raw in
@@ -611,8 +633,117 @@ final class ChannelStrip: Identifiable {
         }
     }
     
+    // MARK: - CC Parameter Mapping
+
+    /// Rebuild the CC-to-parameter cache from saved mappings.
+    /// Called after instrument load or when mappings change.
+    func rebuildCCParamCache() {
+        ccParamCache.removeAll()
+        guard let paramTree = instrument?.auAudioUnit.parameterTree else { return }
+
+        for mapping in ccParameterMappings {
+            if let param = paramTree.parameter(withAddress: mapping.parameterAddress) {
+                ccParamCache[UInt8(mapping.cc)] = (
+                    param: param,
+                    minValue: param.minValue,
+                    range: param.maxValue - param.minValue
+                )
+            }
+        }
+        print("ChannelStrip \(index): CC param cache rebuilt (\(ccParamCache.count) mappings)")
+    }
+
+    /// Get all available parameters from the loaded instrument (for mapping UI)
+    func getInstrumentParameters() -> [AUParameterInfo] {
+        guard let paramTree = instrument?.auAudioUnit.parameterTree else { return [] }
+        return collectParameters(from: paramTree)
+    }
+
+    private func collectParameters(from group: AUParameterGroup) -> [AUParameterInfo] {
+        var result: [AUParameterInfo] = []
+        for node in group.children {
+            if let param = node as? AUParameter {
+                result.append(AUParameterInfo(
+                    address: param.address,
+                    identifier: param.identifier,
+                    displayName: param.displayName,
+                    groupName: group.displayName,
+                    minValue: param.minValue,
+                    maxValue: param.maxValue,
+                    unit: param.unitName ?? ""
+                ))
+            } else if let subGroup = node as? AUParameterGroup {
+                result.append(contentsOf: collectParameters(from: subGroup))
+            }
+        }
+        return result
+    }
+
+    private func collectParameters(from tree: AUParameterTree) -> [AUParameterInfo] {
+        var result: [AUParameterInfo] = []
+        for node in tree.children {
+            if let param = node as? AUParameter {
+                result.append(AUParameterInfo(
+                    address: param.address,
+                    identifier: param.identifier,
+                    displayName: param.displayName,
+                    groupName: nil,
+                    minValue: param.minValue,
+                    maxValue: param.maxValue,
+                    unit: param.unitName ?? ""
+                ))
+            } else if let group = node as? AUParameterGroup {
+                result.append(contentsOf: collectParameters(from: group))
+            }
+        }
+        return result
+    }
+
+    /// Add a CC-to-parameter mapping
+    func addCCMapping(cc: Int, parameterAddress: AUParameterAddress, parameterName: String) {
+        // Remove existing mapping for this CC
+        ccParameterMappings.removeAll { $0.cc == cc }
+        ccParameterMappings.append(CCParameterMapping(
+            cc: cc,
+            parameterAddress: parameterAddress,
+            parameterName: parameterName
+        ))
+        rebuildCCParamCache()
+    }
+
+    /// Remove a CC mapping
+    func removeCCMapping(cc: Int) {
+        ccParameterMappings.removeAll { $0.cc == cc }
+        ccParamCache.removeValue(forKey: UInt8(cc))
+    }
+
+    /// Start observing parameter changes for "learn" mode.
+    /// Returns a token that must be passed to stopParameterLearn().
+    func startParameterLearn() -> AUParameterObserverToken? {
+        guard let paramTree = instrument?.auAudioUnit.parameterTree else { return nil }
+
+        let token = paramTree.token(byAddingParameterObserver: { [weak self] address, value in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // Find the parameter info
+                if let param = paramTree.parameter(withAddress: address) {
+                    self.onParameterLearned?(param.address, param.displayName)
+                }
+            }
+        })
+        return token
+    }
+
+    func stopParameterLearn(token: AUParameterObserverToken?) {
+        guard let token, let paramTree = instrument?.auAudioUnit.parameterTree else { return }
+        paramTree.removeParameterObserver(token)
+    }
+
+    /// Callback for parameter learn mode
+    var onParameterLearned: ((AUParameterAddress, String) -> Void)?
+
     // MARK: - Plugin UI
-    
+
     /// Get the view controller for the instrument's UI
     func getInstrumentViewController(completion: @escaping (UIViewController?) -> Void) {
         guard let instrument = instrument else {
@@ -682,7 +813,8 @@ final class ChannelStrip: Identifiable {
             scaleFilterEnabled: scaleFilterEnabled,
             isChordPadTarget: isChordPadTarget,
             isSingleNoteTarget: isSingleNoteTarget,
-            octaveTranspose: octaveTranspose
+            octaveTranspose: octaveTranspose,
+            ccParameterMappings: ccParameterMappings
         )
     }
     
@@ -827,6 +959,36 @@ extension AudioComponentDescription: Equatable {
     }
 }
 
+// MARK: - CC Parameter Mapping
+
+/// Maps a MIDI CC number to an AUv3 parameter address
+struct CCParameterMapping: Codable, Equatable, Identifiable {
+    var id = UUID()
+    var cc: Int                             // MIDI CC number (0-127)
+    var parameterAddress: AUParameterAddress // AUParameter address in the instrument
+    var parameterName: String               // Display name for UI
+}
+
+/// Info about an available AUParameter (for mapping picker UI)
+struct AUParameterInfo: Identifiable {
+    let address: AUParameterAddress
+    let identifier: String
+    let displayName: String
+    let groupName: String?
+    let minValue: Float
+    let maxValue: Float
+    let unit: String
+
+    var id: AUParameterAddress { address }
+
+    var fullDisplayName: String {
+        if let group = groupName, !group.isEmpty {
+            return "\(group) > \(displayName)"
+        }
+        return displayName
+    }
+}
+
 // MARK: - Channel Strip State
 
 /// Complete saved state of a channel strip
@@ -843,4 +1005,5 @@ struct ChannelStripState: Codable, Equatable {
     var isChordPadTarget: Bool
     var isSingleNoteTarget: Bool
     var octaveTranspose: Int
+    var ccParameterMappings: [CCParameterMapping] = []
 }

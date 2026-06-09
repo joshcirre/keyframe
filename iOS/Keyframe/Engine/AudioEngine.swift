@@ -288,12 +288,29 @@ final class AudioEngine {
         do {
             // Ensure audio session is active for background audio
             try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+            reconnectAllChannelsToMaster()
+            ensureChannelConnections()
+            engine.prepare()
             try engine.start()
             isRunning = true
             startMetering()
             print("AudioEngine: Started")
         } catch {
             print("AudioEngine: Failed to start: \(error)")
+
+            do {
+                print("AudioEngine: Retrying start after graph reset")
+                engine.reset()
+                reconnectAllChannelsToMaster()
+                ensureChannelConnections()
+                engine.prepare()
+                try engine.start()
+                isRunning = true
+                startMetering()
+                print("AudioEngine: Started after retry")
+            } catch {
+                print("AudioEngine: Retry failed: \(error)")
+            }
         }
     }
     

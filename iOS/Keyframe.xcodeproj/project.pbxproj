@@ -33,6 +33,7 @@
 		8A1B2C3D4E5F6061 /* RemoteModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6061 /* RemoteModeView.swift */; };
 		8A1B2C3D4E5F6062 /* ModeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6062 /* ModeSelectionView.swift */; };
 		8A1B2C3D4E5F6052 /* AppearanceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6052 /* AppearanceManager.swift */; };
+		8A1B2C3D4E5F6073 /* AppearanceToggleButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6073 /* AppearanceToggleButton.swift */; };
 		8A1B2C3D4E5F6070 /* PluginCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6070 /* PluginCatalogService.swift */; };
 		8A1B2C3D4E5F6071 /* AIPresetGeneratorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6071 /* AIPresetGeneratorService.swift */; };
 		8A1B2C3D4E5F6072 /* AIPresetGeneratorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6072 /* AIPresetGeneratorView.swift */; };
@@ -65,6 +66,7 @@
 		9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessageEditorView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMIDIMessage.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6052 /* AppearanceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceManager.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6073 /* AppearanceToggleButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceToggleButton.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6060 /* KeyframeRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeRemote.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6061 /* RemoteModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteModeView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6062 /* ModeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeSelectionView.swift; sourceTree = "<group>"; };
@@ -126,6 +128,7 @@
 				9A1B2C3D4E5F6032 /* PluginBrowserView.swift */,
 				9A1B2C3D4E5F6061 /* RemoteModeView.swift */,
 				9A1B2C3D4E5F6062 /* ModeSelectionView.swift */,
+				9A1B2C3D4E5F6073 /* AppearanceToggleButton.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -287,6 +290,7 @@
 				8A1B2C3D4E5F6070 /* PluginCatalogService.swift in Sources */,
 				8A1B2C3D4E5F6071 /* AIPresetGeneratorService.swift in Sources */,
 				8A1B2C3D4E5F6072 /* AIPresetGeneratorView.swift in Sources */,
+				8A1B2C3D4E5F6073 /* AppearanceToggleButton.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

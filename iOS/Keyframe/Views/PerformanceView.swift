@@ -614,6 +614,8 @@ struct PerformanceView: View {
                 strip.volume = config.volume
                 strip.pan = config.pan
                 strip.isMuted = config.isMuted
+                strip.ccParameterMappings = config.ccParameterMappings
+                strip.rebuildCCParamCache()
             }
         }
     }
@@ -771,6 +773,8 @@ struct PerformanceView: View {
                         strip.scaleFilterEnabled = newValue.scaleFilterEnabled
                         strip.isChordPadTarget = newValue.isChordPadTarget
                         strip.octaveTranspose = newValue.octaveTranspose
+                        strip.ccParameterMappings = newValue.ccParameterMappings
+                        strip.rebuildCCParamCache()
                     }
                 }
             }
@@ -1480,7 +1484,6 @@ struct SongGridButton: View {
                 .animation(.easeOut(duration: 0.15), value: isReorderMode)
             }
             .buttonStyle(.plain)
-            .disabled(isReorderMode)
         }
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5)
@@ -1491,8 +1494,11 @@ struct SongGridButton: View {
                     onLongPress()
                 }
         )
+        .contentShape(Rectangle())
         .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
+            // In reorder mode, use a large minimumDistance so .onDrag can take over.
+            // In normal mode, minimumDistance: 0 tracks press state for the scale effect.
+            DragGesture(minimumDistance: isReorderMode ? 1000 : 0)
                 .onChanged { _ in
                     if !isReorderMode { isPressed = true }
                 }

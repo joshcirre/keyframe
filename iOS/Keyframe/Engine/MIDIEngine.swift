@@ -14,6 +14,7 @@ struct ExpressionAxisMapping: Codable, Identifiable, Equatable {
     var outputAsPitchBend: Bool = false
     var pitchBendDown: Bool = false
     var scale: Double = 1.0  // 0.05 to 1.0
+    var affectChordTargets: Bool = false  // Whether this axis also sends to ChordPad target channels
     
     static func defaultAxis1() -> ExpressionAxisMapping {
         ExpressionAxisMapping(name: "Mod Wheel", inputCC: 1, outputCC: 1)
@@ -194,6 +195,13 @@ final class MIDIEngine {
     
     /// Force all pitch bend from LUMI to channel 1 (for non-MPE synths)
     var forcePitchBendToChannel1: Bool = false {
+        didSet {
+            if !isLoadingSettings { saveChordPadSettings() }
+        }
+    }
+
+    /// Whether legacy expression axes (1-4) also affect ChordPad target channels
+    var legacyExpressionAffectChordTargets: Bool = false {
         didSet {
             if !isLoadingSettings { saveChordPadSettings() }
         }
@@ -464,6 +472,8 @@ final class MIDIEngine {
     @ObservationIgnored private let globalExpression2RampTimeKey = "globalExpression2RampTime"
     // Pitch bend routing
     @ObservationIgnored private let forcePitchBendToChannel1Key = "forcePitchBendToChannel1"
+    // Expression chord target routing
+    @ObservationIgnored private let legacyExpressionAffectChordTargetsKey = "legacyExpressionAffectChordTargets"
 
     // MARK: - MIDI Learn Mode
 
@@ -663,9 +673,10 @@ final class MIDIEngine {
     /// Update ramped expression values and send CC if changed
     private func updateRampedValues() {
         guard let audioEngine = audioEngine else { return }
-        
+
         let dt = 1.0 / 60.0  // Timer interval
-        
+        let skipChordTargets = !legacyExpressionAffectChordTargets
+
         // Axis 1 ramping
         if globalExpressionEnabled && globalExpressionRampTime > 0 {
             let rampRate = dt / max(0.01, globalExpressionRampTime)
@@ -674,12 +685,12 @@ final class MIDIEngine {
                 axis1CurrentValue += diff * min(1.0, rampRate * 10)
                 let outputValue = UInt8(max(0, min(127, Int(axis1CurrentValue))))
                 let outputCC = UInt8(globalExpressionOutputCC)
-                for strip in audioEngine.channelStrips where strip.isInstrumentLoaded {
+                for strip in audioEngine.channelStrips where strip.isInstrumentLoaded && (!strip.isChordPadTarget || !skipChordTargets) {
                     strip.sendMIDI(controlChange: outputCC, value: outputValue)
                 }
             }
         }
-        
+
         // Axis 2 ramping (with invert)
         if globalExpression2Enabled && globalExpression2RampTime > 0 {
             let rampRate = dt / max(0.01, globalExpression2RampTime)
@@ -691,7 +702,7 @@ final class MIDIEngine {
                     outputValue = 127 - outputValue
                 }
                 let outputCC = UInt8(globalExpression2OutputCC)
-                for strip in audioEngine.channelStrips where strip.isInstrumentLoaded {
+                for strip in audioEngine.channelStrips where strip.isInstrumentLoaded && (!strip.isChordPadTarget || !skipChordTargets) {
                     strip.sendMIDI(controlChange: outputCC, value: UInt8(max(0, min(127, outputValue))))
                 }
             }
@@ -819,6 +830,7 @@ final class MIDIEngine {
         
         // Load pitch bend routing
         forcePitchBendToChannel1 = defaults.bool(forKey: forcePitchBendToChannel1Key)
+        legacyExpressionAffectChordTargets = defaults.bool(forKey: legacyExpressionAffectChordTargetsKey)
         
         // Load panic CC mapping
         if defaults.object(forKey: panicCCKey) != nil {
@@ -892,6 +904,7 @@ final class MIDIEngine {
         
         // Save pitch bend routing
         defaults.set(forcePitchBendToChannel1, forKey: forcePitchBendToChannel1Key)
+        defaults.set(legacyExpressionAffectChordTargets, forKey: legacyExpressionAffectChordTargetsKey)
         
         // Save panic CC mapping
         defaults.set(panicCC ?? -1, forKey: panicCCKey)
@@ -1451,11 +1464,20 @@ final class MIDIEngine {
     private func processNoteOff(note: UInt8, channel: UInt8, sourceName: String?) {
         guard let audioEngine = audioEngine else { return }
 
+        // If this note-off is from the ChordPad source, only match exact tracked keys.
+        // ChordPad notes that weren't mapped (dropped in processNoteOn) must NOT
+        // fall through to cross-source matching, which would steal notes from other controllers.
+        let isChordPadSource = chordPadSourceName != nil && chordPadSourceName == sourceName
+
         let exactSourceKey = noteTrackingKey(sourceName: sourceName, channel: channel, note: note)
 
         let sourceKey: String
         if activeNotes[exactSourceKey] != nil {
             sourceKey = exactSourceKey
+        } else if isChordPadSource {
+            // ChordPad note-off with no matching note-on — this was an unmapped pad note.
+            // Drop it silently instead of letting fallback logic steal notes from other controllers.
+            return
         } else {
             let fallbackKeys = matchingSourceKeys(sourceName: sourceName, note: note)
             if fallbackKeys.count == 1, let matchedKey = fallbackKeys.first {
@@ -1582,7 +1604,8 @@ final class MIDIEngine {
                 scaledValue = 127 - scaledValue
             }
             
-            for strip in audioEngine.channelStrips where strip.isInstrumentLoaded {
+            let skipChordTargets = !axis.affectChordTargets
+            for strip in audioEngine.channelStrips where strip.isInstrumentLoaded && (!strip.isChordPadTarget || !skipChordTargets) {
                 if axis.outputAsPitchBend {
                     // Convert to pitch bend from center
                     let maxBend = Int(8191.0 * axis.scale)
@@ -1605,6 +1628,8 @@ final class MIDIEngine {
             return
         }
         
+        let legacySkipChords = !legacyExpressionAffectChordTargets
+
         // Check for legacy global expression routing (axis 1)
         if globalExpressionEnabled,
            let expressionSource = globalExpressionSourceName,
@@ -1612,13 +1637,13 @@ final class MIDIEngine {
            Int(cc) == globalExpressionInputCC,
            channelMatches(globalExpressionInputChannel) {
             let outputCC = UInt8(globalExpressionOutputCC)
-            
+
             // If ramping is enabled, set target and let timer handle output
             if globalExpressionRampTime > 0 {
                 axis1TargetValue = Double(value)
             } else {
                 // Immediate output
-                for strip in audioEngine.channelStrips where strip.isInstrumentLoaded {
+                for strip in audioEngine.channelStrips where strip.isInstrumentLoaded && (!strip.isChordPadTarget || !legacySkipChords) {
                     strip.sendMIDI(controlChange: outputCC, value: value)
                 }
             }
@@ -1626,7 +1651,7 @@ final class MIDIEngine {
             updateLastMessage("\(src): Global CC\(cc)→CC\(outputCC) = \(value)")
             return
         }
-        
+
         // Check for global expression routing (axis 2)
         if globalExpression2Enabled,
            let expressionSource = globalExpressionSourceName,
@@ -1634,14 +1659,14 @@ final class MIDIEngine {
            Int(cc) == globalExpression2InputCC,
            channelMatches(globalExpression2InputChannel) {
             let outputCC = UInt8(globalExpression2OutputCC)
-            
+
             // If ramping is enabled, set target and let timer handle output
             if globalExpression2RampTime > 0 {
                 axis2TargetValue = Double(value)
             } else {
                 // Immediate output
                 let outputValue = globalExpression2Invert ? (127 - value) : value
-                for strip in audioEngine.channelStrips where strip.isInstrumentLoaded {
+                for strip in audioEngine.channelStrips where strip.isInstrumentLoaded && (!strip.isChordPadTarget || !legacySkipChords) {
                     strip.sendMIDI(controlChange: outputCC, value: outputValue)
                 }
             }
@@ -1650,7 +1675,7 @@ final class MIDIEngine {
             updateLastMessage("\(src): Global CC\(cc)→\(invertLabel)CC\(outputCC) = \(value)")
             return
         }
-        
+
         // Check for global expression routing (axis 3 - can output as pitch bend)
         if globalExpression3Enabled,
            let expressionSource = globalExpressionSourceName,
@@ -1659,8 +1684,8 @@ final class MIDIEngine {
            channelMatches(globalExpression3InputChannel) {
             // Apply scale to reduce range (for subtle vibrato)
             let scaledValue = Int(Double(value) * globalExpression3Scale)
-            
-            for strip in audioEngine.channelStrips where strip.isInstrumentLoaded {
+
+            for strip in audioEngine.channelStrips where strip.isInstrumentLoaded && (!strip.isChordPadTarget || !legacySkipChords) {
                 if globalExpression3OutputPitchBend {
                     // Convert CC value (0-127) to pitch bend from center
                     // Scale reduces the range: 1.0 = full ±8192, 0.1 = subtle ±819
@@ -1686,7 +1711,7 @@ final class MIDIEngine {
             updateLastMessage("\(src): CC\(cc)→\(outputLabel)@\(scalePercent)% = \(scaledValue)")
             return
         }
-        
+
         // Check for global expression routing (axis 4 - can output as pitch bend)
         if globalExpression4Enabled,
            let expressionSource = globalExpressionSourceName,
@@ -1695,8 +1720,8 @@ final class MIDIEngine {
            channelMatches(globalExpression4InputChannel) {
             // Apply scale to reduce range
             let scaledValue = Int(Double(value) * globalExpression4Scale)
-            
-            for strip in audioEngine.channelStrips where strip.isInstrumentLoaded {
+
+            for strip in audioEngine.channelStrips where strip.isInstrumentLoaded && (!strip.isChordPadTarget || !legacySkipChords) {
                 if globalExpression4OutputPitchBend {
                     // Convert CC value (0-127) to pitch bend from center
                     let maxBend = Int(8191.0 * globalExpression4Scale)
@@ -1720,6 +1745,13 @@ final class MIDIEngine {
             return
         }
 
+        // Don't forward CCs from the ChordPad source to normal instrument channels.
+        // ChordPad notes are already intercepted by processNoteOn; forwarding CCs
+        // (especially CC 120/123 All Notes/Sound Off) would kill notes on other channels.
+        if let chordPadSource = chordPadSourceName, chordPadSource == sourceName {
+            return
+        }
+
         let targetChannels = audioEngine.channelStrips.filter { strip in
             channelAcceptsMIDI(strip, sourceName: sourceName, midiChannel: midiChannel)
         }
@@ -1731,16 +1763,21 @@ final class MIDIEngine {
         let src = sourceName ?? "?"
         updateLastMessage("\(src): CC \(cc) = \(value) ch \(channel + 1)")
     }
-    
+
     private func processPitchBend(lsb: UInt8, msb: UInt8, channel: UInt8, sourceName: String?) {
         guard let audioEngine = audioEngine else {
             print("⚠️ PB: No audioEngine!")
             return
         }
-        
+
+        // Don't forward pitch bend from ChordPad source to instrument channels
+        if let chordPadSource = chordPadSourceName, chordPadSource == sourceName {
+            return
+        }
+
         let value = (Int(msb) << 7) | Int(lsb)
         print("🎹 PB IN: ch=\(channel + 1) val=\(value) src=\(sourceName ?? "?")")
-        
+
         // MPE/Multi-channel sends notes on channels 2-16, with per-note pitch bend on those channels
         // The synth handles the per-channel routing internally, so we just need to forward
         // the message with the original channel intact
@@ -2083,7 +2120,7 @@ final class MIDIEngine {
             activeNotes.removeValue(forKey: sourceKey)
         }
 
-        // Follow up with MIDI All Notes Off as a soft fallback.
+        // Follow up with MIDI All Notes Off as a soft fallback (all channels, including chord targets).
         for strip in audioEngine.channelStrips where strip.isInstrumentLoaded {
             for ch: UInt8 in 0..<16 {
                 strip.sendMIDI(controlChange: 123, value: 0, channel: ch)

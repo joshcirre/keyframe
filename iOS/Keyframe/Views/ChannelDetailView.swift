@@ -18,6 +18,11 @@ struct ChannelDetailView: View {
     @State private var pluginViewController: UIViewController?
     @State private var isLearningFaderCC = false
     @State private var showingDeleteConfirmation = false
+    @State private var isLearningParameter = false
+    @State private var learningCC: Int? = nil  // Which CC we're learning a parameter for
+    @State private var paramLearnToken: AUParameterObserverToken? = nil
+    @State private var showingParameterPicker = false
+    @State private var pickerCC: Int = 74  // CC being mapped in the parameter picker
 
     var body: some View {
         ZStack {
@@ -39,6 +44,11 @@ struct ChannelDetailView: View {
 
                     // MIDI routing
                     midiSection
+
+                    // CC-to-Parameter mappings (only show if instrument is loaded)
+                    if channel.isInstrumentLoaded {
+                        ccMappingSection
+                    }
 
                     // Delete channel button
                     if onDelete != nil {
@@ -67,6 +77,18 @@ struct ChannelDetailView: View {
             if let vc = pluginViewController {
                 PluginUIHostView(viewController: vc)
             }
+        }
+        .sheet(isPresented: $showingParameterPicker) {
+            ParameterPickerView(
+                parameters: channel.getInstrumentParameters(),
+                cc: pickerCC,
+                onSelect: { address, name in
+                    channel.addCCMapping(cc: pickerCC, parameterAddress: address, parameterName: name)
+                    config.ccParameterMappings = channel.ccParameterMappings
+                    SessionStore.shared.saveCurrentSession()
+                    showingParameterPicker = false
+                }
+            )
         }
         .confirmationDialog("Delete Channel", isPresented: $showingDeleteConfirmation) {
             Button("Delete Channel", role: .destructive) {
@@ -102,8 +124,103 @@ struct ChannelDetailView: View {
         }
     }
     
+    // MARK: - CC Parameter Mapping Section
+
+    private var ccMappingSection: some View {
+        VStack(spacing: 16) {
+            Text("CC PARAMETER MAPPING")
+                .font(TEFonts.mono(9, weight: .bold))
+                .foregroundStyle(TEColors.midGray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("Map MIDI CCs to synth parameters so expression controllers work with any patch.")
+                .font(TEFonts.mono(9, weight: .medium))
+                .foregroundStyle(TEColors.midGray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Existing mappings
+            ForEach(config.ccParameterMappings) { mapping in
+                HStack {
+                    Text("CC\(mapping.cc)")
+                        .font(TEFonts.mono(11, weight: .bold))
+                        .foregroundStyle(TEColors.black)
+                        .frame(width: 50, alignment: .leading)
+
+                    Text(mapping.parameterName.uppercased())
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundStyle(TEColors.darkGray)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Button {
+                        channel.removeCCMapping(cc: mapping.cc)
+                        config.ccParameterMappings = channel.ccParameterMappings
+                        SessionStore.shared.saveCurrentSession()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(TEColors.midGray)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            // Add mapping button with learn
+            HStack(spacing: 12) {
+                if isLearningParameter, let cc = learningCC {
+                    Text("CC\(cc): MOVE A KNOB IN THE SYNTH UI...")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundStyle(TEColors.orange)
+
+                    Spacer()
+
+                    Button {
+                        stopParameterLearn()
+                    } label: {
+                        Text("CANCEL")
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(TEColors.orange)
+                    }
+                } else {
+                    Button {
+                        pickerCC = 74
+                        showingParameterPicker = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("ADD CC MAPPING")
+                                .font(TEFonts.mono(10, weight: .bold))
+                        }
+                        .foregroundStyle(TEColors.orange)
+                    }
+
+                    Spacer()
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            Rectangle()
+                .fill(TEColors.warmWhite)
+                .overlay(Rectangle().strokeBorder(TEColors.lightGray, lineWidth: 1))
+        )
+    }
+
+    private func stopParameterLearn() {
+        channel.stopParameterLearn(token: paramLearnToken)
+        paramLearnToken = nil
+        channel.onParameterLearned = nil
+        isLearningParameter = false
+        learningCC = nil
+    }
+
     // MARK: - Channel Header
-    
+
     private var channelHeader: some View {
         VStack(spacing: 16) {
             HStack {
@@ -1015,6 +1132,137 @@ struct PluginUIViewControllerWrapper: UIViewControllerRepresentable {
     }
     
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+}
+
+// MARK: - Parameter Picker View
+
+struct ParameterPickerView: View {
+    let parameters: [AUParameterInfo]
+    @State var cc: Int
+    let onSelect: (AUParameterAddress, String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    private let commonCCs: [(Int, String)] = [
+        (1, "CC1 Mod Wheel"),
+        (2, "CC2 Breath"),
+        (7, "CC7 Volume"),
+        (11, "CC11 Expression"),
+        (71, "CC71 Resonance"),
+        (74, "CC74 Filter/Brightness"),
+    ]
+
+    private var filteredParameters: [AUParameterInfo] {
+        if searchText.isEmpty { return parameters }
+        let query = searchText.lowercased()
+        return parameters.filter {
+            $0.displayName.lowercased().contains(query) ||
+            ($0.groupName?.lowercased().contains(query) ?? false)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // CC picker
+                VStack(spacing: 8) {
+                    Text("MIDI CC TO MAP")
+                        .font(TEFonts.mono(9, weight: .bold))
+                        .foregroundStyle(TEColors.midGray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(commonCCs, id: \.0) { ccNum, label in
+                                Button {
+                                    cc = ccNum
+                                } label: {
+                                    Text(label.uppercased())
+                                        .font(TEFonts.mono(10, weight: cc == ccNum ? .bold : .medium))
+                                        .foregroundStyle(cc == ccNum ? .white : TEColors.black)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .background(cc == ccNum ? TEColors.orange : TEColors.warmWhite)
+                                        .overlay(Rectangle().strokeBorder(cc == ccNum ? TEColors.orange : TEColors.lightGray, lineWidth: 1))
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+                .padding(.vertical, 12)
+                .background(TEColors.cream)
+
+                // Search
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(TEColors.midGray)
+                    TextField("Search parameters...", text: $searchText)
+                        .font(TEFonts.mono(12, weight: .medium))
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(TEColors.warmWhite)
+
+                // Parameter list
+                if filteredParameters.isEmpty {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        Text("NO PARAMETERS FOUND")
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundStyle(TEColors.midGray)
+                        Text("This instrument may not expose its parameters.")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.midGray)
+                        Spacer()
+                    }
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(filteredParameters) { param in
+                                Button {
+                                    onSelect(param.address, param.fullDisplayName)
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(param.displayName.uppercased())
+                                                .font(TEFonts.mono(12, weight: .medium))
+                                                .foregroundStyle(TEColors.black)
+                                            if let group = param.groupName, !group.isEmpty {
+                                                Text(group.uppercased())
+                                                    .font(TEFonts.mono(9, weight: .medium))
+                                                    .foregroundStyle(TEColors.midGray)
+                                            }
+                                        }
+                                        Spacer()
+                                        Text("\(Int(param.minValue))–\(Int(param.maxValue))")
+                                            .font(TEFonts.mono(9, weight: .medium))
+                                            .foregroundStyle(TEColors.midGray)
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                }
+                                Divider().padding(.leading, 16)
+                            }
+                        }
+                    }
+                }
+            }
+            .background(TEColors.cream)
+            .navigationTitle("MAP CC\(cc) TO PARAMETER")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("CANCEL") { dismiss() }
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundStyle(TEColors.black)
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Array Extension

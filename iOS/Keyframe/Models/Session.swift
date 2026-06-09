@@ -69,6 +69,9 @@ struct ChannelConfiguration: Identifiable, Equatable {
     var controlChannel: Int?        // MIDI channel (1-16, nil = any channel)
     var controlCC: Int?             // CC number that controls volume (nil = not mapped)
 
+    /// CC-to-AUParameter mappings for this channel's instrument
+    var ccParameterMappings: [CCParameterMapping] = []
+
     init(
         id: UUID = UUID(),
         name: String = "New Channel",
@@ -85,7 +88,8 @@ struct ChannelConfiguration: Identifiable, Equatable {
         octaveTranspose: Int = 0,
         controlSourceName: String? = nil,
         controlChannel: Int? = nil,
-        controlCC: Int? = nil
+        controlCC: Int? = nil,
+        ccParameterMappings: [CCParameterMapping] = []
     ) {
         self.id = id
         self.name = name
@@ -103,6 +107,7 @@ struct ChannelConfiguration: Identifiable, Equatable {
         self.controlSourceName = controlSourceName
         self.controlChannel = controlChannel
         self.controlCC = controlCC
+        self.ccParameterMappings = ccParameterMappings
     }
 }
 
@@ -114,6 +119,7 @@ extension ChannelConfiguration: Codable {
         case midiChannel, midiSourceName, scaleFilterEnabled
         case isChordPadTarget, isSingleNoteTarget, octaveTranspose
         case controlSourceName, controlChannel, controlCC
+        case ccParameterMappings
     }
 
     init(from decoder: Decoder) throws {
@@ -136,6 +142,7 @@ extension ChannelConfiguration: Codable {
         controlSourceName = try container.decodeIfPresent(String.self, forKey: .controlSourceName)
         controlChannel = try container.decodeIfPresent(Int.self, forKey: .controlChannel)
         controlCC = try container.decodeIfPresent(Int.self, forKey: .controlCC)
+        ccParameterMappings = try container.decodeIfPresent([CCParameterMapping].self, forKey: .ccParameterMappings) ?? []
     }
 }
 

@@ -555,8 +555,10 @@ struct PerformanceSettingsView: View {
     private var globalExpressionSection: some View {
         TESettingsSection(title: "GLOBAL EXPRESSION") {
             VStack(spacing: 16) {
-                // Source picker (shared for both axes)
+                // Source picker (shared for all legacy axes)
                 globalExpressionSourcePicker
+
+                TEToggle(label: "AFFECT CHORD SOUNDS", isOn: $midiEngine.legacyExpressionAffectChordTargets)
                 
                 // Axis 1 (e.g., joystick Y / up-down)
                 Text("AXIS 1")
@@ -1645,7 +1647,10 @@ struct ExpressionAxisRow: View {
             
             TEToggle(label: "ENABLED", isOn: $editedAxis.enabled)
                 .onChange(of: editedAxis.enabled) { _, _ in saveChanges() }
-            
+
+            // Per-axis source picker (nil = use global source)
+            axisSourcePicker
+
             // Input CC with Learn button
             HStack(spacing: 12) {
                 SettingsPicker(
@@ -1684,11 +1689,40 @@ struct ExpressionAxisRow: View {
                     .tint(TEColors.black)
                     .onChange(of: editedAxis.scale) { _, _ in saveChanges() }
             }
-            
+
+            TEToggle(label: "AFFECT CHORD SOUNDS", isOn: $editedAxis.affectChordTargets)
+                .onChange(of: editedAxis.affectChordTargets) { _, _ in saveChanges() }
+
             Divider()
         }
     }
-    
+
+    private var axisSourcePicker: some View {
+        let connectedNames = Set(midiEngine.connectedSources.map { $0.name })
+        let currentSource = editedAxis.sourceName
+        let isOffline = currentSource != nil && !connectedNames.contains(currentSource!)
+
+        var options: [(key: String?, value: String)] = [(nil, "GLOBAL SOURCE")]
+        options += midiEngine.connectedSources.map { ($0.name as String?, $0.name.uppercased()) }
+        if let savedSource = currentSource, isOffline {
+            options.append((savedSource, "\(savedSource.uppercased()) (OFFLINE)"))
+        }
+
+        let displayValue: String = {
+            guard let sourceName = currentSource else { return "GLOBAL" }
+            return isOffline ? "\(sourceName.uppercased()) (OFFLINE)" : sourceName.uppercased()
+        }()
+
+        return SettingsPicker(
+            label: "SOURCE",
+            selection: $editedAxis.sourceName,
+            options: options,
+            displayValue: displayValue,
+            valueColor: currentSource == nil ? TEColors.midGray : (isOffline ? TEColors.orange : TEColors.black)
+        )
+        .onChange(of: editedAxis.sourceName) { _, _ in saveChanges() }
+    }
+
     private var ccLearnButton: some View {
         Button {
             if isLearningInput {
@@ -1701,11 +1735,15 @@ struct ExpressionAxisRow: View {
                 midiEngine.onCCLearn = { cc, channel, sourceName in
                     editedAxis.inputCC = cc
                     editedAxis.inputChannel = channel
+                    if let source = sourceName {
+                        editedAxis.sourceName = source
+                    }
                     saveChanges()
                     isLearningInput = false
                     midiEngine.isCCLearningMode = false
                     midiEngine.onCCLearn = nil
-                    showToast("LEARNED CC\(cc) CH\(channel)")
+                    let sourceLabel = sourceName?.uppercased() ?? ""
+                    showToast("LEARNED CC\(cc) CH\(channel) \(sourceLabel)")
                 }
             }
         } label: {
