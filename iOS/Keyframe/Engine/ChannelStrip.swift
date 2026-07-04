@@ -12,6 +12,7 @@ final class ChannelStrip: Identifiable {
     let id = UUID()
     var index: Int
     var name: String
+    var kind: ChannelKind = .instrument
 
     // MARK: - Audio Nodes
 
@@ -21,6 +22,9 @@ final class ChannelStrip: Identifiable {
     /// The instrument AUv3 (synthesizer/sampler)
     private(set) var instrument: AVAudioUnit?
     var instrumentInfo: AUv3Info?
+
+    /// Live hardware input source for audio channels.
+    @ObservationIgnored private weak var audioInputNode: AVAudioNode?
 
     /// Insert effects chain (up to 4)
     private(set) var effects: [AVAudioUnit] = []
@@ -56,6 +60,9 @@ final class ChannelStrip: Identifiable {
     }
 
     var isSoloed: Bool = false
+
+    /// Intended hardware output pair for this channel. 0 = main output pair.
+    var audioOutputPairIndex: Int = 0
 
     // MARK: - MIDI Settings
 
@@ -174,6 +181,8 @@ final class ChannelStrip: Identifiable {
             completion(false, NSError(domain: "ChannelStrip", code: 1, userInfo: [NSLocalizedDescriptionKey: "Engine not available"]))
             return
         }
+
+        kind = .instrument
         
         isLoading = true
         
@@ -232,6 +241,33 @@ final class ChannelStrip: Identifiable {
 
         rebuildAudioChain()
         AudioEngine.shared.ensureChannelConnections()
+    }
+
+    /// Use the device/interface input as this channel's audio source.
+    func useAudioInput(_ inputNode: AVAudioNode) {
+        kind = .audioInput
+        audioInputNode = inputNode
+
+        if let instrument, let engine {
+            instrument.auAudioUnit.musicalContextBlock = nil
+            instrument.auAudioUnit.transportStateBlock = nil
+            engine.detach(instrument)
+            self.instrument = nil
+            self.instrumentInfo = nil
+        }
+
+        midiSourceName = "__none__"
+        scaleFilterEnabled = false
+        isChordPadTarget = false
+        isSingleNoteTarget = false
+        rebuildAudioChain()
+    }
+
+    /// Use an AUv3 instrument as this channel's audio source.
+    func useInstrumentSource() {
+        kind = .instrument
+        audioInputNode = nil
+        rebuildAudioChain()
     }
     
     // MARK: - Effects Chain
@@ -384,10 +420,11 @@ final class ChannelStrip: Identifiable {
         guard mixerConnectedToMaster else { return false }
 
         if instrument == nil && effects.isEmpty {
-            return true
+            return kind == .instrument
         }
 
-        var previousNode: AVAudioNode? = instrument
+        guard let sourceNode = sourceNode else { return false }
+        var previousNode: AVAudioNode? = sourceNode
 
         for effect in effects {
             guard let prev = previousNode else { return false }
@@ -412,42 +449,42 @@ final class ChannelStrip: Identifiable {
             return
         }
 
-        print("🔧 ChannelStrip \(index): Rebuilding audio chain (instrument: \(instrument != nil), effects: \(effects.count))")
+        print("🔧 ChannelStrip \(index): Rebuilding audio chain (kind: \(kind.rawValue), instrument: \(instrument != nil), effects: \(effects.count))")
 
         // Disconnect existing connections from nodes we'll reconnect
-        // Note: We don't disconnect mixer input - new connections will replace old ones
+        // Note: input nodes are shared hardware sources; disconnect channel-owned inputs instead of the input node's output.
+        engine.disconnectNodeInput(mixer)
         if let instrument = instrument {
             engine.disconnectNodeOutput(instrument)
         }
         for effect in effects {
+            engine.disconnectNodeInput(effect)
             engine.disconnectNodeOutput(effect)
         }
 
-        // Build the chain: Instrument -> Effects -> Mixer
+        // Build the chain: Source -> Effects -> Mixer
         // Use nil format to let AVAudioEngine auto-negotiate between nodes.
         // This avoids kAudioUnitErr_FormatNotSupported (-10868) crashes.
-        var previousNode: AVAudioNode? = instrument
+        var previousNode: AVAudioNode? = sourceNode
 
         for (i, effect) in effects.enumerated() {
             if let prev = previousNode {
-                engine.connect(prev, to: effect, format: nil)
+                engine.connect(prev, to: effect, format: connectionFormat(from: prev))
                 print("   Connected \(type(of: prev)) → effect[\(i)]")
             } else {
-                // No instrument yet - effect can't receive input
-                // This is okay during async loading; chain will rebuild when instrument loads
-                print("   ⚠️ Effect[\(i)] has no input source (instrument not loaded yet)")
+                // No source yet - effect can't receive input
+                // This is okay during async loading; chain will rebuild when the source loads
+                print("   ⚠️ Effect[\(i)] has no input source yet")
             }
             previousNode = effect
         }
 
         // Connect final node to mixer
         if let finalNode = previousNode {
-            engine.connect(finalNode, to: mixer, format: nil)
+            engine.connect(finalNode, to: mixer, format: connectionFormat(from: finalNode))
             print("   Connected \(type(of: finalNode)) → mixer")
-        } else if instrument == nil && !effects.isEmpty {
-            // Effects exist but no instrument - connect first effect to mixer anyway
-            // so the chain is ready when instrument loads
-            print("   ⚠️ No instrument - effects waiting for input")
+        } else if !effects.isEmpty {
+            print("   ⚠️ No source - effects waiting for input")
         } else {
             print("   ⚠️ No nodes to connect to mixer")
         }
@@ -456,6 +493,17 @@ final class ChannelStrip: Identifiable {
         debugVerifyChain(engine: engine)
 
         print("🔧 ChannelStrip \(index): Chain rebuild complete")
+    }
+
+    private var sourceNode: AVAudioNode? {
+        kind == .audioInput ? audioInputNode : instrument
+    }
+
+    private func connectionFormat(from node: AVAudioNode) -> AVAudioFormat? {
+        if node === audioInputNode {
+            return node.outputFormat(forBus: 0)
+        }
+        return nil
     }
     
     /// Debug helper to verify the audio chain is fully connected

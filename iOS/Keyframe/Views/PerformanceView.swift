@@ -41,6 +41,7 @@ struct PerformanceView: View {
     @State private var midiEngine = MIDIEngine.shared
     @State private var sessionStore = SessionStore.shared
     @State private var pluginManager = AUv3HostManager.shared
+    @State private var remoteHost = KeyframeRemoteHost.shared
     
     @State private var viewMode: ViewMode = .perform
     @State private var selectedChannelIndex: Int?
@@ -93,12 +94,15 @@ struct PerformanceView: View {
                     editModeContent
 
                     // Status Bar (only in edit mode)
-                    PerformanceStatusBar(audioEngine: audioEngine, midiEngine: midiEngine, bpm: midiEngine.currentBPM)
+                    PerformanceStatusBar(audioEngine: audioEngine, midiEngine: midiEngine, remoteHost: remoteHost, bpm: midiEngine.currentBPM)
                 }
             }
         }
         .preferredColorScheme(.light)
         .onAppear { setupEngines() }
+        .onDisappear {
+            remoteHost.stopAdvertising()
+        }
         .sheet(isPresented: $showingChannelDetail) {
             if let index = selectedChannelIndex,
                index < audioEngine.channelStrips.count,
@@ -338,7 +342,7 @@ struct PerformanceView: View {
             }
 
             // Minimal status bar
-            MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine, bpm: midiEngine.currentBPM)
+            MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine, remoteHost: remoteHost, bpm: midiEngine.currentBPM)
         }
     }
 
@@ -360,7 +364,7 @@ struct PerformanceView: View {
             .background(TEColors.cream)
 
             // Minimal status bar
-            MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine, bpm: midiEngine.currentBPM)
+            MinimalStatusBar(audioEngine: audioEngine, midiEngine: midiEngine, remoteHost: remoteHost, bpm: midiEngine.currentBPM)
         }
     }
 
@@ -433,16 +437,12 @@ struct PerformanceView: View {
                             }
                         }
                         
-                        AddChannelButton {
-                            if let _ = audioEngine.addChannel() {
-                                let newConfig = ChannelConfiguration(name: "CH \(audioEngine.channelStrips.count)")
-                                sessionStore.currentSession.channels.append(newConfig)
-                                sessionStore.saveCurrentSession()
-                                // Re-sync all channel configs to ensure existing settings aren't lost
-                                syncChannelConfigs()
-                                // Debug: Log state after adding channel
-                                logChannelState("After adding channel")
-                            }
+                        AddChannelButton(label: "INST", systemImage: "pianokeys", accent: TEColors.darkGray) {
+                            addChannel(kind: .instrument)
+                        }
+
+                        AddChannelButton(label: "AUDIO", systemImage: "waveform", accent: TEColors.blue) {
+                            addChannel(kind: .audioInput)
                         }
                         
                         AIGeneratorButton {
@@ -488,6 +488,7 @@ struct PerformanceView: View {
 
     private func setupEngines() {
         midiEngine.setAudioEngine(audioEngine)
+        configureRemoteHost()
 
         // Initialize currentBPM from active song if it has one
         if let activeSong = sessionStore.currentSession.activeSong, let bpm = activeSong.bpm {
@@ -495,10 +496,9 @@ struct PerformanceView: View {
         }
 
         // Restore instruments and effects from saved session
-        audioEngine.restorePlugins(from: sessionStore.currentSession.channels) { [weak audioEngine, weak sessionStore, weak midiEngine] in
+        audioEngine.restorePlugins(from: sessionStore.currentSession.channels) { [weak audioEngine, weak sessionStore] in
             guard let audioEngine = audioEngine,
-                  let sessionStore = sessionStore,
-                  let midiEngine = midiEngine else { return }
+                  let sessionStore = sessionStore else { return }
 
             DispatchQueue.main.async {
                 // Sync MIDI settings AFTER channel strips are created
@@ -569,6 +569,30 @@ struct PerformanceView: View {
         }
 
         // Set up MIDI fader control callback
+        midiEngine.onVolumeNoteControl = { [weak sessionStore, weak audioEngine] (note: Int, velocity: Int, channel: Int, sourceName: String?) in
+            guard let sessionStore = sessionStore,
+                  let audioEngine = audioEngine else { return }
+
+            for (index, config) in sessionStore.currentSession.channels.enumerated() {
+                if let controlNote = config.controlNote, controlNote == note {
+                    let channelMatches = config.controlChannel == nil || config.controlChannel == channel
+                    let sourceMatches = config.controlSourceName == nil || config.controlSourceName == sourceName
+
+                    if channelMatches && sourceMatches {
+                        let volume = Float(velocity) / 127.0
+
+                        DispatchQueue.main.async {
+                            if index < audioEngine.channelStrips.count {
+                                audioEngine.channelStrips[index].volume = volume
+                                sessionStore.currentSession.channels[index].volume = volume
+                                sessionStore.saveCurrentSession()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         midiEngine.onFaderControl = { [weak sessionStore, weak audioEngine] (cc: Int, value: Int, channel: Int, sourceName: String?) in
             guard let sessionStore = sessionStore,
                   let audioEngine = audioEngine else { return }
@@ -590,6 +614,7 @@ struct PerformanceView: View {
                                 audioEngine.channelStrips[index].volume = volume
                                 // Also update the config to keep in sync
                                 sessionStore.currentSession.channels[index].volume = volume
+                                sessionStore.saveCurrentSession()
                             }
                         }
                     }
@@ -598,13 +623,69 @@ struct PerformanceView: View {
         }
     }
 
+    private func configureRemoteHost() {
+        remoteHost.onPresetSelected = { [weak sessionStore, weak audioEngine, weak midiEngine] index in
+            guard let sessionStore,
+                  let audioEngine,
+                  let midiEngine,
+                  sessionStore.currentSession.songs.indices.contains(index) else {
+                return
+            }
+
+            let song = sessionStore.currentSession.songs[index]
+            DispatchQueue.main.async {
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+
+                sessionStore.setActiveSong(song)
+                self.applyPerformanceSong(song)
+                audioEngine.applyChannelStates(song.channelStates, configs: sessionStore.currentSession.channels)
+
+                if let bpm = song.bpm {
+                    midiEngine.currentBPM = bpm
+                    audioEngine.setTempo(Double(bpm))
+                    midiEngine.sendTapTempo(bpm: bpm)
+                }
+
+                if !song.externalMIDIMessages.isEmpty {
+                    midiEngine.sendExternalMIDIMessages(song.externalMIDIMessages)
+                }
+
+                self.remoteHost.broadcastState()
+            }
+        }
+
+        remoteHost.onMasterVolumeChanged = { [weak sessionStore, weak audioEngine] volume in
+            guard let sessionStore, let audioEngine else { return }
+            let clampedVolume = min(max(volume, 0), 1)
+
+            DispatchQueue.main.async {
+                audioEngine.masterVolume = clampedVolume
+                sessionStore.currentSession.masterVolume = clampedVolume
+                sessionStore.saveCurrentSession()
+                self.remoteHost.broadcastMasterVolume(clampedVolume)
+            }
+        }
+
+        audioEngine.masterVolume = sessionStore.currentSession.masterVolume
+        remoteHost.startAdvertising()
+    }
+
     private func syncChannelConfigs() {
         print("🔄 syncChannelConfigs: Syncing \(sessionStore.currentSession.channels.count) configs to \(audioEngine.channelStrips.count) strips")
+        audioEngine.setAudioInputEnabled(sessionStore.currentSession.channels.contains { $0.kind == .audioInput })
         for (index, config) in sessionStore.currentSession.channels.enumerated() {
             if index < audioEngine.channelStrips.count {
                 let strip = audioEngine.channelStrips[index]
                 let inputDisplay = config.midiSourceName == "__none__" ? "NONE" : (config.midiSourceName ?? "ALL")
                 print("  Channel \(index): input='\(inputDisplay)' midiCh=\(config.midiChannel)")
+                if config.kind == .audioInput {
+                    audioEngine.setPreferredAudioInput(portUID: config.audioInputPortUID)
+                    strip.useAudioInput(audioEngine.inputNode)
+                } else if strip.kind != .instrument {
+                    strip.useInstrumentSource()
+                }
+                strip.audioOutputPairIndex = config.audioOutputPairIndex
                 strip.midiChannel = config.midiChannel
                 strip.midiSourceName = config.midiSourceName
                 strip.scaleFilterEnabled = config.scaleFilterEnabled
@@ -617,6 +698,28 @@ struct PerformanceView: View {
                 strip.ccParameterMappings = config.ccParameterMappings
                 strip.rebuildCCParamCache()
             }
+        }
+    }
+
+    private func addChannel(kind: ChannelKind) {
+        if let strip = audioEngine.addChannel() {
+            strip.kind = kind
+            let channelNumber = audioEngine.channelStrips.count
+            let newConfig = ChannelConfiguration(
+                kind: kind,
+                name: kind == .audioInput ? "AUD \(channelNumber)" : "CH \(channelNumber)",
+                midiSourceName: kind == .audioInput ? "__none__" : "__none__",
+                scaleFilterEnabled: kind == .instrument,
+                isChordPadTarget: false,
+                isSingleNoteTarget: false,
+                audioOutputPairIndex: 0
+            )
+            sessionStore.currentSession.channels.append(newConfig)
+            sessionStore.saveCurrentSession()
+            // Re-sync all channel configs to ensure existing settings aren't lost
+            syncChannelConfigs()
+            // Debug: Log state after adding channel
+            logChannelState("After adding \(kind.displayName) channel")
         }
     }
 
@@ -661,6 +764,12 @@ struct PerformanceView: View {
         // Send external MIDI messages (does NOT affect internal app state)
         if !song.externalMIDIMessages.isEmpty {
             midiEngine.sendExternalMIDIMessages(song.externalMIDIMessages)
+        }
+
+        if let activeIndex = sessionStore.currentSession.songs.firstIndex(where: { $0.id == song.id }) {
+            remoteHost.broadcastActivePreset(activeIndex)
+        } else {
+            remoteHost.broadcastState()
         }
     }
 
@@ -748,6 +857,8 @@ struct PerformanceView: View {
             sessionStore.saveCurrentSession()
         }
 
+        audioEngine.setAudioInputEnabled(sessionStore.currentSession.channels.contains { $0.kind == .audioInput })
+
         // Clear selection
         selectedChannelIndex = nil
     }
@@ -768,10 +879,19 @@ struct PerformanceView: View {
 
                     if index < audioEngine.channelStrips.count {
                         let strip = audioEngine.channelStrips[index]
+                        audioEngine.setAudioInputEnabled(sessionStore.currentSession.channels.contains { $0.kind == .audioInput })
+                        if newValue.kind == .audioInput {
+                            audioEngine.setPreferredAudioInput(portUID: newValue.audioInputPortUID)
+                            strip.useAudioInput(audioEngine.inputNode)
+                        } else if strip.kind != .instrument {
+                            strip.useInstrumentSource()
+                        }
+                        strip.audioOutputPairIndex = newValue.audioOutputPairIndex
                         strip.midiChannel = newValue.midiChannel
                         strip.midiSourceName = newValue.midiSourceName
                         strip.scaleFilterEnabled = newValue.scaleFilterEnabled
                         strip.isChordPadTarget = newValue.isChordPadTarget
+                        strip.isSingleNoteTarget = newValue.isSingleNoteTarget
                         strip.octaveTranspose = newValue.octaveTranspose
                         strip.ccParameterMappings = newValue.ccParameterMappings
                         strip.rebuildCCParamCache()
@@ -785,10 +905,27 @@ struct PerformanceView: View {
 // MARK: - Perform Mode Channel Strip (Direct control)
 
 struct PerformChannelStrip: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Bindable var channel: ChannelStrip
     let config: ChannelConfiguration?
     var isLocked: Bool = false
     let onEdit: () -> Void
+
+    private var kind: ChannelKind {
+        config?.kind ?? .instrument
+    }
+
+    private var accent: Color {
+        kind == .audioInput ? TEColors.blue : TEColors.orange
+    }
+
+    private var stripWidth: CGFloat {
+        horizontalSizeClass == .regular ? 76 : 60
+    }
+
+    private var faderHeight: CGFloat {
+        horizontalSizeClass == .regular ? 190 : 160
+    }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -808,11 +945,18 @@ struct PerformChannelStrip: View {
                     }
                 }
             }
-            .frame(width: 60)
+            .frame(width: stripWidth)
+
+            Text(kind == .audioInput ? "AUD" : "MIDI")
+                .font(TEFonts.mono(8, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(accent)
 
             // Vertical Fader
             VerticalFader(value: $channel.volume, isLocked: isLocked)
-                .frame(width: 44, height: 160)
+                .frame(width: 44, height: faderHeight)
 
             // Volume value
             Text("\(Int(channel.volume * 100))")
@@ -828,7 +972,7 @@ struct PerformChannelStrip: View {
                 Text("M")
                     .font(TEFonts.mono(11, weight: .bold))
                     .foregroundStyle(channel.isMuted ? .white : TEColors.red)
-                    .frame(width: 36, height: 28)
+                    .frame(width: horizontalSizeClass == .regular ? 44 : 36, height: 28)
                     .background(channel.isMuted ? TEColors.red : TEColors.cream)
                     .overlay(Rectangle().strokeBorder(TEColors.red, lineWidth: 2))
             }
@@ -893,10 +1037,23 @@ struct VerticalFader: View {
 // MARK: - Edit Mode Channel Strip (Opens detail on tap)
 
 struct EditChannelStripView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     var channel: ChannelStrip
     let config: ChannelConfiguration?
     let isSelected: Bool
     let onTap: () -> Void
+
+    private var kind: ChannelKind {
+        config?.kind ?? .instrument
+    }
+
+    private var accent: Color {
+        kind == .audioInput ? TEColors.blue : TEColors.orange
+    }
+
+    private var stripWidth: CGFloat {
+        horizontalSizeClass == .regular ? 76 : 64
+    }
     
     var body: some View {
         Button(action: onTap) {
@@ -906,6 +1063,13 @@ struct EditChannelStripView: View {
                     .font(TEFonts.mono(10, weight: .bold))
                     .foregroundStyle(TEColors.black)
                     .lineLimit(1)
+
+                Text(kind == .audioInput ? "AUD" : "MIDI")
+                    .font(TEFonts.mono(8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(accent)
                 
                 // Meter
                 MeterView(level: channel.peakLevel, segments: 10)
@@ -929,10 +1093,10 @@ struct EditChannelStripView: View {
                 
                 // Effects loaded indicator
                 Circle()
-                    .fill(!channel.effects.isEmpty ? TEColors.orange : TEColors.lightGray)
+                    .fill(!channel.effects.isEmpty ? accent : TEColors.lightGray)
                     .frame(width: 8, height: 8)
             }
-            .frame(width: 64)
+            .frame(width: stripWidth)
             .padding(.vertical, 12)
             .padding(.horizontal, 8)
             .background(
@@ -1093,25 +1257,33 @@ struct MeterView: View {
 // MARK: - Add Channel Button
 
 struct AddChannelButton: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    let label: String
+    let systemImage: String
+    let accent: Color
     let action: () -> Void
+
+    private var buttonWidth: CGFloat {
+        horizontalSizeClass == .regular ? 76 : 64
+    }
     
     var body: some View {
         Button(action: action) {
             VStack(spacing: 8) {
-                Image(systemName: "plus")
+                Image(systemName: systemImage)
                     .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(TEColors.darkGray)
+                    .foregroundStyle(accent)
                 
-                Text("ADD")
+                Text(label)
                     .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundStyle(TEColors.darkGray)
+                    .foregroundStyle(accent)
             }
             .frame(maxHeight: .infinity)
-            .frame(width: 64)
+            .frame(width: buttonWidth)
             .padding(.horizontal, 8)
             .background(
                 RoundedRectangle(cornerRadius: 0)
-                    .strokeBorder(TEColors.darkGray, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    .strokeBorder(accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
             )
         }
         .buttonStyle(.plain)
@@ -1272,8 +1444,6 @@ struct SongGridView: View {
     /// Calculate optimal grid layout to fill available space
     private func calculateGrid(itemCount: Int, availableWidth: CGFloat, availableHeight: CGFloat) -> (columns: Int, rows: Int) {
         guard itemCount > 0 else { return (1, 1) }
-
-        let aspectRatio = availableWidth / availableHeight
 
         // Try different column counts and find the one that fills space best
         var bestColumns = 1
@@ -1512,6 +1682,7 @@ struct SongGridButton: View {
 struct PerformanceStatusBar: View {
     var audioEngine: AudioEngine
     var midiEngine: MIDIEngine
+    var remoteHost: KeyframeRemoteHost
     var bpm: Int = 90
 
     var body: some View {
@@ -1543,6 +1714,17 @@ struct PerformanceStatusBar: View {
                 .font(TEFonts.mono(10, weight: .bold))
                 .foregroundStyle(TEColors.orange)
 
+            // Remote host
+            HStack(spacing: 6) {
+                Rectangle()
+                    .fill(remoteHost.isAdvertising ? TEColors.green : TEColors.lightGray)
+                    .frame(width: 8, height: 8)
+
+                Text(remoteHost.connectedDeviceCount > 0 ? "REMOTE \(remoteHost.connectedDeviceCount)" : "REMOTE")
+                    .font(TEFonts.mono(10, weight: .medium))
+                    .foregroundStyle(TEColors.darkGray)
+            }
+
             Spacer()
 
             // DSP Load
@@ -1561,6 +1743,7 @@ struct PerformanceStatusBar: View {
 struct MinimalStatusBar: View {
     var audioEngine: AudioEngine
     var midiEngine: MIDIEngine
+    var remoteHost: KeyframeRemoteHost
     var bpm: Int = 90
 
     var body: some View {
@@ -1580,6 +1763,16 @@ struct MinimalStatusBar: View {
             Text("\(bpm) BPM")
                 .font(TEFonts.mono(9, weight: .bold))
                 .foregroundStyle(TEColors.orange)
+
+            HStack(spacing: 4) {
+                Rectangle()
+                    .fill(remoteHost.isAdvertising ? TEColors.green : TEColors.midGray)
+                    .frame(width: 6, height: 6)
+
+                Text(remoteHost.connectedDeviceCount > 0 ? "REMOTE \(remoteHost.connectedDeviceCount)" : "REMOTE")
+                    .font(TEFonts.mono(9, weight: .medium))
+                    .foregroundStyle(TEColors.darkGray)
+            }
 
             Spacer()
 

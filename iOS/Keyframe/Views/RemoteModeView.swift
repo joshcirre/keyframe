@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Remote mode view - connects to Mac and displays synced presets
+/// Remote mode view - connects to a Keyframe host and displays synced presets
 struct RemoteModeView: View {
-    @State private var remote = KeyframeRemote.shared
+    @StateObject private var remote = KeyframeRemote.shared
     @State private var appearance = AppearanceManager.shared
     @Environment(\.dismiss) private var dismiss
 
@@ -59,7 +59,7 @@ struct RemoteModeView: View {
                 .foregroundStyle(TEColors.cream)
                 .tracking(4)
 
-            Text("Connect to Keyframe on your Mac")
+            Text("Connect to Keyframe on your Mac or iPad")
                 .font(TEFonts.mono(14, weight: .regular))
                 .foregroundStyle(TEColors.midGray)
 
@@ -94,12 +94,59 @@ struct RemoteModeView: View {
                 .font(TEFonts.mono(12, weight: .regular))
                 .foregroundStyle(TEColors.midGray)
 
-            Text("Make sure Keyframe is running on your Mac")
+            Text("Make sure Keyframe is running in Local Mode")
                 .font(TEFonts.mono(11, weight: .regular))
                 .foregroundStyle(TEColors.darkGray)
 
+            if !remote.discoveredHosts.isEmpty {
+                hostPicker
+                    .frame(maxWidth: 420)
+                    .padding(.top, 4)
+            }
+
             exitButton
         }
+    }
+
+    private var hostPicker: some View {
+        VStack(spacing: 8) {
+            Text("HOSTS")
+                .font(TEFonts.mono(9, weight: .bold))
+                .foregroundStyle(TEColors.darkGray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            ForEach(remote.discoveredHosts) { host in
+                Button {
+                    remote.connect(to: host)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "rectangle.connected.to.line.below")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(TEColors.orange)
+                            .frame(width: 24)
+
+                        Text(host.name.uppercased())
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundStyle(TEColors.cream)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        Text("CONNECT")
+                            .font(TEFonts.mono(10, weight: .bold))
+                            .foregroundStyle(TEColors.orange)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(TEColors.darkGray.opacity(0.35))
+                    .overlay(Rectangle().strokeBorder(TEColors.midGray, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .background(Color.black.opacity(0.35))
+        .overlay(Rectangle().strokeBorder(TEColors.darkGray, lineWidth: 1))
     }
 
     // MARK: - Connecting View
@@ -519,7 +566,7 @@ struct RemotePresetGridButton: View {
 // MARK: - Remote Status Bar (Dark Theme)
 
 struct RemoteStatusBar: View {
-    let macName: String
+    let hostName: String
     let presetCount: Int
     let activeIndex: Int?
     var masterVolume: Float = 1.0
@@ -537,8 +584,8 @@ struct RemoteStatusBar: View {
                     .foregroundStyle(TEColors.cream)
             }
 
-            // Mac name
-            Text(macName.uppercased())
+            // Host name
+            Text(hostName.uppercased())
                 .font(TEFonts.mono(10, weight: .medium))
                 .foregroundStyle(TEColors.midGray)
 

@@ -485,6 +485,7 @@ final class MIDIEngine {
     // MARK: - Control Callbacks
 
     @ObservationIgnored var onSongTrigger: ((Int, Int, String?) -> Void)?       // (note, channel, sourceName) - for triggering songs
+    @ObservationIgnored var onVolumeNoteControl: ((Int, Int, Int, String?) -> Void)? // (note, velocity, channel, sourceName) - for fader control
     @ObservationIgnored var onFaderControl: ((Int, Int, Int, String?) -> Void)? // (cc, value, channel, sourceName) - for fader control
 
     // MARK: - CoreMIDI
@@ -1355,6 +1356,11 @@ final class MIDIEngine {
                 self?.onNoteLearn?(Int(note), midiChannel, sourceName)
             }
             return
+        }
+
+        // Note-driven fader control callback. The receiver decides whether the note is mapped.
+        DispatchQueue.main.async { [weak self] in
+            self?.onVolumeNoteControl?(Int(note), Int(velocity), midiChannel, sourceName)
         }
 
         // Song trigger callback (checked before instrument routing)

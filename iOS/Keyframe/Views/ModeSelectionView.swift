@@ -45,7 +45,7 @@ struct ModeSelectionView: View {
                     ModeButton(
                         icon: "link",
                         title: "REMOTE MODE",
-                        subtitle: "Control Keyframe on your Mac",
+                        subtitle: "Control Keyframe on your Mac or iPad",
                         color: TEColors.cream
                     ) {
                         showingRemoteMode = true

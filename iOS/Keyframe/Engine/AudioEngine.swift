@@ -2,6 +2,18 @@ import AVFoundation
 import AudioToolbox
 import QuartzCore
 
+struct AudioRoutePort: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let channelCount: Int
+}
+
+struct AudioOutputPair: Identifiable, Equatable {
+    let id: Int
+    let name: String
+    let isAvailable: Bool
+}
+
 /// Core audio engine that manages the entire audio graph
 /// This is the heart of the Keyframe Performance Engine
 @Observable
@@ -19,6 +31,14 @@ final class AudioEngine {
     private(set) var peakLevel: Float = -60.0
     private(set) var isRestoringPlugins = false
     private(set) var restorationProgress: String = ""
+    private(set) var currentInputName = "No Input"
+    private(set) var currentOutputName = "Main Output"
+    private(set) var inputChannelCount = 0
+    private(set) var outputChannelCount = 2
+    private(set) var availableAudioInputs: [AudioRoutePort] = []
+    private(set) var availableOutputPairs: [AudioOutputPair] = [
+        AudioOutputPair(id: 0, name: "MAIN 1/2", isAvailable: true)
+    ]
 
     // Track pending plugin loads
     private var pendingPluginLoads = 0
@@ -45,6 +65,11 @@ final class AudioEngine {
 
     private let engine = AVAudioEngine()
     private let masterMixer = AVAudioMixerNode()
+    private var audioInputEnabled = false
+
+    var inputNode: AVAudioInputNode {
+        engine.inputNode
+    }
 
     // MARK: - Channel Strips
 
@@ -59,7 +84,7 @@ final class AudioEngine {
     // MARK: - Initialization
     
     private init() {
-        setupAudioSession()
+        setupAudioSession(allowsInput: false)
         setupAudioGraph()
         setupNotifications()
     }
@@ -71,14 +96,22 @@ final class AudioEngine {
     
     // MARK: - Audio Session Setup
     
-    private func setupAudioSession() {
+    private func setupAudioSession(allowsInput: Bool) {
         let session = AVAudioSession.sharedInstance()
 
         do {
-            // Configure for background audio playback
-            // Using .playback category without .mixWithOthers ensures iOS keeps
-            // the app running in background as the primary audio source
-            try session.setCategory(.playback, mode: .default, options: [])
+            audioInputEnabled = allowsInput
+
+            if allowsInput {
+                // iOS requires the playAndRecord category for live hardware input.
+                // This is monitoring/processing, not a recording workflow.
+                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            } else {
+                // Configure for background audio playback
+                // Using .playback category without .mixWithOthers ensures iOS keeps
+                // the app running in background as the primary audio source
+                try session.setCategory(.playback, mode: .default, options: [])
+            }
 
             // Use 10ms buffer - iPhone 16 Pro Max can handle this easily
             // Provides good latency while leaving headroom for AUv3 plugins
@@ -89,12 +122,74 @@ final class AudioEngine {
 
             try session.setActive(true, options: .notifyOthersOnDeactivation)
 
-            print("AudioEngine: Audio session configured for background audio")
+            print("AudioEngine: Audio session configured for \(allowsInput ? "audio input + playback" : "background audio")")
             print("  Sample Rate: \(session.sampleRate)")
             print("  Buffer Duration: \(session.ioBufferDuration * 1000)ms")
+            refreshAudioRouteInfo()
 
         } catch {
             print("AudioEngine: Failed to configure audio session: \(error)")
+            refreshAudioRouteInfo()
+        }
+    }
+
+    func setAudioInputEnabled(_ enabled: Bool) {
+        guard enabled != audioInputEnabled else { return }
+
+        let wasRunning = isRunning
+        if wasRunning {
+            stop()
+        }
+
+        setupAudioSession(allowsInput: enabled)
+
+        if wasRunning {
+            start()
+        }
+    }
+
+    func refreshAudioRouteInfo() {
+        let session = AVAudioSession.sharedInstance()
+        let route = session.currentRoute
+
+        let input = route.inputs.first
+        let output = route.outputs.first
+        currentInputName = input?.portName ?? "No Input"
+        currentOutputName = output?.portName ?? "Main Output"
+        inputChannelCount = input?.channels?.count ?? (audioInputEnabled ? max(1, Int(session.inputNumberOfChannels)) : 0)
+        outputChannelCount = output?.channels?.count ?? max(2, Int(session.outputNumberOfChannels))
+
+        let inputs = session.availableInputs ?? []
+        availableAudioInputs = inputs.map { port in
+            AudioRoutePort(
+                id: port.uid,
+                name: port.portName,
+                channelCount: port.channels?.count ?? 0
+            )
+        }
+
+        let pairCount = max(1, outputChannelCount / 2)
+        availableOutputPairs = (0..<pairCount).map { index in
+            let first = (index * 2) + 1
+            let second = first + 1
+            let name = index == 0 ? "MAIN \(first)/\(second)" : "OUT \(first)/\(second)"
+            return AudioOutputPair(id: index, name: name, isAvailable: true)
+        }
+    }
+
+    func setPreferredAudioInput(portUID: String?) {
+        let session = AVAudioSession.sharedInstance()
+
+        do {
+            if let portUID,
+               let input = session.availableInputs?.first(where: { $0.uid == portUID }) {
+                try session.setPreferredInput(input)
+            } else {
+                try session.setPreferredInput(nil)
+            }
+            refreshAudioRouteInfo()
+        } catch {
+            print("AudioEngine: Failed to set preferred input: \(error)")
         }
     }
     
@@ -228,6 +323,7 @@ final class AudioEngine {
         }
         
         print("AudioEngine: Route change - \(reason)")
+        refreshAudioRouteInfo()
         
         if reason == .oldDeviceUnavailable {
             // Headphones disconnected, etc.
@@ -333,7 +429,7 @@ final class AudioEngine {
     
     // MARK: - Channel Management
     
-    func addChannel() -> ChannelStrip? {
+    func addChannel(kind: ChannelKind = .instrument) -> ChannelStrip? {
         // Debug: Log existing channel states before adding
         print("🎛️ addChannel: Before - \(channelStrips.count) strips exist")
         for (i, strip) in channelStrips.enumerated() {
@@ -342,6 +438,11 @@ final class AudioEngine {
 
         // Create new channel and connect to master (don't stop engine - it breaks AUv3 plugins)
         let channel = ChannelStrip(engine: engine, index: channelStrips.count)
+        channel.kind = kind
+        if kind == .audioInput {
+            setAudioInputEnabled(true)
+            channel.useAudioInput(engine.inputNode)
+        }
         channelStrips.append(channel)
         connectChannelToMaster(channel)
 
@@ -395,10 +496,12 @@ final class AudioEngine {
     func restorePlugins(from configs: [ChannelConfiguration], completion: (() -> Void)? = nil) {
         print("AudioEngine: Restoring plugins from \(configs.count) channel configs, \(channelStrips.count) strips exist")
 
+        setAudioInputEnabled(configs.contains { $0.kind == .audioInput })
+
         // Ensure we have enough channel strips for all configs
         while channelStrips.count < configs.count {
             print("AudioEngine: Adding channel strip to match config count")
-            _ = addChannel()
+            _ = addChannel(kind: configs[channelStrips.count].kind)
         }
 
         // Count total plugins to load (only for channels that exist)
@@ -457,6 +560,11 @@ final class AudioEngine {
         for (index, config) in configs.enumerated() {
             guard index < channelStrips.count else { continue }
             let strip = channelStrips[index]
+            strip.kind = config.kind
+            if config.kind == .audioInput {
+                setPreferredAudioInput(portUID: config.audioInputPortUID)
+                strip.useAudioInput(engine.inputNode)
+            }
             let effectConfigs = config.effects
 
             // Load instrument FIRST, then effects (effects need instrument to connect to)

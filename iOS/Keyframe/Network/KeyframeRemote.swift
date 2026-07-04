@@ -2,7 +2,7 @@ import Foundation
 import Network
 import Combine
 
-/// Represents a preset synced from the Mac app
+/// Represents a preset synced from a Keyframe host.
 struct RemotePreset: Identifiable, Equatable {
     let id: UUID
     let name: String
@@ -14,7 +14,7 @@ struct RemotePreset: Identifiable, Equatable {
 
     /// Initialize from JSON dictionary (handles type mismatches)
     init?(from dict: [String: Any]) {
-        // ID can be String (from Mac) - convert to UUID
+        // ID can be String over the wire - convert to UUID
         guard let idString = dict["id"] as? String,
               let id = UUID(uuidString: idString) else { return nil }
         guard let name = dict["name"] as? String else { return nil }
@@ -26,7 +26,7 @@ struct RemotePreset: Identifiable, Equatable {
         self.songName = dict["songName"] as? String
         self.rootNote = dict["rootNote"] as? Int
         self.scale = dict["scale"] as? String
-        // BPM can be Int or Double from Mac
+        // BPM can be Int or Double from the host
         if let bpmInt = dict["bpm"] as? Int {
             self.bpm = bpmInt
         } else if let bpmDouble = dict["bpm"] as? Double {
@@ -34,6 +34,17 @@ struct RemotePreset: Identifiable, Equatable {
         } else {
             self.bpm = nil
         }
+    }
+}
+
+/// Represents a discovered Keyframe host on the local network.
+struct RemoteHost: Identifiable, Equatable {
+    let id: String
+    let name: String
+    fileprivate let endpoint: NWEndpoint
+
+    static func == (lhs: RemoteHost, rhs: RemoteHost) -> Bool {
+        lhs.id == rhs.id
     }
 }
 
@@ -47,7 +58,7 @@ enum RemoteConnectionState: Equatable {
     case error(String)
 }
 
-/// Handles Bonjour discovery and TCP connection to Mac
+/// Handles Bonjour discovery and TCP connection to a Keyframe host.
 final class KeyframeRemote: ObservableObject {
 
     static let shared = KeyframeRemote()
@@ -56,9 +67,10 @@ final class KeyframeRemote: ObservableObject {
 
     @Published var connectionState: RemoteConnectionState = .disconnected
     @Published var presets: [RemotePreset] = []
+    @Published var discoveredHosts: [RemoteHost] = []
     @Published var activePresetIndex: Int?
     @Published var masterVolume: Float = 1.0
-    @Published var macName: String?
+    @Published var hostName: String?
 
     // MARK: - Private State
 
@@ -75,9 +87,14 @@ final class KeyframeRemote: ObservableObject {
 
     // MARK: - Public API
 
-    /// Start searching for Mac
+    /// Start searching for a Keyframe host.
     func startSearching() {
-        guard case .disconnected = connectionState else { return }
+        switch connectionState {
+        case .disconnected, .error:
+            break
+        default:
+            return
+        }
 
         connectionState = .searching
         startBrowsing()
@@ -95,11 +112,20 @@ final class KeyframeRemote: ObservableObject {
 
         connectionState = .disconnected
         presets = []
+        discoveredHosts = []
         activePresetIndex = nil
-        macName = nil
+        hostName = nil
     }
 
-    /// Connect to a discovered Mac
+    /// Connect to a selected host.
+    func connect(to host: RemoteHost) {
+        discoveredEndpoint = host.endpoint
+        hostName = host.name
+        connectionState = .connecting(name: host.name)
+        connect()
+    }
+
+    /// Connect to a discovered Keyframe host.
     func connect() {
         guard let endpoint = discoveredEndpoint else { return }
 
@@ -121,7 +147,7 @@ final class KeyframeRemote: ObservableObject {
         connection?.start(queue: .main)
     }
 
-    /// Select a preset (sends command to Mac)
+    /// Select a preset on the connected host.
     func selectPreset(at index: Int) {
         guard connection?.state == .ready else { return }
 
@@ -135,7 +161,7 @@ final class KeyframeRemote: ObservableObject {
         activePresetIndex = index
     }
 
-    /// Set master volume (sends command to Mac)
+    /// Set master volume on the connected host.
     func setMasterVolume(_ volume: Float) {
         guard connection?.state == .ready else { return }
 
@@ -186,22 +212,26 @@ final class KeyframeRemote: ObservableObject {
     }
 
     private func handleBrowseResults(_ results: Set<NWBrowser.Result>) {
-        // Find first available Keyframe service
-        if let result = results.first {
-            switch result.endpoint {
-            case .service(let name, _, _, _):
-                discoveredEndpoint = result.endpoint
-                macName = name
-                print("KeyframeRemote: Found '\(name)' - auto-connecting...")
-
-                // Auto-connect immediately when Mac is found
-                connectionState = .connecting(name: name)
-                connect()
-            default:
-                break
+        discoveredHosts = results.compactMap { result in
+            guard case .service(let name, let type, let domain, let interface) = result.endpoint else {
+                return nil
             }
-        } else if case .searching = connectionState {
-            // No services found yet, stay in searching state
+
+            let interfaceName = interface?.debugDescription ?? "any"
+            let id = "\(name)|\(type)|\(domain)|\(interfaceName)"
+            return RemoteHost(id: id, name: name, endpoint: result.endpoint)
+        }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+
+        switch connectionState {
+        case .searching, .found:
+            if let firstHost = discoveredHosts.first {
+                connectionState = .found(name: firstHost.name)
+            } else {
+                connectionState = .searching
+            }
+        default:
+            break
         }
     }
 
@@ -210,7 +240,7 @@ final class KeyframeRemote: ObservableObject {
     private func handleConnectionState(_ state: NWConnection.State) {
         switch state {
         case .ready:
-            let name = macName ?? "Mac"
+            let name = hostName ?? "Keyframe"
             connectionState = .connected(name: name)
             print("KeyframeRemote: Connected to '\(name)'")
 
@@ -245,6 +275,7 @@ final class KeyframeRemote: ObservableObject {
     private func scheduleReconnect() {
         reconnectTimer?.invalidate()
         reconnectTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+            self?.disconnect()
             self?.startSearching()
         }
     }

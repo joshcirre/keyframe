@@ -46,9 +46,22 @@ struct Session: Codable, Identifiable, Equatable {
 
 // MARK: - Channel Configuration
 
+enum ChannelKind: String, Codable, CaseIterable, Equatable {
+    case instrument
+    case audioInput
+
+    var displayName: String {
+        switch self {
+        case .instrument: return "Instrument"
+        case .audioInput: return "Audio"
+        }
+    }
+}
+
 /// Configuration for a single channel in the session
 struct ChannelConfiguration: Identifiable, Equatable {
     let id: UUID
+    var kind: ChannelKind
     var name: String
     var instrument: PluginConfiguration?
     var effects: [PluginConfiguration]
@@ -64,16 +77,25 @@ struct ChannelConfiguration: Identifiable, Equatable {
     /// Octave transpose for this channel (-3 to +3 octaves)
     var octaveTranspose: Int
 
+    /// Preferred hardware input for audio channels. nil = current/default session input.
+    var audioInputPortUID: String?
+    var audioInputDisplayName: String?
+
+    /// Preferred output pair for this channel. 0 = main output pair.
+    var audioOutputPairIndex: Int
+
     // MIDI Control mapping (for fader/volume control)
     var controlSourceName: String?  // MIDI device that controls this channel's fader
     var controlChannel: Int?        // MIDI channel (1-16, nil = any channel)
     var controlCC: Int?             // CC number that controls volume (nil = not mapped)
+    var controlNote: Int?           // Note number whose velocity controls volume (nil = not mapped)
 
     /// CC-to-AUParameter mappings for this channel's instrument
     var ccParameterMappings: [CCParameterMapping] = []
 
     init(
         id: UUID = UUID(),
+        kind: ChannelKind = .instrument,
         name: String = "New Channel",
         instrument: PluginConfiguration? = nil,
         effects: [PluginConfiguration] = [],
@@ -86,12 +108,17 @@ struct ChannelConfiguration: Identifiable, Equatable {
         isChordPadTarget: Bool = false,
         isSingleNoteTarget: Bool = false,
         octaveTranspose: Int = 0,
+        audioInputPortUID: String? = nil,
+        audioInputDisplayName: String? = nil,
+        audioOutputPairIndex: Int = 0,
         controlSourceName: String? = nil,
         controlChannel: Int? = nil,
         controlCC: Int? = nil,
+        controlNote: Int? = nil,
         ccParameterMappings: [CCParameterMapping] = []
     ) {
         self.id = id
+        self.kind = kind
         self.name = name
         self.instrument = instrument
         self.effects = effects
@@ -104,9 +131,13 @@ struct ChannelConfiguration: Identifiable, Equatable {
         self.isChordPadTarget = isChordPadTarget
         self.isSingleNoteTarget = isSingleNoteTarget
         self.octaveTranspose = octaveTranspose
+        self.audioInputPortUID = audioInputPortUID
+        self.audioInputDisplayName = audioInputDisplayName
+        self.audioOutputPairIndex = audioOutputPairIndex
         self.controlSourceName = controlSourceName
         self.controlChannel = controlChannel
         self.controlCC = controlCC
+        self.controlNote = controlNote
         self.ccParameterMappings = ccParameterMappings
     }
 }
@@ -115,10 +146,11 @@ struct ChannelConfiguration: Identifiable, Equatable {
 
 extension ChannelConfiguration: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, name, instrument, effects, volume, pan, isMuted
+        case id, kind, name, instrument, effects, volume, pan, isMuted
         case midiChannel, midiSourceName, scaleFilterEnabled
         case isChordPadTarget, isSingleNoteTarget, octaveTranspose
-        case controlSourceName, controlChannel, controlCC
+        case audioInputPortUID, audioInputDisplayName, audioOutputPairIndex
+        case controlSourceName, controlChannel, controlCC, controlNote
         case ccParameterMappings
     }
 
@@ -126,6 +158,7 @@ extension ChannelConfiguration: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         id = try container.decode(UUID.self, forKey: .id)
+        kind = try container.decodeIfPresent(ChannelKind.self, forKey: .kind) ?? .instrument
         name = try container.decode(String.self, forKey: .name)
         instrument = try container.decodeIfPresent(PluginConfiguration.self, forKey: .instrument)
         effects = try container.decodeIfPresent([PluginConfiguration].self, forKey: .effects) ?? []
@@ -139,9 +172,13 @@ extension ChannelConfiguration: Codable {
         // New fields - default to false/0 if missing
         isSingleNoteTarget = try container.decodeIfPresent(Bool.self, forKey: .isSingleNoteTarget) ?? false
         octaveTranspose = try container.decodeIfPresent(Int.self, forKey: .octaveTranspose) ?? 0
+        audioInputPortUID = try container.decodeIfPresent(String.self, forKey: .audioInputPortUID)
+        audioInputDisplayName = try container.decodeIfPresent(String.self, forKey: .audioInputDisplayName)
+        audioOutputPairIndex = try container.decodeIfPresent(Int.self, forKey: .audioOutputPairIndex) ?? 0
         controlSourceName = try container.decodeIfPresent(String.self, forKey: .controlSourceName)
         controlChannel = try container.decodeIfPresent(Int.self, forKey: .controlChannel)
         controlCC = try container.decodeIfPresent(Int.self, forKey: .controlCC)
+        controlNote = try container.decodeIfPresent(Int.self, forKey: .controlNote)
         ccParameterMappings = try container.decodeIfPresent([CCParameterMapping].self, forKey: .ccParameterMappings) ?? []
     }
 }

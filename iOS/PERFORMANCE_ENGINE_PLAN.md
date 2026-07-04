@@ -2,6 +2,68 @@
 
 Transform Keyframe MK I from an AUM controller into a **standalone AUv3 host** - your personal performance instrument.
 
+## 2026-07-03 Audio Engine Evaluation
+
+The current iOS engine is solid for MIDI-driven AUv3 instruments, but audio-input channels should be added as a first-class channel kind rather than patched into the existing instrument-only channel strip.
+
+Implemented first slice:
+- `ChannelConfiguration` now persists a backwards-compatible `ChannelKind` (`instrument` or `audioInput`).
+- Performance edit mode creates instrument and audio channels separately.
+- Channel detail hides instrument-only MIDI, scale, ChordPad, and AU parameter controls for audio channels.
+- Audio channels request an input-capable iOS audio session and use the hardware input node as their source into the existing effects/mixer path.
+- `Info.plist` includes microphone usage copy for live instrument processing.
+- Audio route state is now centralized in `AudioEngine`, including current input/output labels, available session inputs, input/output channel counts, and available stereo output pairs.
+- Audio channel settings now persist preferred input port and intended output pair. Output pair selection is capability-aware in the UI, but true multichannel output bus routing still needs real interface validation before it should be connected to the graph.
+- iPadOS ergonomics now adapt the channel detail width and channel/fader strip sizing in regular-width layouts, with visible `AUD`/`MIDI` badges in edit and perform modes.
+
+Hardware validation status:
+- `xcrun xctrace list devices` currently shows simulators and an offline iPhone, but no connected iPad/audio interface.
+- Real validation still needs an iPad with the guitar interface attached.
+- Validation checklist:
+  - Microphone/input permission prompt appears once and uses the Keyframe live-instrument copy.
+  - Audio channel meter responds to guitar/interface input.
+  - Insert effects process the monitored input.
+  - Instrument channels keep responding to MIDI while audio input is active.
+  - Route labels update when the interface is connected/disconnected.
+  - Additional output pairs appear only when the active interface exposes more than stereo output.
+
+Current implementation shape:
+- `AudioEngine` uses one `AVAudioEngine`, a `masterMixer`, dynamically-created `ChannelStrip`s, a keep-alive source, per-channel meter taps, and a master meter tap.
+- `ChannelStrip` now has a source distinction: AUv3 instrument channels use `instrument -> effects -> channel mixer -> master mixer`, and audio-input channels use `hardware input -> effects -> channel mixer -> master mixer`.
+- The app uses `AVAudioSession.Category.playback` for instrument-only sessions and switches to `.playAndRecord` when any audio-input channel exists.
+- MIDI routing, scale filtering, ChordPad routing, and CC-to-parameter mapping are tightly coupled to instrument channels.
+
+Implemented model change:
+- Add an explicit channel kind:
+  - `instrument`: AUv3 instrument source, MIDI routing, scale/chord/expression settings, instrument parameter mapping.
+  - `audioInput`: hardware input source, effect chain, gain/pan/mute/metering, no MIDI note routing, no scale/chord settings.
+- Persist channel kind and source routing in `ChannelConfiguration`.
+- Update channel UI so audio input channels show input, gain, effects, output, and monitoring controls; instrument channels keep MIDI/instrument controls.
+
+Implemented audio-session change:
+- Switch to `.playAndRecord` when any audio-input channel exists.
+- Prefer options appropriate for performance use: avoid speaker routing surprises, allow Bluetooth only if it is an intentional user choice, and keep the current low-buffer preference.
+- Handle route changes by rebuilding input-channel connections without tearing down AUv3 instruments unnecessarily.
+
+Implemented audio graph change:
+- Give `ChannelStrip` a source abstraction instead of hard-coding `instrument` as the only source.
+- For audio-input channels, route `engine.inputNode` to the channel strip's effect chain/mixer.
+- Start simple with main hardware input/stereo pair. Per-channel hardware input selection should be a second pass because iOS multi-input routing depends on the active audio interface, channel count, and route format.
+- Channel-specific output selection should also be a second pass: AVAudioEngine's default output is single-device oriented. True per-channel outputs require explicit multichannel output bus/channel mapping and route capability checks.
+
+Efficiency notes from the current code:
+- Per-channel and master meter taps are reasonable for stage feedback, but should remain opt-in/low-rate if channel count grows.
+- `getProcessCPUUsage()` walks threads every 0.5s; acceptable for diagnostics, but it is not real DSP load and should not be polled faster.
+- Debug connection logging is very verbose around chain rebuilds; keep it out of hot paths before shipping.
+- The keep-alive source is cheap, but once live input monitoring exists, it may be unnecessary while an input channel is active.
+
+Recommended implementation order:
+1. Done: add `ChannelKind` to the model and split channel detail UI by kind.
+2. Done: add `.playAndRecord` session activation and a single monitored input channel path.
+3. Done: add audio-input channel creation and restore support.
+4. Done: add route-aware input and output labels based on `AVAudioSession.currentRoute`.
+5. Next: add true multichannel/per-channel output routing only after the simple input path is stable on the real guitar interface.
+
 ## Architecture Overview
 
 ```

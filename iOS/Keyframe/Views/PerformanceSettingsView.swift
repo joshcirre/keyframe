@@ -444,48 +444,55 @@ struct PerformanceSettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                // Channel picker
-                SettingsPicker(
-                    label: "CHANNEL",
-                    selection: $midiEngine.externalMIDIChannel,
-                    options: (1...16).map { ($0, "CH \($0)") },
-                    displayValue: "CH \(midiEngine.externalMIDIChannel)"
-                )
+                if midiEngine.selectedDestinationEndpoint != nil {
+                    // Channel picker
+                    SettingsPicker(
+                        label: "CHANNEL",
+                        selection: $midiEngine.externalMIDIChannel,
+                        options: (1...16).map { ($0, "CH \($0)") },
+                        displayValue: "CH \(midiEngine.externalMIDIChannel)"
+                    )
 
-                // Divider
-                Rectangle()
-                    .fill(TEColors.lightGray)
-                    .frame(height: 1)
+                    // Divider
+                    Rectangle()
+                        .fill(TEColors.lightGray)
+                        .frame(height: 1)
 
-                // Tempo sync subsection
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("TEMPO SYNC")
-                        .font(TEFonts.mono(9, weight: .bold))
-                        .foregroundStyle(TEColors.darkGray)
+                    // Tempo sync subsection
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("TEMPO SYNC")
+                            .font(TEFonts.mono(9, weight: .bold))
+                            .foregroundStyle(TEColors.darkGray)
 
-                    Text("Sends tap tempo to external devices when selecting songs with BPM. Helix uses CC 64 by default.")
+                        Text("Sends tap tempo to external devices when selecting songs with BPM. Helix uses CC 64 by default.")
+                            .font(TEFonts.mono(9, weight: .medium))
+                            .foregroundStyle(TEColors.midGray)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        TEToggle(label: "ENABLED", isOn: $midiEngine.isExternalTempoSyncEnabled)
+
+                        if midiEngine.isExternalTempoSyncEnabled {
+                            SettingsPicker(
+                                label: "TAP TEMPO CC",
+                                selection: $midiEngine.tapTempoCC,
+                                options: [64, 1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120].map {
+                                    ($0, $0 == 64 ? "CC 64 (HELIX DEFAULT)" : "CC \($0)")
+                                },
+                                displayValue: "CC \(midiEngine.tapTempoCC)"
+                            )
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        Rectangle()
+                            .fill(TEColors.cream)
+                    )
+                } else {
+                    Text("Select a MIDI destination to show output channel and tempo sync settings.")
                         .font(TEFonts.mono(9, weight: .medium))
                         .foregroundStyle(TEColors.midGray)
                         .fixedSize(horizontal: false, vertical: true)
-
-                    TEToggle(label: "ENABLED", isOn: $midiEngine.isExternalTempoSyncEnabled)
-
-                    if midiEngine.isExternalTempoSyncEnabled {
-                        SettingsPicker(
-                            label: "TAP TEMPO CC",
-                            selection: $midiEngine.tapTempoCC,
-                            options: [64, 1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120].map { 
-                                ($0, $0 == 64 ? "CC 64 (HELIX DEFAULT)" : "CC \($0)")
-                            },
-                            displayValue: "CC \(midiEngine.tapTempoCC)"
-                        )
-                    }
                 }
-                .padding(12)
-                .background(
-                    Rectangle()
-                        .fill(TEColors.cream)
-                )
             }
         }
     }
@@ -505,46 +512,55 @@ struct PerformanceSettingsView: View {
             VStack(spacing: 16) {
                 TEToggle(label: "ENABLED", isOn: $midiEngine.isScaleFilterEnabled)
 
-                TESettingsRow(label: "CURRENT KEY") {
-                    Text("\(NoteName(rawValue: midiEngine.currentRootNote)?.displayName ?? "C") \(midiEngine.currentScaleType.rawValue.uppercased())")
-                        .font(TEFonts.mono(12, weight: .bold))
-                        .foregroundStyle(TEColors.orange)
+                if midiEngine.isScaleFilterEnabled {
+                    TESettingsRow(label: "CURRENT KEY") {
+                        Text("\(NoteName(rawValue: midiEngine.currentRootNote)?.displayName ?? "C") \(midiEngine.currentScaleType.rawValue.uppercased())")
+                            .font(TEFonts.mono(12, weight: .bold))
+                            .foregroundStyle(TEColors.orange)
+                    }
                 }
 
                 // ChordPad Controller (required - no "ANY" option)
                 chordPadSourcePicker
 
-                // Chord Zone Channel
-                SettingsPicker(
-                    label: "CHORD CH",
-                    selection: $midiEngine.chordZoneChannel,
-                    options: [(0, "ANY")] + (1...16).map { ($0, "CH \($0)") },
-                    displayValue: midiEngine.chordZoneChannel == 0 ? "ANY" : "CH \(midiEngine.chordZoneChannel)"
-                )
+                if midiEngine.chordPadSourceName != nil {
+                    // Chord Zone Channel
+                    SettingsPicker(
+                        label: "CHORD CH",
+                        selection: $midiEngine.chordZoneChannel,
+                        options: [(0, "ANY")] + (1...16).map { ($0, "CH \($0)") },
+                        displayValue: midiEngine.chordZoneChannel == 0 ? "ANY" : "CH \(midiEngine.chordZoneChannel)"
+                    )
 
-                // Single Note Zone Channel
-                SettingsPicker(
-                    label: "NOTE CH",
-                    selection: $midiEngine.singleNoteZoneChannel,
-                    options: [(0, "ANY")] + (1...16).map { ($0, "CH \($0)") },
-                    displayValue: midiEngine.singleNoteZoneChannel == 0 ? "ANY" : "CH \(midiEngine.singleNoteZoneChannel)"
-                )
+                    // Single Note Zone Channel
+                    SettingsPicker(
+                        label: "NOTE CH",
+                        selection: $midiEngine.singleNoteZoneChannel,
+                        options: [(0, "ANY")] + (1...16).map { ($0, "CH \($0)") },
+                        displayValue: midiEngine.singleNoteZoneChannel == 0 ? "ANY" : "CH \(midiEngine.singleNoteZoneChannel)"
+                    )
 
-                // ChordPad Map button
-                Button {
-                    showingChordMap = true
-                } label: {
-                    HStack {
-                        Image(systemName: "pianokeys")
-                            .font(.system(size: 12, weight: .bold))
-                        Text("CHORD MAP")
-                            .font(TEFonts.mono(11, weight: .bold))
+                    // ChordPad Map button
+                    Button {
+                        showingChordMap = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "pianokeys")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("CHORD MAP")
+                                .font(TEFonts.mono(11, weight: .bold))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(TEColors.orange)
+                        .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
                     }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(TEColors.orange)
-                    .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                } else {
+                    Text("Select a ChordPad source to show chord and single-note zone settings.")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -558,214 +574,221 @@ struct PerformanceSettingsView: View {
                 // Source picker (shared for all legacy axes)
                 globalExpressionSourcePicker
 
-                TEToggle(label: "AFFECT CHORD SOUNDS", isOn: $midiEngine.legacyExpressionAffectChordTargets)
-                
-                // Axis 1 (e.g., joystick Y / up-down)
-                Text("AXIS 1")
-                    .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundStyle(TEColors.midGray)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                
-                TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpressionEnabled)
-                
-                HStack(spacing: 12) {
-                    SettingsPicker(
-                        label: "INPUT CC",
-                        selection: $midiEngine.globalExpressionInputCC,
-                        options: commonCCOptions,
-                        displayValue: ccDisplayName(midiEngine.globalExpressionInputCC)
-                    )
-                    
-                    ccLearnButton(isLearning: $isLearningAxis1Input) { cc, channel, sourceName in
-                        midiEngine.globalExpressionInputCC = cc
-                        midiEngine.globalExpressionInputChannel = channel
-                        if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
-                            midiEngine.globalExpressionSourceName = source
-                        }
-                    }
-                }
-                
-                SettingsPicker(
-                    label: "OUTPUT CC",
-                    selection: $midiEngine.globalExpressionOutputCC,
-                    options: commonCCOptions,
-                    displayValue: ccDisplayName(midiEngine.globalExpressionOutputCC)
-                )
-                
-                // Ramp slider for smooth transitions
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("RAMP: \(String(format: "%.1f", midiEngine.globalExpressionRampTime))s")
-                        .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundStyle(TEColors.lightGray)
-                    Slider(value: $midiEngine.globalExpressionRampTime, in: 0...2.0, step: 0.1)
-                        .tint(TEColors.black)
-                }
-                
-                Divider()
-                
-                // Axis 2
-                Text("AXIS 2")
-                    .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundStyle(TEColors.midGray)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                
-                TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpression2Enabled)
-                
-                HStack(spacing: 12) {
-                    SettingsPicker(
-                        label: "INPUT CC",
-                        selection: $midiEngine.globalExpression2InputCC,
-                        options: commonCCOptions,
-                        displayValue: ccDisplayName(midiEngine.globalExpression2InputCC)
-                    )
-                    
-                    ccLearnButton(isLearning: $isLearningAxis2Input) { cc, channel, sourceName in
-                        midiEngine.globalExpression2InputCC = cc
-                        midiEngine.globalExpression2InputChannel = channel
-                        if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
-                            midiEngine.globalExpressionSourceName = source
-                        }
-                    }
-                }
-                
-                SettingsPicker(
-                    label: "OUTPUT CC",
-                    selection: $midiEngine.globalExpression2OutputCC,
-                    options: commonCCOptions,
-                    displayValue: ccDisplayName(midiEngine.globalExpression2OutputCC)
-                )
-                
-                TEToggle(label: "INVERT (127→0)", isOn: $midiEngine.globalExpression2Invert)
-                
-                // Ramp slider for smooth transitions
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("RAMP: \(String(format: "%.1f", midiEngine.globalExpression2RampTime))s")
-                        .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundStyle(TEColors.lightGray)
-                    Slider(value: $midiEngine.globalExpression2RampTime, in: 0...2.0, step: 0.1)
-                        .tint(TEColors.black)
-                }
-                
-                Divider()
-                
-                // Axis 3 (with pitch bend option)
-                Text("AXIS 3")
-                    .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundStyle(TEColors.midGray)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                
-                TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpression3Enabled)
-                
-                HStack(spacing: 12) {
-                    SettingsPicker(
-                        label: "INPUT CC",
-                        selection: $midiEngine.globalExpression3InputCC,
-                        options: commonCCOptions,
-                        displayValue: ccDisplayName(midiEngine.globalExpression3InputCC)
-                    )
-                    
-                    ccLearnButton(isLearning: $isLearningAxis3Input) { cc, channel, sourceName in
-                        midiEngine.globalExpression3InputCC = cc
-                        midiEngine.globalExpression3InputChannel = channel
-                        if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
-                            midiEngine.globalExpressionSourceName = source
-                        }
-                    }
-                }
-                
-                TEToggle(label: "OUTPUT AS PITCH BEND", isOn: $midiEngine.globalExpression3OutputPitchBend)
-                
-                if midiEngine.globalExpression3OutputPitchBend {
-                    TEToggle(label: "BEND DOWN (VIBRATO)", isOn: $midiEngine.globalExpression3PitchBendDown)
-                } else {
-                    SettingsPicker(
-                        label: "OUTPUT CC",
-                        selection: $midiEngine.globalExpression3OutputCC,
-                        options: commonCCOptions,
-                        displayValue: ccDisplayName(midiEngine.globalExpression3OutputCC)
-                    )
-                }
-                
-                // Scale slider - "RANGE" for pitch bend, "SCALE" for CC
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(midiEngine.globalExpression3OutputPitchBend ? "RANGE" : "SCALE"): \(Int(midiEngine.globalExpression3Scale * 100))%")
-                        .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundStyle(TEColors.lightGray)
-                    Slider(value: $midiEngine.globalExpression3Scale, in: 0.05...1.0, step: 0.05)
-                        .tint(TEColors.black)
-                }
-                
-                Divider()
-                
-                // Axis 4
-                Text("AXIS 4")
-                    .font(TEFonts.mono(10, weight: .bold))
-                    .foregroundStyle(TEColors.midGray)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                
-                TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpression4Enabled)
-                
-                HStack(spacing: 12) {
-                    SettingsPicker(
-                        label: "INPUT CC",
-                        selection: $midiEngine.globalExpression4InputCC,
-                        options: commonCCOptions,
-                        displayValue: ccDisplayName(midiEngine.globalExpression4InputCC)
-                    )
-                    
-                    ccLearnButton(isLearning: $isLearningAxis4Input) { cc, channel, sourceName in
-                        midiEngine.globalExpression4InputCC = cc
-                        midiEngine.globalExpression4InputChannel = channel
-                        if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
-                            midiEngine.globalExpressionSourceName = source
-                        }
-                    }
-                }
-                
-                TEToggle(label: "OUTPUT AS PITCH BEND", isOn: $midiEngine.globalExpression4OutputPitchBend)
-                
-                if midiEngine.globalExpression4OutputPitchBend {
-                    TEToggle(label: "BEND DOWN (VIBRATO)", isOn: $midiEngine.globalExpression4PitchBendDown)
-                } else {
-                    SettingsPicker(
-                        label: "OUTPUT CC",
-                        selection: $midiEngine.globalExpression4OutputCC,
-                        options: commonCCOptions,
-                        displayValue: ccDisplayName(midiEngine.globalExpression4OutputCC)
-                    )
-                }
-                
-                // Scale slider - "RANGE" for pitch bend, "SCALE" for CC
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(midiEngine.globalExpression4OutputPitchBend ? "RANGE" : "SCALE"): \(Int(midiEngine.globalExpression4Scale * 100))%")
-                        .font(TEFonts.mono(10, weight: .medium))
-                        .foregroundStyle(TEColors.lightGray)
-                    Slider(value: $midiEngine.globalExpression4Scale, in: 0.05...1.0, step: 0.05)
-                        .tint(TEColors.black)
-                }
-                
-                Divider()
-                
-                // Dynamic Expression Axes
-                ForEach(midiEngine.expressionAxes.indices, id: \.self) { index in
-                    let axisNumber = 5 + index
-                    ExpressionAxisRow(axis: midiEngine.expressionAxes[index], midiEngine: midiEngine, commonCCOptions: commonCCOptions, ccDisplayName: ccDisplayName, axisNumber: axisNumber, showToast: showToast)
-                }
-                
-                if midiEngine.expressionAxes.count < midiEngine.maxExpressionAxes {
-                    Button {
-                        midiEngine.addExpressionAxis()
-                    } label: {
-                        HStack {
-                            Image(systemName: "plus")
-                                .font(.system(size: 10, weight: .bold))
-                            Text("ADD ADDITIONAL EXPRESSION")
-                                .font(TEFonts.mono(10, weight: .bold))
-                            Spacer()
-                        }
+                if midiEngine.globalExpressionSourceName != nil {
+                    TEToggle(label: "AFFECT CHORD SOUNDS", isOn: $midiEngine.legacyExpressionAffectChordTargets)
+
+                    // Axis 1 (e.g., joystick Y / up-down)
+                    Text("AXIS 1")
+                        .font(TEFonts.mono(10, weight: .bold))
                         .foregroundStyle(TEColors.midGray)
                         .frame(maxWidth: .infinity, alignment: .leading)
+
+                    TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpressionEnabled)
+
+                    HStack(spacing: 12) {
+                        SettingsPicker(
+                            label: "INPUT CC",
+                            selection: $midiEngine.globalExpressionInputCC,
+                            options: commonCCOptions,
+                            displayValue: ccDisplayName(midiEngine.globalExpressionInputCC)
+                        )
+
+                        ccLearnButton(isLearning: $isLearningAxis1Input) { cc, channel, sourceName in
+                            midiEngine.globalExpressionInputCC = cc
+                            midiEngine.globalExpressionInputChannel = channel
+                            if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
+                                midiEngine.globalExpressionSourceName = source
+                            }
+                        }
                     }
+
+                    SettingsPicker(
+                        label: "OUTPUT CC",
+                        selection: $midiEngine.globalExpressionOutputCC,
+                        options: commonCCOptions,
+                        displayValue: ccDisplayName(midiEngine.globalExpressionOutputCC)
+                    )
+
+                    // Ramp slider for smooth transitions
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("RAMP: \(String(format: "%.1f", midiEngine.globalExpressionRampTime))s")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.lightGray)
+                        Slider(value: $midiEngine.globalExpressionRampTime, in: 0...2.0, step: 0.1)
+                            .tint(TEColors.black)
+                    }
+
+                    Divider()
+
+                    // Axis 2
+                    Text("AXIS 2")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundStyle(TEColors.midGray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpression2Enabled)
+
+                    HStack(spacing: 12) {
+                        SettingsPicker(
+                            label: "INPUT CC",
+                            selection: $midiEngine.globalExpression2InputCC,
+                            options: commonCCOptions,
+                            displayValue: ccDisplayName(midiEngine.globalExpression2InputCC)
+                        )
+
+                        ccLearnButton(isLearning: $isLearningAxis2Input) { cc, channel, sourceName in
+                            midiEngine.globalExpression2InputCC = cc
+                            midiEngine.globalExpression2InputChannel = channel
+                            if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
+                                midiEngine.globalExpressionSourceName = source
+                            }
+                        }
+                    }
+
+                    SettingsPicker(
+                        label: "OUTPUT CC",
+                        selection: $midiEngine.globalExpression2OutputCC,
+                        options: commonCCOptions,
+                        displayValue: ccDisplayName(midiEngine.globalExpression2OutputCC)
+                    )
+
+                    TEToggle(label: "INVERT (127→0)", isOn: $midiEngine.globalExpression2Invert)
+
+                    // Ramp slider for smooth transitions
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("RAMP: \(String(format: "%.1f", midiEngine.globalExpression2RampTime))s")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.lightGray)
+                        Slider(value: $midiEngine.globalExpression2RampTime, in: 0...2.0, step: 0.1)
+                            .tint(TEColors.black)
+                    }
+
+                    Divider()
+
+                    // Axis 3 (with pitch bend option)
+                    Text("AXIS 3")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundStyle(TEColors.midGray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpression3Enabled)
+
+                    HStack(spacing: 12) {
+                        SettingsPicker(
+                            label: "INPUT CC",
+                            selection: $midiEngine.globalExpression3InputCC,
+                            options: commonCCOptions,
+                            displayValue: ccDisplayName(midiEngine.globalExpression3InputCC)
+                        )
+
+                        ccLearnButton(isLearning: $isLearningAxis3Input) { cc, channel, sourceName in
+                            midiEngine.globalExpression3InputCC = cc
+                            midiEngine.globalExpression3InputChannel = channel
+                            if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
+                                midiEngine.globalExpressionSourceName = source
+                            }
+                        }
+                    }
+
+                    TEToggle(label: "OUTPUT AS PITCH BEND", isOn: $midiEngine.globalExpression3OutputPitchBend)
+
+                    if midiEngine.globalExpression3OutputPitchBend {
+                        TEToggle(label: "BEND DOWN (VIBRATO)", isOn: $midiEngine.globalExpression3PitchBendDown)
+                    } else {
+                        SettingsPicker(
+                            label: "OUTPUT CC",
+                            selection: $midiEngine.globalExpression3OutputCC,
+                            options: commonCCOptions,
+                            displayValue: ccDisplayName(midiEngine.globalExpression3OutputCC)
+                        )
+                    }
+
+                    // Scale slider - "RANGE" for pitch bend, "SCALE" for CC
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(midiEngine.globalExpression3OutputPitchBend ? "RANGE" : "SCALE"): \(Int(midiEngine.globalExpression3Scale * 100))%")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.lightGray)
+                        Slider(value: $midiEngine.globalExpression3Scale, in: 0.05...1.0, step: 0.05)
+                            .tint(TEColors.black)
+                    }
+
+                    Divider()
+
+                    // Axis 4
+                    Text("AXIS 4")
+                        .font(TEFonts.mono(10, weight: .bold))
+                        .foregroundStyle(TEColors.midGray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    TEToggle(label: "ENABLED", isOn: $midiEngine.globalExpression4Enabled)
+
+                    HStack(spacing: 12) {
+                        SettingsPicker(
+                            label: "INPUT CC",
+                            selection: $midiEngine.globalExpression4InputCC,
+                            options: commonCCOptions,
+                            displayValue: ccDisplayName(midiEngine.globalExpression4InputCC)
+                        )
+
+                        ccLearnButton(isLearning: $isLearningAxis4Input) { cc, channel, sourceName in
+                            midiEngine.globalExpression4InputCC = cc
+                            midiEngine.globalExpression4InputChannel = channel
+                            if midiEngine.globalExpressionSourceName == nil, let source = sourceName {
+                                midiEngine.globalExpressionSourceName = source
+                            }
+                        }
+                    }
+
+                    TEToggle(label: "OUTPUT AS PITCH BEND", isOn: $midiEngine.globalExpression4OutputPitchBend)
+
+                    if midiEngine.globalExpression4OutputPitchBend {
+                        TEToggle(label: "BEND DOWN (VIBRATO)", isOn: $midiEngine.globalExpression4PitchBendDown)
+                    } else {
+                        SettingsPicker(
+                            label: "OUTPUT CC",
+                            selection: $midiEngine.globalExpression4OutputCC,
+                            options: commonCCOptions,
+                            displayValue: ccDisplayName(midiEngine.globalExpression4OutputCC)
+                        )
+                    }
+
+                    // Scale slider - "RANGE" for pitch bend, "SCALE" for CC
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(midiEngine.globalExpression4OutputPitchBend ? "RANGE" : "SCALE"): \(Int(midiEngine.globalExpression4Scale * 100))%")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.lightGray)
+                        Slider(value: $midiEngine.globalExpression4Scale, in: 0.05...1.0, step: 0.05)
+                            .tint(TEColors.black)
+                    }
+
+                    Divider()
+
+                    // Dynamic Expression Axes
+                    ForEach(midiEngine.expressionAxes.indices, id: \.self) { index in
+                        let axisNumber = 5 + index
+                        ExpressionAxisRow(axis: midiEngine.expressionAxes[index], midiEngine: midiEngine, commonCCOptions: commonCCOptions, ccDisplayName: ccDisplayName, axisNumber: axisNumber, showToast: showToast)
+                    }
+
+                    if midiEngine.expressionAxes.count < midiEngine.maxExpressionAxes {
+                        Button {
+                            midiEngine.addExpressionAxis()
+                        } label: {
+                            HStack {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 10, weight: .bold))
+                                Text("ADD ADDITIONAL EXPRESSION")
+                                    .font(TEFonts.mono(10, weight: .bold))
+                                Spacer()
+                            }
+                            .foregroundStyle(TEColors.midGray)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                } else {
+                    Text("Select an expression source to show axis mappings.")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }

@@ -30,6 +30,7 @@
 		8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift */; };
 		8A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift */; };
 		8A1B2C3D4E5F6060 /* KeyframeRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6060 /* KeyframeRemote.swift */; };
+		8A1B2C3D4E5F6063 /* KeyframeRemoteHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6063 /* KeyframeRemoteHost.swift */; };
 		8A1B2C3D4E5F6061 /* RemoteModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6061 /* RemoteModeView.swift */; };
 		8A1B2C3D4E5F6062 /* ModeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6062 /* ModeSelectionView.swift */; };
 		8A1B2C3D4E5F6052 /* AppearanceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F6052 /* AppearanceManager.swift */; };
@@ -68,6 +69,7 @@
 		9A1B2C3D4E5F6052 /* AppearanceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceManager.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6073 /* AppearanceToggleButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceToggleButton.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6060 /* KeyframeRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeRemote.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F6063 /* KeyframeRemoteHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyframeRemoteHost.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6061 /* RemoteModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteModeView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6062 /* ModeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeSelectionView.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F6070 /* PluginCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginCatalogService.swift; sourceTree = "<group>"; };
@@ -167,6 +169,7 @@
 			isa = PBXGroup;
 			children = (
 				9A1B2C3D4E5F6060 /* KeyframeRemote.swift */,
+				9A1B2C3D4E5F6063 /* KeyframeRemoteHost.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -285,6 +288,7 @@
 				8A1B2C3D4E5F6036 /* ExternalMIDIMessageEditorView.swift in Sources */,
 				8A1B2C3D4E5F6051 /* ExternalMIDIMessage.swift in Sources */,
 				8A1B2C3D4E5F6060 /* KeyframeRemote.swift in Sources */,
+				8A1B2C3D4E5F6063 /* KeyframeRemoteHost.swift in Sources */,
 				8A1B2C3D4E5F6061 /* RemoteModeView.swift in Sources */,
 				8A1B2C3D4E5F6062 /* ModeSelectionView.swift in Sources */,
 				8A1B2C3D4E5F6070 /* PluginCatalogService.swift in Sources */,

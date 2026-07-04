@@ -4,6 +4,7 @@ import AudioToolbox
 
 /// Detailed view for editing a channel - Teenage Engineering style
 struct ChannelDetailView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
     @Bindable var channel: ChannelStrip
     @Binding var config: ChannelConfiguration
@@ -11,18 +12,24 @@ struct ChannelDetailView: View {
 
     @State private var pluginManager = AUv3HostManager.shared
     @State private var midiEngine = MIDIEngine.shared
+    @State private var audioEngine = AudioEngine.shared
 
     @State private var showingInstrumentPicker = false
     @State private var showingEffectPicker = false
     @State private var showingPluginUI = false
     @State private var pluginViewController: UIViewController?
     @State private var isLearningFaderCC = false
+    @State private var isLearningFaderNote = false
     @State private var showingDeleteConfirmation = false
     @State private var isLearningParameter = false
     @State private var learningCC: Int? = nil  // Which CC we're learning a parameter for
     @State private var paramLearnToken: AUParameterObserverToken? = nil
     @State private var showingParameterPicker = false
     @State private var pickerCC: Int = 74  // CC being mapped in the parameter picker
+
+    private var detailMaxWidth: CGFloat {
+        horizontalSizeClass == .regular ? 760 : .infinity
+    }
 
     var body: some View {
         ZStack {
@@ -33,8 +40,11 @@ struct ChannelDetailView: View {
                     // Header with name
                     channelHeader
 
-                    // Instrument section
-                    instrumentSection
+                    if config.kind == .instrument {
+                        instrumentSection
+                    } else {
+                        audioInputSection
+                    }
 
                     // Effects chain
                     effectsSection
@@ -42,11 +52,13 @@ struct ChannelDetailView: View {
                     // Mixer controls
                     mixerSection
 
-                    // MIDI routing
-                    midiSection
+                    if config.kind == .instrument {
+                        // MIDI routing
+                        midiSection
+                    }
 
                     // CC-to-Parameter mappings (only show if instrument is loaded)
-                    if channel.isInstrumentLoaded {
+                    if config.kind == .instrument && channel.isInstrumentLoaded {
                         ccMappingSection
                     }
 
@@ -56,6 +68,8 @@ struct ChannelDetailView: View {
                     }
                 }
                 .padding(20)
+                .frame(maxWidth: detailMaxWidth)
+                .frame(maxWidth: .infinity)
             }
         }
         .preferredColorScheme(.light)
@@ -98,6 +112,9 @@ struct ChannelDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will remove the channel and all its settings. This cannot be undone.")
+        }
+        .onAppear {
+            audioEngine.refreshAudioRouteInfo()
         }
     }
 
@@ -232,9 +249,9 @@ struct ChannelDetailView: View {
                 
                 Spacer()
                 
-                Text("CHANNEL")
-                    .font(TEFonts.mono(10, weight: .medium))
-                    .foregroundStyle(TEColors.midGray)
+                Text(config.kind == .audioInput ? "AUDIO CHANNEL" : "INSTRUMENT CHANNEL")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundStyle(config.kind == .audioInput ? TEColors.blue : TEColors.orange)
             }
             
             // Editable name
@@ -321,6 +338,129 @@ struct ChannelDetailView: View {
                         .foregroundStyle(TEColors.midGray)
                 }
             }
+        }
+    }
+
+    // MARK: - Audio Input Section
+
+    private var audioInputOptions: [(key: String, value: String)] {
+        var options: [(key: String, value: String)] = [
+            ("__default__", "CURRENT: \(audioEngine.currentInputName.uppercased())")
+        ]
+
+        for input in audioEngine.availableAudioInputs.sorted(by: { $0.name < $1.name }) {
+            let channelText = input.channelCount > 0 ? " (\(input.channelCount) IN)" : ""
+            options.append((input.id, "\(input.name.uppercased())\(channelText)"))
+        }
+
+        if let savedID = config.audioInputPortUID,
+           !audioEngine.availableAudioInputs.contains(where: { $0.id == savedID }) {
+            let name = config.audioInputDisplayName ?? "Saved Input"
+            options.append((savedID, "\(name.uppercased()) (OFFLINE)"))
+        }
+
+        return options
+    }
+
+    private var audioOutputOptions: [(key: Int, value: String)] {
+        let options = audioEngine.availableOutputPairs.map { pair in
+            (key: pair.id, value: pair.name)
+        }
+
+        if options.contains(where: { $0.key == config.audioOutputPairIndex }) {
+            return options
+        }
+
+        return options + [(key: config.audioOutputPairIndex, value: "OUT \(config.audioOutputPairIndex + 1) (OFFLINE)")]
+    }
+
+    private var audioInputSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("AUDIO INPUT")
+                .font(TEFonts.mono(10, weight: .bold))
+                .foregroundStyle(TEColors.midGray)
+                .tracking(2)
+
+            VStack(spacing: 14) {
+                TEPicker(
+                    label: "INPUT",
+                    selection: Binding(
+                        get: { config.audioInputPortUID ?? "__default__" },
+                        set: { newValue in
+                            let selectedID = newValue == "__default__" ? nil : newValue
+                            config.audioInputPortUID = selectedID
+                            config.audioInputDisplayName = audioEngine.availableAudioInputs.first { $0.id == selectedID }?.name
+                            audioEngine.setPreferredAudioInput(portUID: selectedID)
+                        }
+                    ),
+                    orderedOptions: audioInputOptions
+                )
+
+                HStack {
+                    Text("ROUTE")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+
+                    Spacer()
+
+                    Text(audioEngine.currentInputName.uppercased())
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundStyle(TEColors.black)
+                }
+
+                HStack {
+                    Text("INPUTS")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+
+                    Spacer()
+
+                    Text(audioEngine.inputChannelCount > 0 ? "\(audioEngine.inputChannelCount)" : "NONE")
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundStyle(TEColors.blue)
+                }
+
+                Rectangle()
+                    .fill(TEColors.lightGray)
+                    .frame(height: 1)
+
+                TEPicker(
+                    label: "OUTPUT",
+                    selection: Binding(
+                        get: { config.audioOutputPairIndex },
+                        set: { newValue in
+                            config.audioOutputPairIndex = newValue
+                            channel.audioOutputPairIndex = newValue
+                        }
+                    ),
+                    orderedOptions: audioOutputOptions
+                )
+
+                HStack {
+                    Text("ROUTE")
+                        .font(TEFonts.mono(10, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+
+                    Spacer()
+
+                    Text(audioEngine.currentOutputName.uppercased())
+                        .font(TEFonts.mono(12, weight: .bold))
+                        .foregroundStyle(TEColors.black)
+                }
+
+                if audioEngine.availableOutputPairs.count <= 1 {
+                    Text("ADDITIONAL OUTPUT PAIRS APPEAR WHEN THE CONNECTED INTERFACE EXPOSES THEM.")
+                        .font(TEFonts.mono(9, weight: .medium))
+                        .foregroundStyle(TEColors.midGray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(16)
+            .background(
+                Rectangle()
+                    .strokeBorder(TEColors.black, lineWidth: 2)
+                    .background(TEColors.warmWhite)
+            )
         }
     }
     
@@ -677,13 +817,13 @@ struct ChannelDetailView: View {
                         .foregroundStyle(TEColors.midGray)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    // Control source picker - allows selecting controller before learning CC
+                    // Control source picker - allows selecting controller before learning CC/note
                     TEPicker(
                         label: "CONTROLLER",
                         selection: Binding(
                             get: {
                                 // Show the actual source name, or NONE if explicitly cleared
-                                if config.controlSourceName == nil && config.controlCC == nil {
+                                if config.controlSourceName == nil && config.controlCC == nil && config.controlNote == nil {
                                     return "__none__"
                                 }
                                 return config.controlSourceName ?? ""
@@ -693,9 +833,10 @@ struct ChannelDetailView: View {
                                     // Clear fader control entirely
                                     config.controlSourceName = nil
                                     config.controlCC = nil
+                                    config.controlNote = nil
                                     config.controlChannel = nil
                                 } else {
-                                    // Set the source - user can now learn CC from this source
+                                    // Set the source - user can now learn CC or note from this source
                                     config.controlSourceName = newValue.isEmpty ? nil : newValue
                                 }
                             }
@@ -761,8 +902,69 @@ struct ChannelDetailView: View {
                         }
                     }
 
+                    // Note Learn button and display
+                    HStack {
+                        Text("NOTE")
+                            .font(TEFonts.mono(10, weight: .medium))
+                            .foregroundStyle(TEColors.midGray)
+
+                        Spacer()
+
+                        if let note = config.controlNote {
+                            Text("NOTE \(note)")
+                                .font(TEFonts.mono(12, weight: .bold))
+                                .foregroundStyle(TEColors.black)
+
+                            Button {
+                                config.controlNote = nil
+                                if config.controlCC == nil {
+                                    config.controlChannel = nil
+                                }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(TEColors.red)
+                            }
+                        }
+
+                        Button {
+                            isLearningFaderNote.toggle()
+                            midiEngine.isLearningMode = isLearningFaderNote
+                            if isLearningFaderNote {
+                                let filterSource = config.controlSourceName
+                                let filterChannel = config.controlChannel
+
+                                midiEngine.onNoteLearn = { note, channel, source in
+                                    let sourceMatches = filterSource == nil || filterSource == source
+                                    let channelMatches = filterChannel == nil || filterChannel == channel
+
+                                    guard sourceMatches && channelMatches else { return }
+
+                                    config.controlNote = note
+                                    config.controlChannel = channel
+                                    if config.controlSourceName == nil {
+                                        config.controlSourceName = source
+                                    }
+                                    isLearningFaderNote = false
+                                    midiEngine.isLearningMode = false
+                                    midiEngine.onNoteLearn = nil
+                                }
+                            } else {
+                                midiEngine.onNoteLearn = nil
+                            }
+                        } label: {
+                            Text(isLearningFaderNote ? "LISTENING..." : "LEARN")
+                                .font(TEFonts.mono(11, weight: .bold))
+                                .foregroundStyle(isLearningFaderNote ? .white : TEColors.black)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(isLearningFaderNote ? TEColors.orange : TEColors.lightGray)
+                                .overlay(Rectangle().strokeBorder(TEColors.black, lineWidth: 2))
+                        }
+                    }
+
                     // Only show channel picker when a CC is mapped
-                    if config.controlCC != nil {
+                    if config.controlCC != nil || config.controlNote != nil {
                         TEPicker(
                             label: "CHANNEL",
                             selection: Binding(
@@ -788,6 +990,7 @@ struct ChannelDetailView: View {
     private func loadInstrument(_ component: AVAudioUnitComponent) {
         channel.loadInstrument(component.audioComponentDescription) { success, error in
             if success {
+                config.kind = .instrument
                 channel.instrumentInfo = pluginManager.getInfo(for: component)
                 config.instrument = PluginConfiguration(
                     name: component.name,
