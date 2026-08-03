@@ -23,7 +23,7 @@ The site is ready for the release URLs without a code change:
 
 The deployed `/privacy` and `/support` routes can be used for the corresponding App Store Connect fields.
 
-## Laravel Cloud / Node hosting
+## Node hosting
 
 Use Node 24 (Node 20.9+ is supported by the package) and configure the repository commands to run from this directory:
 
@@ -33,3 +33,9 @@ cd website && npm run start
 ```
 
 Set the three environment variables above in the production environment. Next.js reads the platform-provided `PORT` automatically when running `next start`.
+
+### Laravel Cloud compatibility
+
+Laravel Cloud's current public documentation exposes Node 20, 22, or 24 to **build commands**, while its documented web compute serves a Laravel/PHP application. Do not assume a standalone `next start` process can receive web traffic there unless the target Laravel Cloud account explicitly offers a Node web runtime.
+
+If the account has that runtime, use the commands above. Otherwise, either deploy this package to a general Node host or add a small Laravel application that serves a static export of this site before configuring Laravel Cloud.

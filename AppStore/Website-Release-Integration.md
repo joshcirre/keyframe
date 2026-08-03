@@ -26,18 +26,20 @@ NEXT_PUBLIC_IOS_APP_STORE_URL=https://apps.apple.com/app/idYOUR_APP_ID
 
 The Mac variable should remain unset until the linked `.dmg` or `.zip` is signed, notarized, published, and tested on a clean Mac. The iOS variable should remain unset until the App Store product page is available. The website displays release-prep states when either link is absent.
 
-## Laravel Cloud commands
+## Node deployment commands
 
-Use a Node 24 environment and run the package from the repository root:
+Use Node 24 and run the package from the repository root:
 
 ```bash
 cd website && npm ci && npm run build
 cd website && npm run start
 ```
 
+Next.js supports this as a standard Node deployment. Laravel Cloud's current public documentation only promises Node for frontend build commands and describes Laravel/PHP as the web runtime. Use these commands on Laravel Cloud only if the target account explicitly offers a Node web runtime. Otherwise, deploy the package to a general Node host or add a Laravel wrapper that serves a static export.
+
 ## Remaining release gates
 
-1. Choose and configure the production domain, then deploy the site.
+1. Confirm the production host/runtime, choose the domain, and deploy the site.
 2. Add working contact information to `/support`.
 3. Add an easily accessible link to the deployed `/privacy` page inside the iOS app.
 4. Create the iOS App Store Connect record for bundle ID `com.keyframe.mki`.
