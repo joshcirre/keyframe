@@ -30,6 +30,7 @@ final class ChannelStrip: Identifiable {
     private(set) var effects: [AVAudioUnit] = []
     var effectInfos: [AUv3Info] = []
     let maxEffects = 4
+    @ObservationIgnored private var effectParameterCache: [String: AUParameter] = [:]
     
     /// Observable bypass states (SwiftUI can't observe AVAudioUnit properties directly)
     var effectBypasses: [Bool] = []
@@ -351,6 +352,7 @@ final class ChannelStrip: Identifiable {
         print("🗑️ ChannelStrip \(self.index): Removing effect at index \(index)")
 
         let effect = effects.remove(at: index)
+        effectParameterCache.removeAll()
         // effectInfos might be out of sync (e.g., during session restore), so check bounds
         if index < effectInfos.count {
             effectInfos.remove(at: index)
@@ -745,18 +747,78 @@ final class ChannelStrip: Identifiable {
         return collectParameters(from: paramTree)
     }
 
+    /// Get writable parameters exposed by an effect insert.
+    func getEffectParameters(at index: Int) -> [AUParameterInfo] {
+        guard effects.indices.contains(index),
+              let parameterTree = effects[index].auAudioUnit.parameterTree else { return [] }
+        return collectParameters(from: parameterTree).filter(\.isWritable)
+    }
+
+    /// Set an effect parameter from a normalized MIDI value. The persistent key path is
+    /// preferred; the address only supports older mappings and plugins with stable addresses.
+    @discardableResult
+    func setEffectParameter(
+        at index: Int,
+        keyPath: String?,
+        fallbackAddress: AUParameterAddress?,
+        normalizedValue: Float,
+        outputMinimum: Float,
+        outputMaximum: Float
+    ) -> Bool {
+        guard effects.indices.contains(index),
+              let parameterTree = effects[index].auAudioUnit.parameterTree else { return false }
+
+        let cacheKey = "\(index):\(keyPath ?? fallbackAddress.map(String.init) ?? "unknown")"
+        guard let parameter = effectParameterCache[cacheKey]
+                ?? resolveParameter(in: parameterTree, keyPath: keyPath, fallbackAddress: fallbackAddress),
+              parameter.flags.contains(.flag_IsWritable) else { return false }
+        effectParameterCache[cacheKey] = parameter
+
+        let clampedInput = min(max(normalizedValue, 0), 1)
+        let normalizedOutput = outputMinimum + clampedInput * (outputMaximum - outputMinimum)
+        let clampedOutput = min(max(normalizedOutput, 0), 1)
+        let value = parameter.minValue + clampedOutput * (parameter.maxValue - parameter.minValue)
+        parameter.setValue(value, originator: nil)
+        return true
+    }
+
+    private func resolveParameter(
+        in tree: AUParameterTree,
+        keyPath: String?,
+        fallbackAddress: AUParameterAddress?
+    ) -> AUParameter? {
+        if let keyPath,
+           let parameter = collectParameterNodes(from: tree).first(where: { $0.keyPath == keyPath }) {
+            return parameter
+        }
+        if let fallbackAddress {
+            return tree.parameter(withAddress: fallbackAddress)
+        }
+        return nil
+    }
+
+    private func collectParameterNodes(from group: AUParameterGroup) -> [AUParameter] {
+        group.children.flatMap { node -> [AUParameter] in
+            if let parameter = node as? AUParameter { return [parameter] }
+            if let subgroup = node as? AUParameterGroup { return collectParameterNodes(from: subgroup) }
+            return []
+        }
+    }
+
     private func collectParameters(from group: AUParameterGroup) -> [AUParameterInfo] {
         var result: [AUParameterInfo] = []
         for node in group.children {
             if let param = node as? AUParameter {
                 result.append(AUParameterInfo(
                     address: param.address,
+                    keyPath: param.keyPath,
                     identifier: param.identifier,
                     displayName: param.displayName,
                     groupName: group.displayName,
                     minValue: param.minValue,
                     maxValue: param.maxValue,
-                    unit: param.unitName ?? ""
+                    unit: param.unitName ?? "",
+                    isWritable: param.flags.contains(.flag_IsWritable)
                 ))
             } else if let subGroup = node as? AUParameterGroup {
                 result.append(contentsOf: collectParameters(from: subGroup))
@@ -771,12 +833,14 @@ final class ChannelStrip: Identifiable {
             if let param = node as? AUParameter {
                 result.append(AUParameterInfo(
                     address: param.address,
+                    keyPath: param.keyPath,
                     identifier: param.identifier,
                     displayName: param.displayName,
                     groupName: nil,
                     minValue: param.minValue,
                     maxValue: param.maxValue,
-                    unit: param.unitName ?? ""
+                    unit: param.unitName ?? "",
+                    isWritable: param.flags.contains(.flag_IsWritable)
                 ))
             } else if let group = node as? AUParameterGroup {
                 result.append(contentsOf: collectParameters(from: group))
@@ -1073,14 +1137,16 @@ struct CCParameterMapping: Codable, Equatable, Identifiable {
 /// Info about an available AUParameter (for mapping picker UI)
 struct AUParameterInfo: Identifiable {
     let address: AUParameterAddress
+    let keyPath: String
     let identifier: String
     let displayName: String
     let groupName: String?
     let minValue: Float
     let maxValue: Float
     let unit: String
+    let isWritable: Bool
 
-    var id: AUParameterAddress { address }
+    var id: String { keyPath }
 
     var fullDisplayName: String {
         if let group = groupName, !group.isEmpty {

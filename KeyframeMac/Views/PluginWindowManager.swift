@@ -119,6 +119,11 @@ class PluginWindowManager: ObservableObject {
         window.close()
     }
 
+    /// Hide a plugin window while retaining its controller and state for fast reopening.
+    func hideWindow(id: String) {
+        windows[id]?.orderOut(nil)
+    }
+
     /// Close all windows for a channel (when channel is removed)
     func closeAllWindows(for channelId: UUID) {
         let prefix = "instrument-\(channelId)"

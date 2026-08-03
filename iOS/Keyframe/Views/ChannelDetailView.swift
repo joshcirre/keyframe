@@ -26,6 +26,7 @@ struct ChannelDetailView: View {
     @State private var paramLearnToken: AUParameterObserverToken? = nil
     @State private var showingParameterPicker = false
     @State private var pickerCC: Int = 74  // CC being mapped in the parameter picker
+    @State private var effectControlTarget: EffectControlTarget?
 
     private var detailMaxWidth: CGFloat {
         horizontalSizeClass == .regular ? 760 : .infinity
@@ -102,6 +103,14 @@ struct ChannelDetailView: View {
                     SessionStore.shared.saveCurrentSession()
                     showingParameterPicker = false
                 }
+            )
+        }
+        .sheet(item: $effectControlTarget) { target in
+            EffectControlBindingEditor(
+                channelId: config.id,
+                pluginId: target.plugin.id,
+                pluginName: target.plugin.name,
+                parameters: channel.getEffectParameters(at: target.effectIndex)
             )
         }
         .confirmationDialog("Delete Channel", isPresented: $showingDeleteConfirmation) {
@@ -549,6 +558,17 @@ struct ChannelDetailView: View {
                             .strokeBorder(TEColors.black, lineWidth: 2)
                     )
             }
+
+            Button {
+                effectControlTarget = EffectControlTarget(effectIndex: index, plugin: effect)
+            } label: {
+                Text("CTRL")
+                    .font(TEFonts.mono(9, weight: .bold))
+                    .foregroundStyle(TEColors.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .overlay(Rectangle().strokeBorder(TEColors.orange, lineWidth: 2))
+            }
             
             // Bypass toggle
             Button {
@@ -568,10 +588,12 @@ struct ChannelDetailView: View {
             
             // Remove
             Button {
+                SessionStore.shared.removeControlBindings(channelId: config.id, pluginId: effect.id)
                 channel.removeEffect(at: index)
                 if index < config.effects.count {
                     config.effects.remove(at: index)
                 }
+                SessionStore.shared.saveCurrentSession()
                 // Ensure channel connections to master are maintained
                 AudioEngine.shared.ensureChannelConnections()
             } label: {
@@ -1036,6 +1058,203 @@ struct ChannelDetailView: View {
                 showingPluginUI = true
             }
         }
+    }
+}
+
+private struct EffectControlTarget: Identifiable {
+    let effectIndex: Int
+    let plugin: PluginConfiguration
+    var id: UUID { plugin.id }
+}
+
+private struct EffectControlBindingEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var midiEngine = MIDIEngine.shared
+    @State private var input = ControlMIDIInput(messageType: .controlChange, number: 74, channel: nil, sourceName: nil)
+    @State private var behavior: ControlBindingBehavior = .continuous
+    @State private var selectedParameterKeyPath: String?
+    @State private var controlsEffectEnabled = false
+    @State private var controlsPluginVisibility = false
+    @State private var consumesEvent = true
+    @State private var outputMinimum: Float = 0
+    @State private var outputMaximum: Float = 1
+    @State private var isLearning = false
+
+    let channelId: UUID
+    let pluginId: UUID
+    let pluginName: String
+    let parameters: [AUParameterInfo]
+
+    private var existingBindings: [ControlBinding] {
+        SessionStore.shared.controlBindings.filter { binding in
+            binding.actions.contains { $0.pluginId == pluginId }
+        }
+    }
+
+    private var selectedParameter: AUParameterInfo? {
+        parameters.first { $0.keyPath == selectedParameterKeyPath }
+    }
+
+    private var canSave: Bool {
+        selectedParameter != nil || controlsEffectEnabled || controlsPluginVisibility
+    }
+
+    init(channelId: UUID, pluginId: UUID, pluginName: String, parameters: [AUParameterInfo]) {
+        self.channelId = channelId
+        self.pluginId = pluginId
+        self.pluginName = pluginName
+        self.parameters = parameters
+        let preferred = parameters.first { parameter in
+            ["mix", "wet", "dry/wet", "blend"].contains { parameter.displayName.localizedCaseInsensitiveContains($0) }
+        }
+        _selectedParameterKeyPath = State(initialValue: preferred?.keyPath)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("MIDI INPUT") {
+                    Picker("Message", selection: $input.messageType) {
+                        ForEach(ControlMIDIMessageType.allCases, id: \.self) { type in
+                            Text(type.displayName).tag(type)
+                        }
+                    }
+
+                    Stepper("\(input.messageType == .controlChange ? "CC" : "Note") \(input.number)", value: $input.number, in: 0...127)
+
+                    Picker("Behavior", selection: $behavior) {
+                        ForEach(ControlBindingBehavior.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+
+                    Button(isLearning ? "Move a control…" : "Learn MIDI") {
+                        startLearning()
+                    }
+                    .disabled(isLearning)
+
+                    if input.channel != nil || input.sourceName != nil {
+                        Text(input.displayName + (input.sourceName.map { " · \($0)" } ?? ""))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("ACTIONS") {
+                    Picker("Effect parameter", selection: $selectedParameterKeyPath) {
+                        Text("None").tag(String?.none)
+                        ForEach(parameters) { parameter in
+                            Text(parameter.fullDisplayName).tag(Optional(parameter.keyPath))
+                        }
+                    }
+
+                    if selectedParameter != nil {
+                        VStack(alignment: .leading) {
+                            Text("Output range")
+                            HStack {
+                                Slider(value: $outputMinimum, in: 0...1)
+                                Text(outputMinimum, format: .percent.precision(.fractionLength(0)))
+                                    .monospacedDigit()
+                            }
+                            HStack {
+                                Slider(value: $outputMaximum, in: 0...1)
+                                Text(outputMaximum, format: .percent.precision(.fractionLength(0)))
+                                    .monospacedDigit()
+                            }
+                        }
+                    }
+
+                    Toggle("Also control effect enabled", isOn: $controlsEffectEnabled)
+                    Toggle("Also show / hide plugin", isOn: $controlsPluginVisibility)
+                    Toggle("Consume MIDI event", isOn: $consumesEvent)
+                }
+
+                if !existingBindings.isEmpty {
+                    Section("EXISTING") {
+                        ForEach(existingBindings) { binding in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(binding.name)
+                                    Text("\(binding.input.displayName) · \(binding.actions.count) action\(binding.actions.count == 1 ? "" : "s")")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("Delete", systemImage: "trash", role: .destructive) {
+                                    SessionStore.shared.removeControlBinding(id: binding.id)
+                                }
+                                .labelStyle(.iconOnly)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("\(pluginName) Control")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        midiEngine.cancelControlBindingLearn()
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: saveBinding)
+                        .disabled(!canSave)
+                }
+            }
+            .onChange(of: input.messageType) { _, messageType in
+                behavior = messageType == .controlChange ? .continuous : .toggle
+            }
+            .onDisappear {
+                midiEngine.cancelControlBindingLearn()
+            }
+        }
+    }
+
+    private func startLearning() {
+        isLearning = true
+        midiEngine.startControlBindingLearn { learnedInput in
+            input = learnedInput
+            behavior = learnedInput.messageType == .controlChange ? .continuous : .toggle
+            isLearning = false
+        }
+    }
+
+    private func saveBinding() {
+        var actions: [ControlAction] = []
+
+        if let parameter = selectedParameter {
+            actions.append(ControlAction(
+                kind: .pluginParameter,
+                channelId: channelId,
+                pluginId: pluginId,
+                parameterKeyPath: parameter.keyPath,
+                parameterAddress: parameter.address,
+                displayName: parameter.displayName,
+                outputMinimum: min(outputMinimum, outputMaximum),
+                outputMaximum: max(outputMinimum, outputMaximum)
+            ))
+        }
+
+        if controlsEffectEnabled {
+            actions.append(ControlAction(kind: .pluginEnabled, channelId: channelId, pluginId: pluginId, displayName: "\(pluginName) Enabled"))
+        }
+
+        if controlsPluginVisibility {
+            actions.append(ControlAction(kind: .pluginVisibility, channelId: channelId, pluginId: pluginId, displayName: "Show \(pluginName)"))
+        }
+
+        let targetName = selectedParameter?.displayName ?? (controlsEffectEnabled ? "Enabled" : "Window")
+        let binding = ControlBinding(
+            name: "\(pluginName) · \(targetName)",
+            input: input,
+            behavior: behavior,
+            actions: actions,
+            consumesEvent: consumesEvent
+        )
+        SessionStore.shared.upsertControlBinding(binding)
+        dismiss()
     }
 }
 

@@ -631,6 +631,10 @@ struct MIDIMappingsContent: View {
     @EnvironmentObject var midiEngine: MacMIDIEngine
     @State private var selectedMapping: MIDICCMapping?
 
+    private var hasMappings: Bool {
+        !midiEngine.controlBindings.isEmpty || !midiEngine.midiMappings.isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Header
@@ -654,18 +658,18 @@ struct MIDIMappingsContent: View {
                 Button("Clear All") {
                     clearAllMappings()
                 }
-                .disabled(midiEngine.midiMappings.isEmpty)
+                .disabled(!hasMappings)
             }
 
             // Mappings list
-            if midiEngine.midiMappings.isEmpty {
+            if !hasMappings {
                 VStack(spacing: 16) {
                     Image(systemName: "slider.horizontal.below.rectangle")
                         .font(.system(size: 48))
                         .foregroundColor(.secondary)
                     Text("No MIDI Mappings")
                         .font(.headline)
-                    Text("Right-click a fader or control in the mixer to learn a MIDI CC mapping.")
+                    Text("Use CTRL beside an effect to map a fader, note, bypass, or plugin window. Mixer controls still support right-click MIDI Learn.")
                         .font(.callout)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -674,6 +678,11 @@ struct MIDIMappingsContent: View {
                 .padding(.vertical, 40)
             } else {
                 LazyVStack(spacing: 8) {
+                    ForEach(midiEngine.controlBindings) { binding in
+                        ControlBindingRow(binding: binding) {
+                            midiEngine.removeControlBinding(id: binding.id)
+                        }
+                    }
                     ForEach(midiEngine.midiMappings) { mapping in
                         MappingRow(mapping: mapping) {
                             midiEngine.removeMapping(mapping)
@@ -692,7 +701,7 @@ struct MIDIMappingsContent: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("\(midiEngine.midiMappings.count) mapping(s)")
+                Text("\(midiEngine.midiMappings.count + midiEngine.controlBindings.count) mapping(s)")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -702,15 +711,45 @@ struct MIDIMappingsContent: View {
     private func clearAllMappings() {
         let alert = NSAlert()
         alert.messageText = "Clear All MIDI Mappings?"
-        alert.informativeText = "This will remove all \(midiEngine.midiMappings.count) MIDI CC mappings."
+        alert.informativeText = "This will remove all \(midiEngine.midiMappings.count + midiEngine.controlBindings.count) MIDI mappings."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Clear All")
         alert.addButton(withTitle: "Cancel")
 
         if alert.runModal() == .alertFirstButtonReturn {
             midiEngine.midiMappings.removeAll()
+            midiEngine.controlBindings.removeAll()
             MacSessionStore.shared.clearMIDIMappings()
+            MacSessionStore.shared.clearControlBindings()
         }
+    }
+}
+
+private struct ControlBindingRow: View {
+    let binding: ControlBinding
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: binding.actions.count > 1 ? "square.stack.3d.up" : "slider.horizontal.3")
+                .frame(width: 32)
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(binding.name)
+                Text("\(binding.input.displayName) · \(binding.behavior.displayName) · \(binding.actions.count) action\(binding.actions.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button("Delete", systemImage: "trash", action: onDelete)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 6))
     }
 }
 

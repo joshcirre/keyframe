@@ -3,6 +3,18 @@ import AudioToolbox
 import AppKit
 import CoreAudioKit
 
+struct MacAUParameterInfo: Identifiable, Equatable {
+    let address: AUParameterAddress
+    let keyPath: String
+    let displayName: String
+    let minValue: Float
+    let maxValue: Float
+    let unit: String
+    let isWritable: Bool
+
+    var id: String { keyPath }
+}
+
 /// Represents a single channel strip with instrument, effects, and mixing controls
 /// Adapted from iOS ChannelStrip, using AppKit for plugin UI hosting
 final class MacChannelStrip: ObservableObject, Identifiable {
@@ -32,6 +44,7 @@ final class MacChannelStrip: ObservableObject, Identifiable {
     }
     var effectInfos: [MacAUInfo] = []
     let maxEffects = 4
+    private var effectParameterCache: [String: AUParameter] = [:]
 
     /// Output node for connecting to master
     var outputNode: AVAudioMixerNode { mixer }
@@ -360,6 +373,7 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         PluginWindowManager.shared.closeWindow(id: "effect-\(id)-\(index)")
 
         let effect = effects.remove(at: index)
+        effectParameterCache.removeAll()
         if index < effectInfos.count {
             effectInfos.remove(at: index)
         }
@@ -552,6 +566,77 @@ final class MacChannelStrip: ObservableObject, Identifiable {
             data.withUnsafeBufferPointer { bufferPointer in
                 midiBlock(AUEventSampleTimeImmediate, 0, 3, bufferPointer.baseAddress!)
             }
+        }
+    }
+
+    // MARK: - Audio Unit Parameters
+
+    func getEffectParameters(at index: Int) -> [MacAUParameterInfo] {
+        guard effects.indices.contains(index),
+              let parameterTree = effects[index].auAudioUnit.parameterTree else { return [] }
+        return collectParameters(from: parameterTree).filter(\.isWritable)
+    }
+
+    @discardableResult
+    func setEffectParameter(
+        at index: Int,
+        keyPath: String?,
+        fallbackAddress: AUParameterAddress?,
+        normalizedValue: Float,
+        outputMinimum: Float,
+        outputMaximum: Float
+    ) -> Bool {
+        guard effects.indices.contains(index),
+              let parameterTree = effects[index].auAudioUnit.parameterTree else { return false }
+
+        let cacheKey = "\(index):\(keyPath ?? fallbackAddress.map(String.init) ?? "unknown")"
+        guard let parameter = effectParameterCache[cacheKey]
+                ?? resolveParameter(in: parameterTree, keyPath: keyPath, fallbackAddress: fallbackAddress),
+              parameter.flags.contains(.flag_IsWritable) else { return false }
+        effectParameterCache[cacheKey] = parameter
+
+        let clampedInput = min(max(normalizedValue, 0), 1)
+        let normalizedOutput = outputMinimum + clampedInput * (outputMaximum - outputMinimum)
+        let clampedOutput = min(max(normalizedOutput, 0), 1)
+        let value = parameter.minValue + clampedOutput * (parameter.maxValue - parameter.minValue)
+        parameter.setValue(value, originator: nil)
+        return true
+    }
+
+    private func resolveParameter(
+        in tree: AUParameterTree,
+        keyPath: String?,
+        fallbackAddress: AUParameterAddress?
+    ) -> AUParameter? {
+        if let keyPath,
+           let parameter = collectParameterNodes(from: tree).first(where: { $0.keyPath == keyPath }) {
+            return parameter
+        }
+        if let fallbackAddress {
+            return tree.parameter(withAddress: fallbackAddress)
+        }
+        return nil
+    }
+
+    private func collectParameterNodes(from group: AUParameterGroup) -> [AUParameter] {
+        group.children.flatMap { node -> [AUParameter] in
+            if let parameter = node as? AUParameter { return [parameter] }
+            if let subgroup = node as? AUParameterGroup { return collectParameterNodes(from: subgroup) }
+            return []
+        }
+    }
+
+    private func collectParameters(from group: AUParameterGroup) -> [MacAUParameterInfo] {
+        collectParameterNodes(from: group).map { parameter in
+            MacAUParameterInfo(
+                address: parameter.address,
+                keyPath: parameter.keyPath,
+                displayName: parameter.displayName,
+                minValue: parameter.minValue,
+                maxValue: parameter.maxValue,
+                unit: parameter.unitName ?? "",
+                isWritable: parameter.flags.contains(.flag_IsWritable)
+            )
         }
     }
 

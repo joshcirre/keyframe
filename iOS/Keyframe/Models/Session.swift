@@ -1,6 +1,75 @@
 import Foundation
 import AudioToolbox
 
+// MARK: - Unified MIDI Control Bindings
+
+enum ControlMIDIMessageType: String, Codable, CaseIterable, Equatable {
+    case controlChange
+    case noteOn
+
+    var displayName: String {
+        switch self {
+        case .controlChange: return "Control Change"
+        case .noteOn: return "Note"
+        }
+    }
+}
+
+enum ControlBindingBehavior: String, Codable, CaseIterable, Equatable {
+    case continuous
+    case trigger
+    case toggle
+    case momentary
+
+    var displayName: String { rawValue.capitalized }
+}
+
+struct ControlMIDIInput: Codable, Equatable {
+    var messageType: ControlMIDIMessageType
+    var number: Int
+    var channel: Int?
+    var sourceName: String?
+
+    var displayName: String {
+        let message = messageType == .controlChange ? "CC \(number)" : "NOTE \(number)"
+        let channelName = channel.map { "CH \($0)" } ?? "ANY CH"
+        return "\(message) · \(channelName)"
+    }
+}
+
+enum ControlActionKind: String, Codable, CaseIterable, Equatable {
+    case pluginParameter
+    case pluginEnabled
+    case pluginVisibility
+    case channelVolume
+    case channelMute
+}
+
+/// One destination in a MIDI control bundle. Parameter key paths are the persistent
+/// identifier recommended by Audio Unit; the address is retained only as a fallback.
+struct ControlAction: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var kind: ControlActionKind
+    var channelId: UUID
+    var pluginId: UUID?
+    var parameterKeyPath: String?
+    var parameterAddress: AUParameterAddress?
+    var displayName: String
+    var outputMinimum: Float = 0
+    var outputMaximum: Float = 1
+    var isInverted = false
+}
+
+struct ControlBinding: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var input: ControlMIDIInput
+    var behavior: ControlBindingBehavior
+    var actions: [ControlAction]
+    var consumesEvent = true
+    var isEnabled = true
+}
+
 /// Represents a complete performance session configuration
 /// Includes all channels, plugins, and song presets
 struct Session: Codable, Identifiable, Equatable {
@@ -12,6 +81,8 @@ struct Session: Codable, Identifiable, Equatable {
     var activeSongId: UUID?
     var createdAt: Date
     var modifiedAt: Date
+    /// Optional keeps sessions created before unified control bindings decodable.
+    var controlBindings: [ControlBinding]?
     
     // MARK: - Initialization
     
@@ -21,7 +92,8 @@ struct Session: Codable, Identifiable, Equatable {
         channels: [ChannelConfiguration] = [],
         masterVolume: Float = 1.0,
         songs: [PerformanceSong] = [],
-        activeSongId: UUID? = nil
+        activeSongId: UUID? = nil,
+        controlBindings: [ControlBinding] = []
     ) {
         self.id = id
         self.name = name
@@ -31,6 +103,7 @@ struct Session: Codable, Identifiable, Equatable {
         self.activeSongId = activeSongId
         self.createdAt = Date()
         self.modifiedAt = Date()
+        self.controlBindings = controlBindings
     }
     
     // MARK: - Helpers
@@ -477,6 +550,35 @@ final class SessionStore {
             userDefaults.set(data, forKey: currentSessionKey)
         }
     }
+
+    var controlBindings: [ControlBinding] {
+        currentSession.controlBindings ?? []
+    }
+
+    func upsertControlBinding(_ binding: ControlBinding) {
+        var bindings = currentSession.controlBindings ?? []
+        if let index = bindings.firstIndex(where: { $0.id == binding.id }) {
+            bindings[index] = binding
+        } else {
+            bindings.append(binding)
+        }
+        currentSession.controlBindings = bindings
+        saveCurrentSession()
+    }
+
+    func removeControlBinding(id: UUID) {
+        currentSession.controlBindings?.removeAll { $0.id == id }
+        saveCurrentSession()
+    }
+
+    func removeControlBindings(channelId: UUID, pluginId: UUID? = nil) {
+        currentSession.controlBindings?.removeAll { binding in
+            binding.actions.contains { action in
+                action.channelId == channelId && (pluginId == nil || action.pluginId == pluginId)
+            }
+        }
+        saveCurrentSession()
+    }
     
     /// Sync plugin preset state from AudioEngine's live channel strips back to the session config.
     /// Call this before saving to ensure instrument/effect presets are persisted.
@@ -532,7 +634,8 @@ final class SessionStore {
             channels: currentSession.channels,
             masterVolume: currentSession.masterVolume,
             songs: currentSession.songs,
-            activeSongId: currentSession.activeSongId
+            activeSongId: currentSession.activeSongId,
+            controlBindings: currentSession.controlBindings ?? []
         )
 
         // Switch current session to the new one

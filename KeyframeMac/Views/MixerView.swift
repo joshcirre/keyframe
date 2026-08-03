@@ -509,6 +509,7 @@ struct MixerView: View {
     private func removeChannel(at index: Int) {
         audioEngine.removeChannel(at: index)
         sessionStore.removeChannel(at: index)
+        midiEngine.controlBindings = sessionStore.controlBindings
         KeyframeDiscovery.shared.broadcastState()
 
         if selectedChannelIndex == index {

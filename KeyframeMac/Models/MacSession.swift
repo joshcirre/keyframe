@@ -1,6 +1,73 @@
 import Foundation
 import AudioToolbox
 
+// MARK: - Unified MIDI Control Bindings
+
+enum ControlMIDIMessageType: String, Codable, CaseIterable, Equatable {
+    case controlChange
+    case noteOn
+
+    var displayName: String {
+        switch self {
+        case .controlChange: return "Control Change"
+        case .noteOn: return "Note"
+        }
+    }
+}
+
+enum ControlBindingBehavior: String, Codable, CaseIterable, Equatable {
+    case continuous
+    case trigger
+    case toggle
+    case momentary
+
+    var displayName: String { rawValue.capitalized }
+}
+
+struct ControlMIDIInput: Codable, Equatable {
+    var messageType: ControlMIDIMessageType
+    var number: Int
+    var channel: Int?
+    var sourceName: String?
+
+    var displayName: String {
+        let message = messageType == .controlChange ? "CC \(number)" : "NOTE \(number)"
+        let channelName = channel.map { "CH \($0)" } ?? "ANY CH"
+        return "\(message) · \(channelName)"
+    }
+}
+
+enum ControlActionKind: String, Codable, CaseIterable, Equatable {
+    case pluginParameter
+    case pluginEnabled
+    case pluginVisibility
+    case channelVolume
+    case channelMute
+}
+
+struct ControlAction: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var kind: ControlActionKind
+    var channelId: UUID
+    var pluginId: UUID?
+    var parameterKeyPath: String?
+    var parameterAddress: AUParameterAddress?
+    var displayName: String
+    var outputMinimum: Float = 0
+    var outputMaximum: Float = 1
+    var isInverted = false
+}
+
+struct ControlBinding: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var input: ControlMIDIInput
+    var behavior: ControlBindingBehavior
+    var actions: [ControlAction]
+    var consumesEvent = true
+    var isEnabled = true
+}
+
 // MARK: - Session Store
 
 /// Manages the current session and saved sessions for macOS
@@ -216,6 +283,10 @@ final class MacSessionStore: ObservableObject {
 
     func removeChannel(at index: Int) {
         guard index < currentSession.channels.count else { return }
+        let channelId = currentSession.channels[index].id
+        currentSession.controlBindings?.removeAll { binding in
+            binding.actions.contains { $0.channelId == channelId }
+        }
         currentSession.channels.remove(at: index)
         saveCurrentSession()
     }
@@ -246,6 +317,40 @@ final class MacSessionStore: ObservableObject {
     /// Remove all mappings targeting a specific channel (called when channel is deleted)
     func removeMappingsForChannel(_ channelId: UUID) {
         currentSession.midiMappings.removeAll { $0.targetChannelId == channelId }
+        saveCurrentSession()
+    }
+
+    var controlBindings: [ControlBinding] {
+        currentSession.controlBindings ?? []
+    }
+
+    func upsertControlBinding(_ binding: ControlBinding) {
+        var bindings = currentSession.controlBindings ?? []
+        if let index = bindings.firstIndex(where: { $0.id == binding.id }) {
+            bindings[index] = binding
+        } else {
+            bindings.append(binding)
+        }
+        currentSession.controlBindings = bindings
+        saveCurrentSession()
+    }
+
+    func removeControlBinding(id: UUID) {
+        currentSession.controlBindings?.removeAll { $0.id == id }
+        saveCurrentSession()
+    }
+
+    func clearControlBindings() {
+        currentSession.controlBindings = []
+        saveCurrentSession()
+    }
+
+    func removeControlBindings(channelId: UUID, pluginId: UUID? = nil) {
+        currentSession.controlBindings?.removeAll { binding in
+            binding.actions.contains { action in
+                action.channelId == channelId && (pluginId == nil || action.pluginId == pluginId)
+            }
+        }
         saveCurrentSession()
     }
 
@@ -383,6 +488,8 @@ struct MacSession: Codable, Identifiable {
     var midiMappings: [MIDICCMapping] = []
     var presetTriggerMappings: [PresetTriggerMapping] = []
     var songTriggerMappings: [SongTriggerMapping] = []  // MIDI triggers for songs/sections
+    /// Optional keeps documents created before unified control bindings decodable.
+    var controlBindings: [ControlBinding]?
 
     // Setlist support
     var setlists: [Setlist] = []

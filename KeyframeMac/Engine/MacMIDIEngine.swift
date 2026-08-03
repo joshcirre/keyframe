@@ -49,6 +49,13 @@ final class MacMIDIEngine: ObservableObject {
     /// Active CC mappings - loaded from session on startup
     @Published var midiMappings: [MIDICCMapping] = []
 
+    /// New cross-platform bindings can fan one MIDI input out to multiple actions.
+    @Published var controlBindings: [ControlBinding] = []
+    @Published var isControlBindingLearning = false
+    private var onControlBindingInputLearned: ((ControlMIDIInput) -> Void)?
+    private var controlToggleStates: [UUID: Bool] = [:]
+    private var controlInputHighStates: [UUID: Bool] = [:]
+
     /// When set, the next CC received will be mapped to this target
     @Published var learningTarget: MIDILearnTarget?
 
@@ -231,6 +238,31 @@ final class MacMIDIEngine: ObservableObject {
 
     func setSessionStore(_ store: MacSessionStore) {
         self.sessionStore = store
+        controlBindings = store.controlBindings
+    }
+
+    func startControlBindingLearn(_ completion: @escaping (ControlMIDIInput) -> Void) {
+        onControlBindingInputLearned = completion
+        isControlBindingLearning = true
+    }
+
+    func cancelControlBindingLearn() {
+        isControlBindingLearning = false
+        onControlBindingInputLearned = nil
+    }
+
+    func upsertControlBinding(_ binding: ControlBinding) {
+        if let index = controlBindings.firstIndex(where: { $0.id == binding.id }) {
+            controlBindings[index] = binding
+        } else {
+            controlBindings.append(binding)
+        }
+        sessionStore?.upsertControlBinding(binding)
+    }
+
+    func removeControlBinding(id: UUID) {
+        controlBindings.removeAll { $0.id == id }
+        sessionStore?.removeControlBinding(id: id)
     }
 
     // MARK: - Persistence
@@ -710,6 +742,26 @@ final class MacMIDIEngine: ObservableObject {
     private func processNoteOn(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?) {
         let midiChannel = Int(channel) + 1
 
+        if isControlBindingLearning {
+            let input = ControlMIDIInput(messageType: .noteOn, number: Int(note), channel: midiChannel, sourceName: sourceName)
+            isControlBindingLearning = false
+            let completion = onControlBindingInputLearned
+            onControlBindingInputLearned = nil
+            DispatchQueue.main.async { completion?(input) }
+            return
+        }
+
+        if applyControlBindings(
+            messageType: .noteOn,
+            number: Int(note),
+            rawValue: Int(velocity),
+            channel: midiChannel,
+            sourceName: sourceName,
+            isRelease: false
+        ) {
+            return
+        }
+
         // FAST PATH: Send MIDI to instruments immediately before any other processing
         // This is critical for low-latency response
         if let audioEngine = audioEngine {
@@ -874,6 +926,18 @@ final class MacMIDIEngine: ObservableObject {
     }
 
     private func processNoteOff(note: UInt8, channel: UInt8, sourceName: String?) {
+        let midiChannel = Int(channel) + 1
+        if applyControlBindings(
+            messageType: .noteOn,
+            number: Int(note),
+            rawValue: 0,
+            channel: midiChannel,
+            sourceName: sourceName,
+            isRelease: true
+        ) {
+            return
+        }
+
         guard let audioEngine = audioEngine else { return }
 
         let sourceHash = sourceName?.hashValue ?? 0
@@ -921,6 +985,27 @@ final class MacMIDIEngine: ObservableObject {
 
     private func processCC(cc: UInt8, value: UInt8, channel: UInt8, sourceName: String?) {
         let midiChannel = Int(channel) + 1
+
+        if isControlBindingLearning {
+            let input = ControlMIDIInput(messageType: .controlChange, number: Int(cc), channel: midiChannel, sourceName: sourceName)
+            isControlBindingLearning = false
+            let completion = onControlBindingInputLearned
+            onControlBindingInputLearned = nil
+            DispatchQueue.main.async { completion?(input) }
+            return
+        }
+
+        if applyControlBindings(
+            messageType: .controlChange,
+            number: Int(cc),
+            rawValue: Int(value),
+            channel: midiChannel,
+            sourceName: sourceName,
+            isRelease: false
+        ) {
+            updateLastMessage("\(sourceName ?? "?"): CC \(cc) = \(value) ch \(channel + 1) [control]")
+            return
+        }
 
         // Preset trigger learn mode - capture CC for preset triggering
         if let target = presetTriggerLearnTarget {
@@ -1014,6 +1099,119 @@ final class MacMIDIEngine: ObservableObject {
         }
 
         updateLastMessage("\(sourceName ?? "?"): CC \(cc) = \(value) ch \(channel + 1)")
+    }
+
+    // MARK: - Unified Control Binding Execution
+
+    private func applyControlBindings(
+        messageType: ControlMIDIMessageType,
+        number: Int,
+        rawValue: Int,
+        channel: Int,
+        sourceName: String?,
+        isRelease: Bool
+    ) -> Bool {
+        let bindings = controlBindings.filter { binding in
+            binding.isEnabled &&
+            binding.input.messageType == messageType &&
+            binding.input.number == number &&
+            (binding.input.channel == nil || binding.input.channel == channel) &&
+            (binding.input.sourceName == nil || binding.input.sourceName == sourceName)
+        }
+
+        guard !bindings.isEmpty else { return false }
+
+        for binding in bindings {
+            guard let value = controlValue(for: binding, rawValue: rawValue, isRelease: isRelease) else { continue }
+            DispatchQueue.main.async { [weak self] in
+                self?.execute(binding.actions, normalizedValue: value)
+            }
+        }
+
+        return bindings.contains(where: \.consumesEvent)
+    }
+
+    private func controlValue(for binding: ControlBinding, rawValue: Int, isRelease: Bool) -> Float? {
+        switch binding.behavior {
+        case .continuous:
+            guard !isRelease else { return nil }
+            return Float(min(max(rawValue, 0), 127)) / 127
+
+        case .trigger:
+            let threshold = binding.input.messageType == .controlChange ? 63 : 0
+            guard !isRelease, rawValue > threshold else { return nil }
+            return 1
+
+        case .momentary:
+            if binding.input.messageType == .controlChange {
+                return rawValue > 63 ? 1 : 0
+            }
+            return isRelease ? 0 : 1
+
+        case .toggle:
+            guard !isRelease else { return nil }
+            if binding.input.messageType == .controlChange {
+                let isHigh = rawValue > 63
+                let wasHigh = controlInputHighStates[binding.id, default: false]
+                controlInputHighStates[binding.id] = isHigh
+                guard isHigh && !wasHigh else { return nil }
+            }
+            let newValue = !controlToggleStates[binding.id, default: false]
+            controlToggleStates[binding.id] = newValue
+            return newValue ? 1 : 0
+        }
+    }
+
+    private func execute(_ actions: [ControlAction], normalizedValue: Float) {
+        guard let audioEngine, let sessionStore else { return }
+
+        for action in actions {
+            guard let channelIndex = sessionStore.currentSession.channels.firstIndex(where: { $0.id == action.channelId }),
+                  audioEngine.channelStrips.indices.contains(channelIndex) else { continue }
+
+            let channel = audioEngine.channelStrips[channelIndex]
+            let value = action.isInverted ? 1 - normalizedValue : normalizedValue
+
+            switch action.kind {
+            case .channelVolume:
+                channel.volume = value
+                sessionStore.currentSession.channels[channelIndex].volume = value
+
+            case .channelMute:
+                let muted = value >= 0.5
+                channel.isMuted = muted
+                sessionStore.currentSession.channels[channelIndex].isMuted = muted
+
+            case .pluginParameter:
+                guard let pluginId = action.pluginId,
+                      let effectIndex = sessionStore.currentSession.channels[channelIndex].effects.firstIndex(where: { $0.id == pluginId }) else { continue }
+                _ = channel.setEffectParameter(
+                    at: effectIndex,
+                    keyPath: action.parameterKeyPath,
+                    fallbackAddress: action.parameterAddress,
+                    normalizedValue: value,
+                    outputMinimum: action.outputMinimum,
+                    outputMaximum: action.outputMaximum
+                )
+
+            case .pluginEnabled:
+                guard let pluginId = action.pluginId,
+                      let effectIndex = sessionStore.currentSession.channels[channelIndex].effects.firstIndex(where: { $0.id == pluginId }) else { continue }
+                let enabled = value >= 0.5
+                channel.setEffectBypassed(!enabled, at: effectIndex)
+                sessionStore.currentSession.channels[channelIndex].effects[effectIndex].isBypassed = !enabled
+
+            case .pluginVisibility:
+                guard let pluginId = action.pluginId,
+                      let effectIndex = sessionStore.currentSession.channels[channelIndex].effects.firstIndex(where: { $0.id == pluginId }) else { continue }
+                let windowManager = PluginWindowManager.shared
+                if value >= 0.5 {
+                    windowManager.openEffectEditor(for: channel, effectIndex: effectIndex, channelName: sessionStore.currentSession.channels[channelIndex].name)
+                } else {
+                    windowManager.hideWindow(id: "effect-\(channel.id)-\(effectIndex)")
+                }
+            }
+        }
     }
 
     // MARK: - MIDI Learn
@@ -1124,8 +1322,9 @@ final class MacMIDIEngine: ObservableObject {
     func loadMappings(from session: MacSession) {
         DispatchQueue.main.async { [weak self] in
             self?.midiMappings = session.midiMappings
+            self?.controlBindings = session.controlBindings ?? []
         }
-        print("MacMIDIEngine: Loaded \(session.midiMappings.count) MIDI mappings")
+        print("MacMIDIEngine: Loaded \(session.midiMappings.count) legacy mappings and \(session.controlBindings?.count ?? 0) control bindings")
     }
 
     /// Remove a specific mapping

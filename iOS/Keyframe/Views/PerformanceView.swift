@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 // MARK: - Design System (Teenage Engineering Inspired)
 
@@ -34,6 +35,11 @@ enum ViewMode: String, CaseIterable {
     case edit = "EDIT"
 }
 
+private struct MIDIPluginPresentation: Identifiable {
+    let id = UUID()
+    let viewController: UIViewController
+}
+
 // MARK: - Main Performance View
 
 struct PerformanceView: View {
@@ -51,6 +57,7 @@ struct PerformanceView: View {
     @State private var editingPreset: PerformanceSong?
     @State private var isChannelsLocked = false
     @State private var showingAIGenerator = false
+    @State private var midiPluginPresentation: MIDIPluginPresentation?
     @State private var isInitializing = true
     @AppStorage("performModeSplitRatio") private var splitRatio: Double = 0.6  // Presets take 60% by default
     @AppStorage("isPresetsOnlyMode") private var isPresetsOnlyMode = false  // Hide faders, show only presets
@@ -142,6 +149,12 @@ struct PerformanceView: View {
         }
         .sheet(isPresented: $showingAIGenerator) {
             AIPresetGeneratorView()
+        }
+        .sheet(item: $midiPluginPresentation, onDismiss: {
+            sessionStore.syncPluginStateFromAudioEngine()
+            sessionStore.saveCurrentSession()
+        }) { presentation in
+            PluginUIHostView(viewController: presentation.viewController)
         }
     }
     
@@ -491,6 +504,22 @@ struct PerformanceView: View {
 
     private func setupEngines() {
         midiEngine.setAudioEngine(audioEngine)
+        midiEngine.onPluginVisibilityRequested = { [weak audioEngine, weak sessionStore] channelId, pluginId, isVisible in
+            guard isVisible else {
+                midiPluginPresentation = nil
+                return
+            }
+            guard let audioEngine, let sessionStore,
+                  let channelIndex = sessionStore.currentSession.channels.firstIndex(where: { $0.id == channelId }),
+                  audioEngine.channelStrips.indices.contains(channelIndex),
+                  let effectIndex = sessionStore.currentSession.channels[channelIndex].effects.firstIndex(where: { $0.id == pluginId }) else { return }
+
+            audioEngine.channelStrips[channelIndex].getEffectViewController(at: effectIndex) { viewController in
+                if let viewController {
+                    midiPluginPresentation = MIDIPluginPresentation(viewController: viewController)
+                }
+            }
+        }
         configureRemoteHost()
 
         // Initialize currentBPM from active song if it has one
@@ -906,6 +935,8 @@ struct PerformanceView: View {
 
         // Remove from session config
         if index < sessionStore.currentSession.channels.count {
+            let channelId = sessionStore.currentSession.channels[index].id
+            sessionStore.removeControlBindings(channelId: channelId)
             sessionStore.currentSession.channels.remove(at: index)
             sessionStore.saveCurrentSession()
         }

@@ -488,6 +488,24 @@ final class MIDIEngine {
     @ObservationIgnored var onVolumeNoteControl: ((Int, Int, Int, String?) -> Void)? // (note, velocity, channel, sourceName) - for fader control
     @ObservationIgnored var onFaderControl: ((Int, Int, Int, String?) -> Void)? // (cc, value, channel, sourceName) - for fader control
 
+    // MARK: - Unified Control Binding Learn
+
+    var isControlBindingLearning = false
+    @ObservationIgnored var onControlBindingInputLearned: ((ControlMIDIInput) -> Void)?
+    @ObservationIgnored var onPluginVisibilityRequested: ((UUID, UUID, Bool) -> Void)?
+    @ObservationIgnored private var controlToggleStates: [UUID: Bool] = [:]
+    @ObservationIgnored private var controlInputHighStates: [UUID: Bool] = [:]
+
+    func startControlBindingLearn(_ completion: @escaping (ControlMIDIInput) -> Void) {
+        onControlBindingInputLearned = completion
+        isControlBindingLearning = true
+    }
+
+    func cancelControlBindingLearn() {
+        isControlBindingLearning = false
+        onControlBindingInputLearned = nil
+    }
+
     // MARK: - CoreMIDI
 
     @ObservationIgnored private var midiClient: MIDIClientRef = 0
@@ -1350,6 +1368,26 @@ final class MIDIEngine {
     private func processNoteOn(note: UInt8, velocity: UInt8, channel: UInt8, sourceName: String?) {
         let midiChannel = Int(channel) + 1  // Convert to 1-based
 
+        if isControlBindingLearning {
+            let input = ControlMIDIInput(messageType: .noteOn, number: Int(note), channel: midiChannel, sourceName: sourceName)
+            isControlBindingLearning = false
+            let completion = onControlBindingInputLearned
+            onControlBindingInputLearned = nil
+            completion?(input)
+            return
+        }
+
+        if applyControlBindings(
+            messageType: .noteOn,
+            number: Int(note),
+            rawValue: Int(velocity),
+            channel: midiChannel,
+            sourceName: sourceName,
+            isRelease: false
+        ) {
+            return
+        }
+
         // MIDI Learn mode - intercept note and call callback
         if isLearningMode {
             DispatchQueue.main.async { [weak self] in
@@ -1468,6 +1506,18 @@ final class MIDIEngine {
     }
     
     private func processNoteOff(note: UInt8, channel: UInt8, sourceName: String?) {
+        let midiChannel = Int(channel) + 1
+        if applyControlBindings(
+            messageType: .noteOn,
+            number: Int(note),
+            rawValue: 0,
+            channel: midiChannel,
+            sourceName: sourceName,
+            isRelease: true
+        ) {
+            return
+        }
+
         guard let audioEngine = audioEngine else { return }
 
         // If this note-off is from the ChordPad source, only match exact tracked keys.
@@ -1554,6 +1604,27 @@ final class MIDIEngine {
     
     private func processCC(cc: UInt8, value: UInt8, channel: UInt8, sourceName: String?) {
         let midiChannel = Int(channel) + 1
+
+        if isControlBindingLearning {
+            let input = ControlMIDIInput(messageType: .controlChange, number: Int(cc), channel: midiChannel, sourceName: sourceName)
+            isControlBindingLearning = false
+            let completion = onControlBindingInputLearned
+            onControlBindingInputLearned = nil
+            completion?(input)
+            return
+        }
+
+        if applyControlBindings(
+            messageType: .controlChange,
+            number: Int(cc),
+            rawValue: Int(value),
+            channel: midiChannel,
+            sourceName: sourceName,
+            isRelease: false
+        ) {
+            updateLastMessage("\(sourceName ?? "?"): CC \(cc) = \(value) ch \(channel + 1) [control]")
+            return
+        }
 
         // CC Learn mode - intercept CC and call callback
         if isCCLearningMode {
@@ -1768,6 +1839,114 @@ final class MIDIEngine {
 
         let src = sourceName ?? "?"
         updateLastMessage("\(src): CC \(cc) = \(value) ch \(channel + 1)")
+    }
+
+    // MARK: - Unified Control Binding Execution
+
+    /// Executes every action in the matching binding. Returning true means the MIDI
+    /// event is consumed and should not also be routed into an instrument.
+    private func applyControlBindings(
+        messageType: ControlMIDIMessageType,
+        number: Int,
+        rawValue: Int,
+        channel: Int,
+        sourceName: String?,
+        isRelease: Bool
+    ) -> Bool {
+        let bindings = SessionStore.shared.controlBindings.filter { binding in
+            binding.isEnabled &&
+            binding.input.messageType == messageType &&
+            binding.input.number == number &&
+            (binding.input.channel == nil || binding.input.channel == channel) &&
+            (binding.input.sourceName == nil || binding.input.sourceName == sourceName)
+        }
+
+        guard !bindings.isEmpty else { return false }
+
+        for binding in bindings {
+            guard let value = controlValue(for: binding, rawValue: rawValue, isRelease: isRelease) else { continue }
+            execute(binding.actions, normalizedValue: value)
+        }
+
+        return bindings.contains(where: \.consumesEvent)
+    }
+
+    private func controlValue(for binding: ControlBinding, rawValue: Int, isRelease: Bool) -> Float? {
+        switch binding.behavior {
+        case .continuous:
+            guard !isRelease else { return nil }
+            return Float(min(max(rawValue, 0), 127)) / 127
+
+        case .trigger:
+            let threshold = binding.input.messageType == .controlChange ? 63 : 0
+            guard !isRelease, rawValue > threshold else { return nil }
+            return 1
+
+        case .momentary:
+            if binding.input.messageType == .controlChange {
+                return rawValue > 63 ? 1 : 0
+            }
+            return isRelease ? 0 : 1
+
+        case .toggle:
+            guard !isRelease else { return nil }
+            if binding.input.messageType == .controlChange {
+                let isHigh = rawValue > 63
+                let wasHigh = controlInputHighStates[binding.id, default: false]
+                controlInputHighStates[binding.id] = isHigh
+                guard isHigh && !wasHigh else { return nil }
+            }
+            let newValue = !controlToggleStates[binding.id, default: false]
+            controlToggleStates[binding.id] = newValue
+            return newValue ? 1 : 0
+        }
+    }
+
+    private func execute(_ actions: [ControlAction], normalizedValue: Float) {
+        guard let audioEngine else { return }
+        let sessionStore = SessionStore.shared
+
+        for action in actions {
+            guard let channelIndex = sessionStore.currentSession.channels.firstIndex(where: { $0.id == action.channelId }),
+                  audioEngine.channelStrips.indices.contains(channelIndex) else { continue }
+
+            let channel = audioEngine.channelStrips[channelIndex]
+            let value = action.isInverted ? 1 - normalizedValue : normalizedValue
+
+            switch action.kind {
+            case .channelVolume:
+                channel.volume = value
+                sessionStore.currentSession.channels[channelIndex].volume = value
+
+            case .channelMute:
+                let muted = value >= 0.5
+                channel.isMuted = muted
+                sessionStore.currentSession.channels[channelIndex].isMuted = muted
+
+            case .pluginParameter:
+                guard let pluginId = action.pluginId,
+                      let effectIndex = sessionStore.currentSession.channels[channelIndex].effects.firstIndex(where: { $0.id == pluginId }) else { continue }
+                _ = channel.setEffectParameter(
+                    at: effectIndex,
+                    keyPath: action.parameterKeyPath,
+                    fallbackAddress: action.parameterAddress,
+                    normalizedValue: value,
+                    outputMinimum: action.outputMinimum,
+                    outputMaximum: action.outputMaximum
+                )
+
+            case .pluginEnabled:
+                guard let pluginId = action.pluginId,
+                      let effectIndex = sessionStore.currentSession.channels[channelIndex].effects.firstIndex(where: { $0.id == pluginId }) else { continue }
+                let enabled = value >= 0.5
+                channel.setEffectBypassed(!enabled, at: effectIndex)
+                sessionStore.currentSession.channels[channelIndex].effects[effectIndex].isBypassed = !enabled
+
+            case .pluginVisibility:
+                guard let pluginId = action.pluginId else { continue }
+                onPluginVisibilityRequested?(action.channelId, pluginId, value >= 0.5)
+            }
+        }
     }
 
     private func processPitchBend(lsb: UInt8, msb: UInt8, channel: UInt8, sourceName: String?) {

@@ -13,6 +13,7 @@ struct ChannelDetailView: View {
 
     @State private var showingInstrumentBrowser = false
     @State private var showingEffectBrowser = false
+    @State private var effectControlTarget: MacEffectControlTarget?
 
     private let midiChannelOptions = [0] + Array(1...16)
 
@@ -48,6 +49,15 @@ struct ChannelDetailView: View {
         }
         .frame(minWidth: 320, idealWidth: 380)
         .background(colors.windowBackground)
+        .sheet(item: $effectControlTarget) { target in
+            MacEffectControlBindingEditor(
+                midiEngine: midiEngine,
+                channelId: config.id,
+                pluginId: target.plugin.id,
+                pluginName: target.plugin.name,
+                parameters: channel.getEffectParameters(at: target.effectIndex)
+            )
+        }
     }
 
     private var audioInputSection: some View {
@@ -241,8 +251,26 @@ struct ChannelDetailView: View {
                         effectIndex: index
                     )
 
+                    Button("Control", systemImage: "slider.horizontal.3") {
+                        guard config.effects.indices.contains(index) else { return }
+                        effectControlTarget = MacEffectControlTarget(effectIndex: index, plugin: config.effects[index])
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(colors.accent)
+                    .help("Map MIDI control and bundled actions")
+
                     // Remove button
-                    Button(action: { channel.removeEffect(at: index) }) {
+                    Button(action: {
+                        if config.effects.indices.contains(index) {
+                            let pluginId = config.effects[index].id
+                            MacSessionStore.shared.removeControlBindings(channelId: config.id, pluginId: pluginId)
+                            midiEngine.controlBindings = MacSessionStore.shared.controlBindings
+                            config.effects.remove(at: index)
+                        }
+                        channel.removeEffect(at: index)
+                        MacSessionStore.shared.saveCurrentSession()
+                    }) {
                         Image(systemName: "xmark")
                             .font(TEFonts.mono(10, weight: .bold))
                             .foregroundColor(colors.error)
@@ -458,6 +486,203 @@ struct ChannelDetailView: View {
         } else {
             return "C"
         }
+    }
+}
+
+private struct MacEffectControlTarget: Identifiable {
+    let effectIndex: Int
+    let plugin: MacPluginConfiguration
+    var id: UUID { plugin.id }
+}
+
+private struct MacEffectControlBindingEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var midiEngine: MacMIDIEngine
+
+    @State private var input = ControlMIDIInput(messageType: .controlChange, number: 74, channel: nil, sourceName: nil)
+    @State private var behavior: ControlBindingBehavior = .continuous
+    @State private var selectedParameterKeyPath: String?
+    @State private var controlsEffectEnabled = false
+    @State private var controlsPluginVisibility = false
+    @State private var consumesEvent = true
+    @State private var outputMinimum: Float = 0
+    @State private var outputMaximum: Float = 1
+
+    let channelId: UUID
+    let pluginId: UUID
+    let pluginName: String
+    let parameters: [MacAUParameterInfo]
+
+    private var existingBindings: [ControlBinding] {
+        midiEngine.controlBindings.filter { binding in
+            binding.actions.contains { $0.pluginId == pluginId }
+        }
+    }
+
+    private var selectedParameter: MacAUParameterInfo? {
+        parameters.first { $0.keyPath == selectedParameterKeyPath }
+    }
+
+    private var canSave: Bool {
+        selectedParameter != nil || controlsEffectEnabled || controlsPluginVisibility
+    }
+
+    init(
+        midiEngine: MacMIDIEngine,
+        channelId: UUID,
+        pluginId: UUID,
+        pluginName: String,
+        parameters: [MacAUParameterInfo]
+    ) {
+        self.midiEngine = midiEngine
+        self.channelId = channelId
+        self.pluginId = pluginId
+        self.pluginName = pluginName
+        self.parameters = parameters
+        let preferred = parameters.first { parameter in
+            ["mix", "wet", "dry/wet", "blend"].contains { parameter.displayName.localizedCaseInsensitiveContains($0) }
+        }
+        _selectedParameterKeyPath = State(initialValue: preferred?.keyPath)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("MIDI Input") {
+                    Picker("Message", selection: $input.messageType) {
+                        ForEach(ControlMIDIMessageType.allCases, id: \.self) { type in
+                            Text(type.displayName).tag(type)
+                        }
+                    }
+
+                    Stepper("\(input.messageType == .controlChange ? "CC" : "Note") \(input.number)", value: $input.number, in: 0...127)
+
+                    Picker("Behavior", selection: $behavior) {
+                        ForEach(ControlBindingBehavior.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+
+                    Button(midiEngine.isControlBindingLearning ? "Move a control…" : "Learn MIDI", action: startLearning)
+                        .disabled(midiEngine.isControlBindingLearning)
+
+                    Text(input.displayName + (input.sourceName.map { " · \($0)" } ?? ""))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Actions") {
+                    Picker("Effect parameter", selection: $selectedParameterKeyPath) {
+                        Text("None").tag(String?.none)
+                        ForEach(parameters) { parameter in
+                            Text(parameter.displayName).tag(Optional(parameter.keyPath))
+                        }
+                    }
+
+                    if selectedParameter != nil {
+                        HStack {
+                            Text("Minimum")
+                            Slider(value: $outputMinimum, in: 0...1)
+                            Text(outputMinimum, format: .percent.precision(.fractionLength(0)))
+                                .monospacedDigit()
+                        }
+                        HStack {
+                            Text("Maximum")
+                            Slider(value: $outputMaximum, in: 0...1)
+                            Text(outputMaximum, format: .percent.precision(.fractionLength(0)))
+                                .monospacedDigit()
+                        }
+                    }
+
+                    Toggle("Also control effect enabled", isOn: $controlsEffectEnabled)
+                    Toggle("Also show / hide plugin", isOn: $controlsPluginVisibility)
+                    Toggle("Consume MIDI event", isOn: $consumesEvent)
+                }
+
+                if !existingBindings.isEmpty {
+                    Section("Existing") {
+                        ForEach(existingBindings) { binding in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(binding.name)
+                                    Text("\(binding.input.displayName) · \(binding.actions.count) actions")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("Delete", systemImage: "trash", role: .destructive) {
+                                    midiEngine.removeControlBinding(id: binding.id)
+                                }
+                                .labelStyle(.iconOnly)
+                            }
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("\(pluginName) Control")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        midiEngine.cancelControlBindingLearn()
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: saveBinding)
+                        .disabled(!canSave)
+                }
+            }
+            .frame(minWidth: 520, minHeight: 560)
+            .onChange(of: input.messageType) { _, messageType in
+                behavior = messageType == .controlChange ? .continuous : .toggle
+            }
+            .onDisappear {
+                midiEngine.cancelControlBindingLearn()
+            }
+        }
+    }
+
+    private func startLearning() {
+        midiEngine.startControlBindingLearn { learnedInput in
+            input = learnedInput
+            behavior = learnedInput.messageType == .controlChange ? .continuous : .toggle
+        }
+    }
+
+    private func saveBinding() {
+        var actions: [ControlAction] = []
+
+        if let parameter = selectedParameter {
+            actions.append(ControlAction(
+                kind: .pluginParameter,
+                channelId: channelId,
+                pluginId: pluginId,
+                parameterKeyPath: parameter.keyPath,
+                parameterAddress: parameter.address,
+                displayName: parameter.displayName,
+                outputMinimum: min(outputMinimum, outputMaximum),
+                outputMaximum: max(outputMinimum, outputMaximum)
+            ))
+        }
+
+        if controlsEffectEnabled {
+            actions.append(ControlAction(kind: .pluginEnabled, channelId: channelId, pluginId: pluginId, displayName: "\(pluginName) Enabled"))
+        }
+
+        if controlsPluginVisibility {
+            actions.append(ControlAction(kind: .pluginVisibility, channelId: channelId, pluginId: pluginId, displayName: "Show \(pluginName)"))
+        }
+
+        let targetName = selectedParameter?.displayName ?? (controlsEffectEnabled ? "Enabled" : "Window")
+        midiEngine.upsertControlBinding(ControlBinding(
+            name: "\(pluginName) · \(targetName)",
+            input: input,
+            behavior: behavior,
+            actions: actions,
+            consumesEvent: consumesEvent
+        ))
+        dismiss()
     }
 }
 
