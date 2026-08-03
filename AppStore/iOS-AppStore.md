@@ -12,12 +12,12 @@
 
 ## Description (4000 characters max)
 
-Keyframe is a professional music performance app for live musicians. Whether you're on stage or in the studio, Keyframe gives you everything you need: a powerful synth host, intelligent MIDI processing, and seamless control of your Mac setup.
+Keyframe is a professional music performance app for live musicians. Whether you're on stage or in the studio, Keyframe gives you a powerful synth host, intelligent MIDI processing, and seamless control of another Keyframe rig.
 
 **TWO POWERFUL MODES**
 
 • Local Mode: A complete standalone performance engine
-• Remote Mode: Control your Mac Keyframe session wirelessly
+• Remote Mode: Control Keyframe on Mac, iPhone, or iPad wirelessly
 
 **LOCAL MODE - YOUR PORTABLE STUDIO**
 
@@ -32,14 +32,15 @@ Transform your iPhone or iPad into a professional performance instrument:
 • Full session save and restore
 • Background audio for uninterrupted performance
 
-**REMOTE MODE - CONTROL YOUR MAC**
+**REMOTE MODE - CONTROL THE RIG IN FRONT OF YOU**
 
-Connect to Keyframe Mac over your local network:
+Connect to Keyframe on Mac or to an iPhone/iPad running Local Mode over your local network:
 
 • Automatic discovery via Bonjour
-• One-tap preset and section selection
-• Real-time sync of active section
-• Bi-directional master volume control
+• One-tap song, preset, and section selection
+• Two-way sync of the active scene and performance state
+• Two-way layer volume, pan, and mute control for iOS hosts
+• Two-way master volume control
 • Auto-reconnect on network changes
 
 **INTELLIGENT MIDI PROCESSING**
@@ -86,7 +87,7 @@ synth,midi,live,performance,auv3,host,controller,looper,scale,chord,music,keyboa
 
 ---
 
-## What's New (Version 1.1)
+## Version 1.0 Release Highlights
 
 **MIDI Freeze/Hold**
 • Sustain active notes indefinitely with your pedal
@@ -107,7 +108,7 @@ synth,midi,live,performance,auv3,host,controller,looper,scale,chord,music,keyboa
 
 ## Promotional Text (170 characters max)
 
-Transform your iPad into a professional live performance instrument. Host synths, filter scales, generate chords, and control your Mac—all in one elegant app.
+Turn iPhone or iPad into a live performance instrument—or keep it close as a two-way remote for your Keyframe rig. Synths, MIDI, scenes, and mixing in one app.
 
 ---
 
@@ -128,12 +129,12 @@ Transform your iPad into a professional live performance instrument. Host synths
 ---
 
 ## Support URL
-[Your support URL]
+`https://YOUR-PRODUCTION-DOMAIN/support`
 
 ---
 
 ## Privacy Policy URL
-[Your privacy policy URL]
+`https://YOUR-PRODUCTION-DOMAIN/privacy`
 
 ---
 
@@ -141,13 +142,18 @@ Transform your iPad into a professional live performance instrument. Host synths
 
 1. **Local Mode Mixer** - Show 4-channel mixer with instruments loaded
 2. **Perform Mode** - Show preset grid in performance view
-3. **Remote Mode Connected** - Show connected to Mac with presets synced
+3. **Remote Mode Connected** - Show an iPhone controlling a Mac or iPad with scene and mixer state synced
 4. **Scale/Chord Settings** - Show scale filter and chord configuration
 5. **Looper in Action** - Show looper recording indicator
 6. **Settings** - Show MIDI and audio configuration
 
-**iPhone Screenshots:** 6.7" (1290 x 2796), 6.5" (1284 x 2778), 5.5" (1242 x 2208)
-**iPad Screenshots:** 12.9" (2048 x 2732)
+**Current required screenshot sets:**
+
+- iPhone 6.9-inch: 1260 × 2736, 1290 × 2796, or 1320 × 2868 portrait (landscape equivalents are also accepted)
+- iPad 13-inch: 2064 × 2752 or 2048 × 2732 portrait (landscape equivalents are also accepted)
+- Upload one to ten screenshots for each required device family; screenshots cannot contain transparency
+
+Older device-size sets are optional when the current required sets are supplied. Recheck [Apple's screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/) immediately before upload.
 
 ---
 
@@ -174,7 +180,7 @@ Free or $X.99 (your choice)
 ## Notes for Review
 
 - The app uses background audio for uninterrupted playback during performance
-- Network access is used for Remote Mode (connecting to Mac Keyframe) and Network MIDI
+- Network access is used for Remote Mode (connecting directly to Keyframe on Mac, iPhone, or iPad) and Network MIDI
 - Bluetooth is used for wireless MIDI controllers (like CME WIDI)
 - No account creation required
 - No ads or tracking

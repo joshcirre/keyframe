@@ -106,7 +106,7 @@ With two filter modes:
 - Apple Silicon or Intel
 
 ### iOS App
-- iOS 15.0 or later
+- iOS 18.0 or later
 - iPhone or iPad
 
 ## Building
@@ -125,6 +125,15 @@ open Keyframe.xcodeproj
 # Build and run in Xcode
 ```
 
+### Website
+```bash
+cd website
+npm install
+npm run dev
+```
+
+The marketing site is a separate Next.js package designed for a standard Node host. See [`website/README.md`](website/README.md) for release-link configuration and Laravel Cloud commands.
+
 ## Project Structure
 
 ```
@@ -140,6 +149,12 @@ keyframe/
 │   ├── Models/                  # Session, PerformanceSong models
 │   ├── Network/                 # Bonjour browser, TCP client
 │   └── Views/                   # SwiftUI views
+│
+├── website/                     # Next.js marketing and release site
+│   ├── app/                     # Pages, metadata, privacy, support
+│   └── lib/                     # Site and release configuration
+│
+├── AppStore/                    # Release metadata and checklists
 │
 └── README.md
 ```

@@ -38,10 +38,12 @@ App Group: group.com.keyframe.mki (for shared data)
 - [ ] Set pre-order if desired
 
 ### 4. App Privacy
-- [ ] Privacy Policy URL (required)
+- [ ] Deploy the website to the production domain
+- [ ] Privacy Policy URL: `https://YOUR-PRODUCTION-DOMAIN/privacy` (required)
+- [ ] Add the same privacy-policy link inside the iOS app in an easily accessible location
 - [ ] Data collection:
-  - [ ] "Data Not Collected" (if no analytics)
-  - [ ] OR specify: Audio Data (for looper, not shared)
+  - [ ] Confirm the shipped app and every third-party SDK still match `PrivacyInfo.xcprivacy`
+  - [ ] Select "No, we do not collect data from this app" while all audio, MIDI, session, and performance data remains on-device
 
 ### 5. Version Information
 - [ ] Version number: 1.0 (or 1.1)
@@ -49,19 +51,20 @@ App Group: group.com.keyframe.mki (for shared data)
 - [ ] What's New text (for updates)
 - [ ] Description (from iOS-AppStore.md)
 - [ ] Keywords (100 chars max)
-- [ ] Support URL
-- [ ] Marketing URL (optional)
+- [ ] Support URL: `https://YOUR-PRODUCTION-DOMAIN/support`
+- [ ] Confirm the support page contains working contact information before submission
+- [ ] Marketing URL: `https://YOUR-PRODUCTION-DOMAIN` (optional)
 
 ### 6. Screenshots (Required)
 | Device | Size | Required |
 |--------|------|----------|
-| iPhone 6.7" | 1290 x 2796 | Yes |
-| iPhone 6.5" | 1284 x 2778 | Yes |
-| iPhone 5.5" | 1242 x 2208 | Optional |
-| iPad Pro 12.9" | 2048 x 2732 | Yes (if iPad app) |
+| iPhone 6.9" | 1260 x 2736, 1290 x 2796, or 1320 x 2868 | Yes |
+| iPhone 6.5" | 1284 x 2778 or 1242 x 2688 | Only if 6.9" isn't supplied |
+| iPad 13" | 2064 x 2752 or 2048 x 2732 | Yes |
 
-- [ ] Upload 3-10 screenshots per device
+- [ ] Upload 1-10 screenshots per required device family, with no alpha channel
 - [ ] App preview video (optional, 15-30 seconds)
+- [ ] Recheck [Apple's screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/) before upload
 
 ### 7. Build Upload
 ```bash
@@ -82,7 +85,7 @@ App Group: group.com.keyframe.mki (for shared data)
 - [ ] Notes for review:
   ```
   - Background audio is used for uninterrupted playback during performance
-  - Network access is for Remote Mode (local network only, no internet)
+  - Network access is for Remote Mode between Keyframe devices (local network only, no internet)
   - Bluetooth is for wireless MIDI controllers
   - No account required
   ```
@@ -90,7 +93,7 @@ App Group: group.com.keyframe.mki (for shared data)
 ### 9. Submit
 - [ ] All fields complete
 - [ ] Submit for review
-- [ ] Expected review time: 24-48 hours
+- [ ] Choose manual, automatic, or scheduled release after approval
 
 ---
 
@@ -190,7 +193,11 @@ xcrun notarytool submit YourApp.zip --apple-id YOUR_ID --team-id TEAM_ID --passw
 ## Marketing Checklist
 
 ### Launch Preparation
-- [ ] Website/landing page
+- [x] Website/landing page package created (`website/`)
+- [ ] Production domain and Laravel Cloud environment configured
+- [ ] Signed and notarized Mac artifact published
+- [ ] `NEXT_PUBLIC_MAC_DOWNLOAD_URL` points to that artifact
+- [ ] Add `NEXT_PUBLIC_IOS_APP_STORE_URL` after the App Store product page is available
 - [ ] Press kit with screenshots
 - [ ] Social media announcement
 - [ ] Demo video for YouTube

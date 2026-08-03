@@ -1,3 +1,14 @@
 # macOS junk
 .DS_Store
 **/.DS_Store
+
+# Website
+website/node_modules/
+website/.next/
+website/out/
+website/output/
+website/.env
+website/.env.*
+!website/.env.example
+website/npm-debug.log*
+website/*.tsbuildinfo
