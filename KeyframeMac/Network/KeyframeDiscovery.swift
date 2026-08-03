@@ -30,6 +30,9 @@ final class KeyframeDiscovery: ObservableObject {
 
     /// Called when iOS changes master volume
     var onMasterVolumeChanged: ((Float) -> Void)?
+    var onChannelVolumeChanged: ((UUID, Float) -> Void)?
+    var onChannelPanChanged: ((UUID, Float) -> Void)?
+    var onChannelMuteChanged: ((UUID, Bool) -> Void)?
 
     // MARK: - Private State
 
@@ -216,12 +219,32 @@ final class KeyframeDiscovery: ObservableObject {
                 onMasterVolumeChanged?(Float(value))
             }
 
+        case "setChannelVolume":
+            if let channelID = channelID(from: json), let value = json["value"] as? Double {
+                onChannelVolumeChanged?(channelID, Float(value))
+            }
+
+        case "setChannelPan":
+            if let channelID = channelID(from: json), let value = json["value"] as? Double {
+                onChannelPanChanged?(channelID, Float(value))
+            }
+
+        case "setChannelMuted":
+            if let channelID = channelID(from: json), let value = json["value"] as? Bool {
+                onChannelMuteChanged?(channelID, value)
+            }
+
         case "ping":
             sendMessage(["response": "pong"], to: connection)
 
         default:
             print("KeyframeDiscovery: Unknown command - \(command)")
         }
+    }
+
+    private func channelID(from json: [String: Any]) -> UUID? {
+        guard let id = json["channelID"] as? String else { return nil }
+        return UUID(uuidString: id)
     }
 
     // MARK: - Sending Messages
@@ -246,11 +269,14 @@ final class KeyframeDiscovery: ObservableObject {
         let store = MacSessionStore.shared
         let (presetData, activeIndex) = buildPresetData(store: store)
 
-        let message: [String: Any] = [
+        var message: [String: Any] = [
             "presets": presetData,
-            "activePresetIndex": activeIndex as Any,
+            "channels": buildChannelData(store: store),
             "masterVolume": Double(store.currentSession.masterVolume)
         ]
+        if let activeIndex {
+            message["activePresetIndex"] = activeIndex
+        }
 
         sendMessage(message, to: connection)
         print("KeyframeDiscovery: Sent \(presetData.count) sections to iOS")
@@ -263,14 +289,33 @@ final class KeyframeDiscovery: ObservableObject {
         let store = MacSessionStore.shared
         let (presetData, activeIndex) = buildPresetData(store: store)
 
-        let message: [String: Any] = [
+        var message: [String: Any] = [
             "presets": presetData,
-            "activePresetIndex": activeIndex as Any,
+            "channels": buildChannelData(store: store),
             "masterVolume": Double(store.currentSession.masterVolume)
         ]
+        if let activeIndex {
+            message["activePresetIndex"] = activeIndex
+        }
 
         for connection in connections where connection.state == .ready {
             sendMessage(message, to: connection)
+        }
+    }
+
+    private func buildChannelData(store: MacSessionStore) -> [[String: Any]] {
+        let strips = MacAudioEngine.shared.channelStrips
+        return store.currentSession.channels.enumerated().map { index, configuration in
+            let strip = strips.indices.contains(index) ? strips[index] : nil
+            return [
+                "id": configuration.id.uuidString,
+                "name": configuration.name,
+                "kind": configuration.kind.rawValue,
+                "volume": Double(strip?.volume ?? configuration.volume),
+                "pan": Double(strip?.pan ?? configuration.pan),
+                "isMuted": strip?.isMuted ?? configuration.isMuted,
+                "order": index
+            ]
         }
     }
 
@@ -335,6 +380,15 @@ final class KeyframeDiscovery: ObservableObject {
     /// Broadcast master volume change
     func broadcastMasterVolume(_ volume: Float) {
         let message: [String: Any] = ["masterVolume": Double(volume)]
+        for connection in connections where connection.state == .ready {
+            sendMessage(message, to: connection)
+        }
+    }
+
+    func broadcastChannelState() {
+        let message: [String: Any] = [
+            "channels": buildChannelData(store: MacSessionStore.shared)
+        ]
         for connection in connections where connection.state == .ready {
             sendMessage(message, to: connection)
         }

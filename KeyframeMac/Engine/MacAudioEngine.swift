@@ -44,12 +44,14 @@ final class MacAudioEngine: ObservableObject {
 
     /// Callback when master volume changes (for iOS sync)
     var onMasterVolumeChanged: ((Float) -> Void)?
+    var onChannelStateChanged: (() -> Void)?
 
     @Published var masterVolume: Float = 1.0 {
         didSet {
             masterMixer.outputVolume = masterVolume
-            // Broadcast to iOS (if callback is set)
-            onMasterVolumeChanged?(masterVolume)
+            if oldValue != masterVolume {
+                onMasterVolumeChanged?(masterVolume)
+            }
         }
     }
 
@@ -65,6 +67,19 @@ final class MacAudioEngine: ObservableObject {
 
     private let engine = AVAudioEngine()
     private let masterMixer = AVAudioMixerNode()
+
+    var inputNode: AVAudioInputNode { engine.inputNode }
+
+    var currentInputName: String {
+        guard let deviceID = defaultInputDeviceID(), let name = getDeviceName(deviceID) else {
+            return "System Input"
+        }
+        return name
+    }
+
+    var inputChannelCount: Int {
+        Int(engine.inputNode.outputFormat(forBus: 0).channelCount)
+    }
 
     // MARK: - Channel Strips
 
@@ -185,11 +200,22 @@ final class MacAudioEngine: ObservableObject {
 
     // MARK: - Channel Management
 
-    func addChannel() -> MacChannelStrip? {
-        // AVAudioEngine can attach nodes while running - no need to stop
+    func addChannel(kind: MacChannelKind = .instrument) -> MacChannelStrip? {
+        let wasRunning = isRunning
+        if kind == .audioInput && wasRunning { stop() }
+
         let channel = MacChannelStrip(engine: engine, index: channelStrips.count)
+        channel.kind = kind
+        channel.onMixerStateChanged = { [weak self] in
+            self?.onChannelStateChanged?()
+        }
         channelStrips.append(channel)
         connectChannelToMaster(channel)
+        if kind == .audioInput {
+            channel.useAudioInput(engine.inputNode)
+        }
+
+        if kind == .audioInput && wasRunning { start() }
         return channel
     }
 
@@ -199,10 +225,9 @@ final class MacAudioEngine: ObservableObject {
 
         var newChannels: [MacChannelStrip] = []
         for _ in 0..<count {
-            let channel = MacChannelStrip(engine: engine, index: channelStrips.count)
-            channelStrips.append(channel)
-            connectChannelToMaster(channel)
-            newChannels.append(channel)
+            if let channel = addChannel() {
+                newChannels.append(channel)
+            }
         }
 
         print("MacAudioEngine: Added \(count) channels in batch")
@@ -251,14 +276,14 @@ final class MacAudioEngine: ObservableObject {
 
         // Ensure we have enough channel strips
         while channelStrips.count < configs.count {
-            _ = addChannel()
+            _ = addChannel(kind: configs[channelStrips.count].kind)
         }
 
         // Count total plugins to load
         var totalPlugins = 0
         for (index, config) in configs.enumerated() {
             guard index < channelStrips.count else { continue }
-            if config.instrument != nil { totalPlugins += 1 }
+            if config.kind == .instrument, config.instrument != nil { totalPlugins += 1 }
             totalPlugins += config.effects.count
         }
 
@@ -306,8 +331,13 @@ final class MacAudioEngine: ObservableObject {
         for (index, config) in configs.enumerated() {
             guard index < channelStrips.count else { continue }
             let strip = channelStrips[index]
+            if config.kind == .audioInput {
+                strip.useAudioInput(engine.inputNode)
+            } else if strip.kind != .instrument {
+                strip.useInstrumentSource()
+            }
 
-            if let instrumentConfig = config.instrument {
+            if config.kind == .instrument, let instrumentConfig = config.instrument {
                 DispatchQueue.main.async {
                     self.restorationProgress = "Loading \(instrumentConfig.name)..."
                 }
@@ -595,6 +625,25 @@ final class MacAudioEngine: ObservableObject {
             return name as String
         }
         return nil
+    }
+
+    private func defaultInputDeviceID() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size,
+            &deviceID
+        )
+        return status == noErr && deviceID != 0 ? deviceID : nil
     }
 
     private func getDeviceUID(_ deviceID: AudioDeviceID) -> String? {

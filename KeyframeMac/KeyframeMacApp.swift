@@ -50,6 +50,22 @@ struct KeyframeMacApp: App {
             }
         }
 
+        MacAudioEngine.shared.onChannelStateChanged = {
+            let engine = MacAudioEngine.shared
+            let store = MacSessionStore.shared
+
+            for (index, strip) in engine.channelStrips.enumerated()
+                where store.currentSession.channels.indices.contains(index) {
+                store.currentSession.channels[index].volume = strip.volume
+                store.currentSession.channels[index].pan = strip.pan
+                store.currentSession.channels[index].isMuted = strip.isMuted
+            }
+            if !store.suppressBroadcast {
+                store.saveCurrentSession()
+                KeyframeDiscovery.shared.broadcastChannelState()
+            }
+        }
+
         // Set up AU state sync callback - captures channel state and instrument/effect presets before saving
         MacSessionStore.shared.onSyncAUState = {
             let audioEngine = MacAudioEngine.shared
@@ -289,6 +305,34 @@ struct KeyframeMacApp: App {
                 MacAudioEngine.shared.masterVolume = volume
                 MacSessionStore.shared.currentSession.masterVolume = volume
                 MacSessionStore.shared.suppressBroadcast = false
+            }
+        }
+
+
+        KeyframeDiscovery.shared.onChannelVolumeChanged = { channelID, volume in
+            DispatchQueue.main.async {
+                let store = MacSessionStore.shared
+                guard let index = store.currentSession.channels.firstIndex(where: { $0.id == channelID }),
+                      MacAudioEngine.shared.channelStrips.indices.contains(index) else { return }
+                MacAudioEngine.shared.channelStrips[index].volume = min(max(volume, 0), 1)
+            }
+        }
+
+        KeyframeDiscovery.shared.onChannelPanChanged = { channelID, pan in
+            DispatchQueue.main.async {
+                let store = MacSessionStore.shared
+                guard let index = store.currentSession.channels.firstIndex(where: { $0.id == channelID }),
+                      MacAudioEngine.shared.channelStrips.indices.contains(index) else { return }
+                MacAudioEngine.shared.channelStrips[index].pan = min(max(pan, -1), 1)
+            }
+        }
+
+        KeyframeDiscovery.shared.onChannelMuteChanged = { channelID, isMuted in
+            DispatchQueue.main.async {
+                let store = MacSessionStore.shared
+                guard let index = store.currentSession.channels.firstIndex(where: { $0.id == channelID }),
+                      MacAudioEngine.shared.channelStrips.indices.contains(index) else { return }
+                MacAudioEngine.shared.channelStrips[index].isMuted = isMuted
             }
         }
 
@@ -532,11 +576,18 @@ struct KeyframeMacApp: App {
 
     private func restoreSession() {
         let session = sessionStore.currentSession
+        let wasSuppressingBroadcasts = sessionStore.suppressBroadcast
+        sessionStore.suppressBroadcast = true
+        defer {
+            sessionStore.suppressBroadcast = wasSuppressingBroadcasts
+            sessionStore.saveCurrentSession()
+            KeyframeDiscovery.shared.broadcastState()
+        }
 
         // Count total plugins for progress tracking
         var totalPlugins = 0
         for config in session.channels {
-            if config.instrument != nil { totalPlugins += 1 }
+            if config.kind == .instrument, config.instrument != nil { totalPlugins += 1 }
             totalPlugins += config.effects.count
         }
 
@@ -570,13 +621,22 @@ struct KeyframeMacApp: App {
             }
         }
 
-        // Ensure we have enough channels (batch creation for efficiency)
-        audioEngine.ensureChannelCount(session.channels.count)
+        // Ensure channel kinds are correct before restoring signal sources.
+        while audioEngine.channelStrips.count < session.channels.count {
+            let kind = session.channels[audioEngine.channelStrips.count].kind
+            _ = audioEngine.addChannel(kind: kind)
+        }
 
         // Configure channel strips from session
         for (index, config) in session.channels.enumerated() {
             guard index < audioEngine.channelStrips.count else { continue }
             let channel = audioEngine.channelStrips[index]
+
+            if config.kind == .audioInput {
+                channel.useAudioInput(audioEngine.inputNode)
+            } else if channel.kind != .instrument {
+                channel.useInstrumentSource()
+            }
 
             // Apply channel configuration
             channel.midiChannel = config.midiChannel
@@ -588,7 +648,7 @@ struct KeyframeMacApp: App {
             channel.isMuted = config.isMuted
 
             // Load instrument if configured
-            if let instrument = config.instrument {
+            if config.kind == .instrument, let instrument = config.instrument {
                 audioEngine.setRestorationState(true, progress: "Loading \(instrument.name)...")
 
                 channel.loadInstrument(instrument.audioComponentDescription) { success, error in

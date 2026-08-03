@@ -12,11 +12,13 @@ final class MacChannelStrip: ObservableObject, Identifiable {
     let id = UUID()
     var index: Int
     var name: String
+    @Published var kind: MacChannelKind = .instrument
 
     // MARK: - Audio Nodes
 
     private weak var engine: AVAudioEngine?
     private let mixer = AVAudioMixerNode()
+    private var audioInputNode: AVAudioNode?
 
     /// The instrument AU (synthesizer/sampler)
     private(set) var instrument: AVAudioUnit? {
@@ -41,22 +43,26 @@ final class MacChannelStrip: ObservableObject, Identifiable {
             if !isMuted {
                 mixer.outputVolume = pow(volume, 2.2)
             }
+            if oldValue != volume { onMixerStateChanged?() }
         }
     }
 
     @Published var pan: Float = 0.0 {
         didSet {
             mixer.pan = pan
+            if oldValue != pan { onMixerStateChanged?() }
         }
     }
 
     @Published var isMuted: Bool = false {
         didSet {
             mixer.outputVolume = isMuted ? 0 : pow(volume, 2.2)
+            if oldValue != isMuted { onMixerStateChanged?() }
         }
     }
 
     @Published var isSoloed: Bool = false
+    var onMixerStateChanged: (() -> Void)?
 
     // MARK: - MIDI Settings
 
@@ -272,6 +278,32 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         MacAudioEngine.shared.ensureChannelConnections()
     }
 
+    /// Route the Mac's current hardware input through this strip and its effects.
+    func useAudioInput(_ inputNode: AVAudioNode) {
+        kind = .audioInput
+        audioInputNode = inputNode
+
+        if instrument != nil {
+            unloadInstrument()
+        }
+
+        midiSourceName = nil
+        midiChannel = 0
+        scaleFilterEnabled = false
+        isChordPadTarget = false
+        installMeteringTapIfNeeded()
+        rebuildAudioChain()
+    }
+
+    func useInstrumentSource() {
+        kind = .instrument
+        audioInputNode = nil
+        if instrument == nil {
+            removeMeteringTap()
+        }
+        rebuildAudioChain()
+    }
+
     // MARK: - Effects Chain
 
     func addEffect(_ description: AudioComponentDescription, completion: @escaping (Bool, Error?) -> Void) {
@@ -361,6 +393,9 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         }
 
         // Disconnect all existing connections
+        if kind == .audioInput, let audioInputNode {
+            engine.disconnectNodeOutput(audioInputNode)
+        }
         if let instrument = instrument {
             engine.disconnectNodeOutput(instrument)
         }
@@ -372,22 +407,33 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         let format = engine.outputNode.inputFormat(forBus: 0)
         print("MacChannelStrip \(index): rebuildAudioChain with format: \(format.sampleRate)Hz, \(format.channelCount)ch")
 
-        // Build the chain: Instrument -> Effects -> Mixer
-        var previousNode: AVAudioNode? = instrument
+        // Build the chain: source (instrument or hardware input) -> effects -> mixer
+        var previousNode: AVAudioNode? = kind == .audioInput ? audioInputNode : instrument
 
         for effect in effects {
             if let prev = previousNode {
-                engine.connect(prev, to: effect, format: format)
+                let connectionFormat = prev === audioInputNode ? prev.outputFormat(forBus: 0) : format
+                guard connectionFormat.sampleRate > 0, connectionFormat.channelCount > 0 else {
+                    print("MacChannelStrip \(index): Audio input format is not ready")
+                    previousNode = nil
+                    continue
+                }
+                engine.connect(prev, to: effect, format: connectionFormat)
                 print("MacChannelStrip \(index): Connected \(type(of: prev)) -> \(type(of: effect))")
             }
             previousNode = effect
         }
 
         if let finalNode = previousNode {
-            engine.connect(finalNode, to: mixer, format: format)
+            let connectionFormat = finalNode === audioInputNode ? finalNode.outputFormat(forBus: 0) : format
+            guard connectionFormat.sampleRate > 0, connectionFormat.channelCount > 0 else {
+                print("MacChannelStrip \(index): Source format is not ready")
+                return
+            }
+            engine.connect(finalNode, to: mixer, format: connectionFormat)
             print("MacChannelStrip \(index): Connected \(type(of: finalNode)) -> mixer")
         } else {
-            print("MacChannelStrip \(index): No instrument to connect")
+            print("MacChannelStrip \(index): No source to connect")
         }
     }
 
@@ -402,6 +448,7 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         if let instrument = instrument {
             applyMusicalContext(to: instrument.auAudioUnit)
         }
+
         for effect in effects {
             applyMusicalContext(to: effect.auAudioUnit)
         }
@@ -619,6 +666,10 @@ final class MacChannelStrip: ObservableObject, Identifiable {
             engine.detach(instrument)
         }
 
+        if kind == .audioInput, let audioInputNode {
+            engine.disconnectNodeOutput(audioInputNode)
+        }
+
         for effect in effects {
             effect.auAudioUnit.musicalContextBlock = nil
             effect.auAudioUnit.transportStateBlock = nil
@@ -628,6 +679,7 @@ final class MacChannelStrip: ObservableObject, Identifiable {
         engine.detach(mixer)
 
         self.instrument = nil
+        self.audioInputNode = nil
         self.effects.removeAll()
     }
 

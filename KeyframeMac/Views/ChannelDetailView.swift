@@ -7,6 +7,7 @@ struct ChannelDetailView: View {
     @Binding var config: MacChannelConfiguration
     @EnvironmentObject var midiEngine: MacMIDIEngine
     @EnvironmentObject var pluginManager: MacPluginManager
+    @EnvironmentObject var audioEngine: MacAudioEngine
 
     let colors: ThemeColors
 
@@ -23,8 +24,11 @@ struct ChannelDetailView: View {
 
                 sectionDivider
 
-                // Instrument section
-                instrumentSection
+                if config.kind == .audioInput {
+                    audioInputSection
+                } else {
+                    instrumentSection
+                }
 
                 sectionDivider
 
@@ -33,10 +37,10 @@ struct ChannelDetailView: View {
 
                 sectionDivider
 
-                // MIDI settings
-                midiSettingsSection
-
-                sectionDivider
+                if config.kind == .instrument {
+                    midiSettingsSection
+                    sectionDivider
+                }
 
                 // Mixer settings
                 mixerSettingsSection
@@ -44,6 +48,42 @@ struct ChannelDetailView: View {
         }
         .frame(minWidth: 320, idealWidth: 380)
         .background(colors.windowBackground)
+    }
+
+    private var audioInputSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("AUDIO INPUT")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundColor(colors.secondaryText)
+                Spacer()
+                Text("LIVE")
+                    .font(TEFonts.mono(8, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.blue)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(audioEngine.currentInputName.uppercased())
+                    .font(TEFonts.mono(12, weight: .bold))
+                    .foregroundColor(colors.primaryText)
+                Text("SYSTEM INPUT · \(audioEngine.inputChannelCount) CH")
+                    .font(TEFonts.mono(9))
+                    .foregroundColor(colors.secondaryText)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(colors.controlBackground)
+            .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
+
+            Text("Change the input device in macOS Sound Settings. Effects below process this live input before it reaches the mixer.")
+                .font(TEFonts.mono(9))
+                .foregroundColor(colors.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
     }
 
     private var sectionDivider: some View {

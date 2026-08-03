@@ -209,12 +209,16 @@ struct MixerView: View {
 
             // Add channel button (only in mixer view)
             if !showPresetGrid {
-                Button(action: { addChannel() }) {
+                Menu {
+                    Button("Instrument Channel") { addChannel(kind: .instrument) }
+                    Button("Audio Channel") { addChannel(kind: .audioInput) }
+                } label: {
                     Image(systemName: "plus")
                         .font(TEFonts.mono(14, weight: .bold))
                         .frame(width: 32, height: 28)
                 }
                 .buttonStyle(.plain)
+                .menuStyle(.borderlessButton)
                 .background(colors.controlBackground)
                 .overlay(Rectangle().strokeBorder(colors.border, lineWidth: colors.borderWidth))
                 .help("Add Channel")
@@ -293,7 +297,7 @@ struct MixerView: View {
                 .foregroundColor(colors.secondaryText)
 
             Button("ADD CHANNEL") {
-                addChannel()
+                addChannel(kind: .instrument)
             }
             .font(TEFonts.mono(11, weight: .bold))
             .padding(.horizontal, 16)
@@ -485,13 +489,18 @@ struct MixerView: View {
         }
     }
 
-    private func addChannel() {
-        guard audioEngine.addChannel() != nil else { return }
+    private func addChannel(kind: MacChannelKind) {
+        guard audioEngine.addChannel(kind: kind) != nil else { return }
 
         let config = MacChannelConfiguration(
-            name: "Channel \(audioEngine.channelStrips.count)"
+            kind: kind,
+            name: kind == .audioInput
+                ? "AUD \(audioEngine.channelStrips.count)"
+                : "Channel \(audioEngine.channelStrips.count)",
+            audioInputDisplayName: kind == .audioInput ? audioEngine.currentInputName : nil
         )
         sessionStore.addChannel(config)
+        KeyframeDiscovery.shared.broadcastState()
 
         // Select the new channel
         selectedChannelIndex = audioEngine.channelStrips.count - 1
@@ -500,6 +509,7 @@ struct MixerView: View {
     private func removeChannel(at index: Int) {
         audioEngine.removeChannel(at: index)
         sessionStore.removeChannel(at: index)
+        KeyframeDiscovery.shared.broadcastState()
 
         if selectedChannelIndex == index {
             selectedChannelIndex = nil
@@ -518,6 +528,14 @@ struct MixerView: View {
             },
             set: { newValue in
                 sessionStore.updateChannel(newValue)
+                guard audioEngine.channelStrips.indices.contains(index) else { return }
+                let strip = audioEngine.channelStrips[index]
+                if newValue.kind == .audioInput, strip.kind != .audioInput {
+                    strip.useAudioInput(audioEngine.inputNode)
+                } else if newValue.kind == .instrument, strip.kind != .instrument {
+                    strip.useInstrumentSource()
+                }
+                KeyframeDiscovery.shared.broadcastChannelState()
             }
         )
     }
@@ -609,7 +627,14 @@ struct TEChannelStripView: View {
     private var instrumentSlotView: some View {
         Button(action: instrumentSlotAction) {
             VStack(spacing: 2) {
-                if let info = channel.instrumentInfo {
+                if config.kind == .audioInput {
+                    Text("AUDIO")
+                        .font(TEFonts.mono(8, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.blue)
+                } else if let info = channel.instrumentInfo {
                     Text(info.name)
                         .font(TEFonts.mono(8))
                         .lineLimit(2)
@@ -629,9 +654,11 @@ struct TEChannelStripView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(config.kind == .audioInput)
     }
 
     private func instrumentSlotAction() {
+        guard config.kind == .instrument else { return }
         if channel.isInstrumentLoaded {
             // Open plugin editor window
             PluginWindowManager.shared.openInstrumentEditor(for: channel, channelName: config.name)

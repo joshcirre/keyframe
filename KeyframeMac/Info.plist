@@ -10,6 +10,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Keyframe uses the local network to connect with iOS devices for remote control.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Keyframe uses audio input to monitor and process live instruments through audio channels.</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

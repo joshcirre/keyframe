@@ -467,8 +467,21 @@ struct SetlistEntry: Codable, Identifiable, Equatable {
 
 // MARK: - Channel Configuration
 
-struct MacChannelConfiguration: Codable, Identifiable, Equatable {
+enum MacChannelKind: String, Codable, CaseIterable, Equatable {
+    case instrument
+    case audioInput
+
+    var displayName: String {
+        switch self {
+        case .instrument: return "Instrument"
+        case .audioInput: return "Audio"
+        }
+    }
+}
+
+struct MacChannelConfiguration: Identifiable, Equatable {
     var id = UUID()
+    var kind: MacChannelKind
     var name: String
     var instrument: MacPluginConfiguration?
     var effects: [MacPluginConfiguration]
@@ -480,6 +493,12 @@ struct MacChannelConfiguration: Codable, Identifiable, Equatable {
     var scaleFilterEnabled: Bool
     var isChordPadTarget: Bool
 
+    /// The input device captured when the audio channel was configured.
+    /// macOS follows the system input; these values are retained for display
+    /// and future explicit device routing.
+    var audioInputDeviceUID: String?
+    var audioInputDisplayName: String?
+
     // Optional CC control mapping
     var controlSourceName: String?
     var controlChannel: Int?
@@ -489,6 +508,8 @@ struct MacChannelConfiguration: Codable, Identifiable, Equatable {
     var keyboardZones: [KeyboardZone] = []
 
     init(
+        id: UUID = UUID(),
+        kind: MacChannelKind = .instrument,
         name: String = "New Channel",
         instrument: MacPluginConfiguration? = nil,
         effects: [MacPluginConfiguration] = [],
@@ -499,8 +520,12 @@ struct MacChannelConfiguration: Codable, Identifiable, Equatable {
         midiSourceName: String? = nil,
         scaleFilterEnabled: Bool = false,
         isChordPadTarget: Bool = false,
+        audioInputDeviceUID: String? = nil,
+        audioInputDisplayName: String? = nil,
         keyboardZones: [KeyboardZone] = []
     ) {
+        self.id = id
+        self.kind = kind
         self.name = name
         self.instrument = instrument
         self.effects = effects
@@ -511,7 +536,63 @@ struct MacChannelConfiguration: Codable, Identifiable, Equatable {
         self.midiSourceName = midiSourceName
         self.scaleFilterEnabled = scaleFilterEnabled
         self.isChordPadTarget = isChordPadTarget
+        self.audioInputDeviceUID = audioInputDeviceUID
+        self.audioInputDisplayName = audioInputDisplayName
         self.keyboardZones = keyboardZones
+    }
+}
+
+// Keep sessions created before audio channels were introduced readable.
+extension MacChannelConfiguration: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, name, instrument, effects, volume, pan, isMuted
+        case midiChannel, midiSourceName, scaleFilterEnabled, isChordPadTarget
+        case audioInputDeviceUID, audioInputDisplayName
+        case controlSourceName, controlChannel, controlCC, keyboardZones
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        kind = try container.decodeIfPresent(MacChannelKind.self, forKey: .kind) ?? .instrument
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "New Channel"
+        instrument = try container.decodeIfPresent(MacPluginConfiguration.self, forKey: .instrument)
+        effects = try container.decodeIfPresent([MacPluginConfiguration].self, forKey: .effects) ?? []
+        volume = try container.decodeIfPresent(Float.self, forKey: .volume) ?? 1
+        pan = try container.decodeIfPresent(Float.self, forKey: .pan) ?? 0
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        midiChannel = try container.decodeIfPresent(Int.self, forKey: .midiChannel) ?? 0
+        midiSourceName = try container.decodeIfPresent(String.self, forKey: .midiSourceName)
+        scaleFilterEnabled = try container.decodeIfPresent(Bool.self, forKey: .scaleFilterEnabled) ?? false
+        isChordPadTarget = try container.decodeIfPresent(Bool.self, forKey: .isChordPadTarget) ?? false
+        audioInputDeviceUID = try container.decodeIfPresent(String.self, forKey: .audioInputDeviceUID)
+        audioInputDisplayName = try container.decodeIfPresent(String.self, forKey: .audioInputDisplayName)
+        controlSourceName = try container.decodeIfPresent(String.self, forKey: .controlSourceName)
+        controlChannel = try container.decodeIfPresent(Int.self, forKey: .controlChannel)
+        controlCC = try container.decodeIfPresent(Int.self, forKey: .controlCC)
+        keyboardZones = try container.decodeIfPresent([KeyboardZone].self, forKey: .keyboardZones) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(instrument, forKey: .instrument)
+        try container.encode(effects, forKey: .effects)
+        try container.encode(volume, forKey: .volume)
+        try container.encode(pan, forKey: .pan)
+        try container.encode(isMuted, forKey: .isMuted)
+        try container.encode(midiChannel, forKey: .midiChannel)
+        try container.encodeIfPresent(midiSourceName, forKey: .midiSourceName)
+        try container.encode(scaleFilterEnabled, forKey: .scaleFilterEnabled)
+        try container.encode(isChordPadTarget, forKey: .isChordPadTarget)
+        try container.encodeIfPresent(audioInputDeviceUID, forKey: .audioInputDeviceUID)
+        try container.encodeIfPresent(audioInputDisplayName, forKey: .audioInputDisplayName)
+        try container.encodeIfPresent(controlSourceName, forKey: .controlSourceName)
+        try container.encodeIfPresent(controlChannel, forKey: .controlChannel)
+        try container.encodeIfPresent(controlCC, forKey: .controlCC)
+        try container.encode(keyboardZones, forKey: .keyboardZones)
     }
 }
 
