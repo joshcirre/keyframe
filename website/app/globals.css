@@ -59,66 +59,12 @@ button, a, summary { -webkit-tap-highlight-color: transparent; }
 .availability { margin: 27px 0 0; display: flex; align-items: center; gap: 8px; color: var(--muted); font: 650 10px var(--mono); }
 .availability i { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(51, 191, 76, .12); }
 
-.product-preview { min-width: 0; min-height: 570px; position: relative; z-index: 2; display: flex; align-items: center; }
-.mac-app { width: 100%; overflow: hidden; border: 2px solid var(--ink); background: var(--cream); box-shadow: 0 30px 70px rgba(35, 25, 14, .17); }
-.app-toolbar { height: 50px; padding: 0 14px; display: grid; grid-template-columns: 1fr auto auto 1fr; align-items: center; gap: 14px; color: white; background: var(--ink); }
-.window-controls { display: flex; gap: 6px; }
-.window-controls i { width: 8px; height: 8px; border-radius: 50%; background: #5b5954; }
-.app-toolbar > strong { font-size: 12px; letter-spacing: .16em; }
-.mode-switch { display: flex; border: 1px solid #6b6861; font: 700 7px var(--mono); }
-.mode-switch span { padding: 7px 10px; }
-.mode-switch .is-selected { color: white; background: var(--orange); }
-.engine-state { justify-self: end; font: 700 7px var(--mono); letter-spacing: .06em; }
-.engine-state i, .sync-state i, .phone-header i { display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: var(--green); }
-.app-workspace { min-height: 440px; display: grid; grid-template-columns: 150px 1fr; }
-.song-browser { padding: 22px 14px; color: white; background: #242320; }
-.app-label { color: #8d8981; font: 700 7px var(--mono); letter-spacing: .12em; }
-.song-browser h2 { margin: 8px 0 25px; font-size: 19px; line-height: .95; letter-spacing: -.04em; }
-.song-browser ol { margin: 0 -14px; padding: 0; }
-.song-browser li { padding: 12px 14px; display: flex; gap: 8px; color: #aaa59c; border-top: 1px solid rgba(255,255,255,.1); font: 650 8px var(--mono); }
-.song-browser li span { color: #69665f; }
-.song-browser li.is-current { color: white; background: var(--orange); }
-.song-browser li.is-current span { color: rgba(20,20,20,.6); }
-.song-browser dl { margin: 34px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.song-browser dl div { padding: 8px; border: 1px solid #4b4943; }
-.song-browser dt { color: #807c74; font: 700 6px var(--mono); }
-.song-browser dd { margin: 4px 0 0; color: var(--orange); font-size: 17px; font-weight: 750; }
-.performance-surface { min-width: 0; padding: 22px; }
-.now-playing { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.now-playing h2 { margin: 3px 0 0; font-size: 34px; line-height: 1; letter-spacing: -.05em; }
-.sync-state { padding: 8px; border: 1px solid var(--line); color: var(--muted); font: 700 7px var(--mono); }
-.scene-row { margin-top: 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
-.scene-button { min-height: 84px; padding: 9px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid rgba(20,20,20,.35); background: #ebe5da; }
-.scene-button span, .scene-button small { color: var(--muted); font: 700 6px var(--mono); }
-.scene-button strong { font: 750 7px var(--mono); }
-.scene-button.is-live { color: white; border-color: var(--orange); background: var(--orange); }
-.scene-button.is-live span, .scene-button.is-live small { color: rgba(255,255,255,.75); }
-.mixer-row { height: 250px; margin-top: 9px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
-.mixer-channel { min-width: 0; padding: 9px; display: grid; grid-template-rows: auto 1fr auto; gap: 9px; border: 1px solid rgba(20,20,20,.25); background: var(--warm-white); }
-.channel-heading, .channel-footer { display: flex; justify-content: space-between; gap: 6px; font: 700 6px var(--mono); }
-.channel-heading span { color: var(--muted); }
-.channel-control { min-height: 0; display: grid; grid-template-columns: 8px 1fr; gap: 10px; }
-.level-meter { position: relative; overflow: hidden; background: #d5cfc4; }
-.level-meter i { --meter: 50%; position: absolute; bottom: 0; width: 100%; height: var(--meter); background: linear-gradient(to top, var(--green) 70%, var(--yellow) 70%, var(--yellow) 90%, var(--red) 90%); }
-.fader-track { position: relative; margin: 5px 12px; background: #d3cdc2; }
-.fader-track::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #9d978e; }
-.fader-track i { --fader: 50%; position: absolute; z-index: 1; bottom: var(--fader); left: -7px; right: -7px; height: 9px; background: var(--ink); }
-.channel-footer { align-items: center; }
-.channel-color { width: 8px; height: 8px; flex: 0 0 auto; }
-.channel-color--orange { background: var(--orange); }.channel-color--blue { background: var(--blue); }.channel-color--green { background: var(--green); }.channel-color--yellow { background: var(--yellow); }
-
-.iphone-app { position: absolute; right: -20px; bottom: -10px; width: 164px; height: 336px; padding: 29px 10px 12px; overflow: hidden; border: 5px solid var(--ink); border-radius: 31px; color: var(--ink); background: var(--cream); box-shadow: 0 25px 55px rgba(25, 18, 10, .28); transform: rotate(3deg); }
-.dynamic-island { position: absolute; top: 8px; left: 50%; width: 54px; height: 14px; border-radius: 10px; background: var(--ink); transform: translateX(-50%); }
-.phone-header { display: flex; justify-content: space-between; color: var(--muted); font: 700 6px var(--mono); }
-.phone-header span { color: var(--ink); }
-.iphone-app > strong { display: block; margin-top: 17px; font-size: 25px; letter-spacing: -.04em; }
-.phone-scenes { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-.phone-scenes span { height: 42px; display: grid; place-items: center; border: 1px solid rgba(20,20,20,.3); background: #ebe5da; font: 700 6px var(--mono); }
-.phone-scenes span.is-live { color: white; border-color: var(--orange); background: var(--orange); }
-.phone-mix { height: 85px; margin-top: 8px; display: flex; align-items: end; gap: 4px; }
-.phone-mix i { --phone-level: 50%; height: 100%; flex: 1; position: relative; border: 1px solid rgba(20,20,20,.25); background: linear-gradient(to top, var(--orange) var(--phone-level), #e4ded3 var(--phone-level)); }
-.phone-mix span { position: absolute; bottom: 4px; left: 0; width: 100%; color: white; text-align: center; font: 700 6px var(--mono); }
-.phone-sync { display: block; margin-top: 8px; color: var(--muted); text-align: center; font: 700 6px var(--mono); letter-spacing: .1em; }
+.product-preview { min-width: 0; min-height: 570px; margin: 0; position: relative; z-index: 2; display: flex; align-items: center; }
+.mac-capture { width: 100%; overflow: hidden; border: 2px solid var(--ink); background: var(--cream); box-shadow: 0 30px 70px rgba(35, 25, 14, .17); }
+.mac-capture img { width: 100%; height: auto; display: block; }
+.iphone-capture { position: absolute; right: -18px; bottom: -8px; width: clamp(142px, 12vw, 190px); overflow: hidden; border: 5px solid var(--ink); border-radius: 34px; background: #111; box-shadow: 0 25px 55px rgba(25, 18, 10, .28); transform: rotate(3deg); }
+.iphone-capture img { width: 100%; height: auto; display: block; }
+.product-preview figcaption { position: absolute; left: 12px; bottom: 12px; padding: 7px 9px; color: var(--cream); background: rgba(20, 20, 20, .88); font: 700 6px var(--mono); letter-spacing: .08em; }
 
 .system-strip { grid-column: 1 / -1; margin: 0; padding-top: 22px; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); }
 .system-strip div { padding: 0 24px; border-left: 1px solid var(--line); }
@@ -198,41 +144,9 @@ button, a, summary { -webkit-tap-highlight-color: transparent; }
   .hero-description { font-size: 16px; }
   .hero-actions { margin-top: 25px; }
   .product-preview { min-height: 360px; margin: 0 -7px; }
-  .mac-app { box-shadow: 0 18px 42px rgba(35,25,14,.16); }
-  .app-toolbar { height: 38px; padding: 0 8px; grid-template-columns: 1fr auto auto; gap: 7px; }
-  .window-controls { display: none; }
-  .app-toolbar > strong { font-size: 8px; }
-  .mode-switch span { padding: 5px 6px; font-size: 5px; }
-  .engine-state { font-size: 5px; }
-  .app-workspace { min-height: 305px; grid-template-columns: 85px 1fr; }
-  .song-browser { padding: 12px 7px; }
-  .song-browser h2 { margin: 5px 0 14px; font-size: 11px; }
-  .app-label { font-size: 4px; }
-  .song-browser li { margin: 0 -7px; padding: 7px; gap: 4px; font-size: 4px; }
-  .song-browser dl { margin-top: 17px; grid-template-columns: 1fr; }
-  .song-browser dl div { padding: 5px; }
-  .song-browser dd { font-size: 10px; }
-  .performance-surface { padding: 10px; }
-  .now-playing h2 { font-size: 22px; }
-  .sync-state { padding: 5px; font-size: 4px; }
-  .scene-row { margin-top: 10px; gap: 3px; }
-  .scene-button { min-height: 55px; padding: 5px; }
-  .scene-button span, .scene-button small, .scene-button strong { font-size: 4px; }
-  .mixer-row { height: 180px; margin-top: 4px; gap: 3px; }
-  .mixer-channel { padding: 4px; gap: 4px; }
-  .channel-heading, .channel-footer { font-size: 4px; }
-  .channel-control { grid-template-columns: 5px 1fr; gap: 4px; }
-  .fader-track { margin: 3px 5px; }
-  .fader-track i { left: -3px; right: -3px; height: 6px; }
-  .iphone-app { right: -9px; bottom: -5px; width: 102px; height: 215px; padding: 20px 6px 7px; border-width: 3px; border-radius: 20px; }
-  .dynamic-island { top: 5px; width: 35px; height: 9px; }
-  .phone-header { font-size: 4px; }
-  .iphone-app > strong { margin-top: 9px; font-size: 15px; }
-  .phone-scenes { margin-top: 5px; gap: 2px; }
-  .phone-scenes span { height: 26px; font-size: 4px; }
-  .phone-mix { height: 52px; margin-top: 5px; gap: 2px; }
-  .phone-mix span, .phone-sync { font-size: 4px; }
-  .phone-sync { margin-top: 4px; }
+  .mac-capture { box-shadow: 0 18px 42px rgba(35,25,14,.16); }
+  .iphone-capture { right: -8px; bottom: -6px; width: 102px; border-width: 3px; border-radius: 22px; }
+  .product-preview figcaption { left: 6px; bottom: 7px; max-width: 150px; font-size: 5px; }
   .system-strip { grid-template-columns: 1fr 1fr; row-gap: 18px; }
   .system-strip div { padding: 0 14px; }
   .system-strip div:nth-child(3) { padding-left: 0; border-left: 0; }

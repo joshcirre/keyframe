@@ -1,84 +1,35 @@
 import Image from "next/image";
 import Link from "next/link";
-import type { CSSProperties } from "react";
 import { site } from "@/lib/site";
 
 const appIcon = "/keyframe-app-icon.png";
 
-const scenes = ["INTRO", "VERSE", "CHORUS", "BRIDGE"] as const;
-const channels = [
-  { name: "PIANO", level: 72, color: "orange" },
-  { name: "PAD", level: 58, color: "blue" },
-  { name: "LEAD", level: 81, color: "green" },
-  { name: "LOOP", level: 46, color: "yellow" },
-] as const;
-
 function ProductPreview() {
   return (
-    <div className="product-preview" aria-label="Keyframe running on Mac with its connected iPhone remote">
-      <div className="mac-app">
-        <div className="app-toolbar">
-          <div className="window-controls" aria-hidden="true"><i /><i /><i /></div>
-          <strong>KEYFRAME</strong>
-          <div className="mode-switch"><span className="is-selected">PERFORM</span><span>EDIT</span></div>
-          <span className="engine-state"><i /> AUDIO</span>
-        </div>
-        <div className="app-workspace">
-          <aside className="song-browser">
-            <span className="app-label">SETLIST / 06</span>
-            <h2>SUNDAY<br />PM</h2>
-            <ol role="list">
-              <li><span>01</span> Open Hands</li>
-              <li className="is-current"><span>02</span> Joy</li>
-              <li><span>03</span> Always</li>
-              <li><span>04</span> Reprise</li>
-            </ol>
-            <dl>
-              <div><dt>TEMPO</dt><dd>124</dd></div>
-              <div><dt>KEY</dt><dd>D♭</dd></div>
-            </dl>
-          </aside>
-          <section className="performance-surface">
-            <div className="now-playing">
-              <div><span className="app-label">NOW PLAYING</span><h2>JOY</h2></div>
-              <span className="sync-state"><i /> REMOTE CONNECTED</span>
-            </div>
-            <div className="scene-row">
-              {scenes.map((scene, index) => (
-                <div className={index === 2 ? "scene-button is-live" : "scene-button"} key={scene}>
-                  <span>0{index + 1}</span><strong>{scene}</strong>{index === 2 && <small>LIVE</small>}
-                </div>
-              ))}
-            </div>
-            <div className="mixer-row">
-              {channels.map((channel, index) => (
-                <div className="mixer-channel" key={channel.name}>
-                  <div className="channel-heading"><span>0{index + 1}</span><strong>{channel.name}</strong></div>
-                  <div className="channel-control">
-                    <div className="level-meter"><i style={{ "--meter": `${channel.level}%` } as CSSProperties} /></div>
-                    <div className="fader-track"><i style={{ "--fader": `${channel.level}%` } as CSSProperties} /></div>
-                  </div>
-                  <div className="channel-footer"><span className={`channel-color channel-color--${channel.color}`} /><strong>{channel.level}</strong></div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
+    <figure className="product-preview" aria-label="Keyframe running on Mac and iPhone">
+      <div className="mac-capture">
+        <Image
+          src="/keyframe-mac-app.png"
+          alt="The real Keyframe Mac mixer with Piano, Pad, Lead, and Backing channels"
+          width={1200}
+          height={669}
+          priority
+          sizes="(max-width: 1100px) 92vw, 62vw"
+        />
       </div>
 
-      <div className="iphone-app" aria-hidden="true">
-        <div className="dynamic-island" />
-        <div className="phone-header"><span><i /> LIVE</span><small>MAC STAGE</small></div>
-        <strong>JOY</strong>
-        <div className="phone-scenes">
-          {scenes.map((scene, index) => <span className={index === 2 ? "is-live" : ""} key={scene}>{scene}</span>)}
-        </div>
-        <div className="phone-mix">
-          {channels.slice(0, 3).map((channel, index) => <i key={channel.name} style={{ "--phone-level": `${channel.level}%` } as CSSProperties}><span>0{index + 1}</span></i>)}
-        </div>
-        <small className="phone-sync">TWO-WAY SYNC</small>
+      <div className="iphone-capture">
+        <Image
+          src="/keyframe-ios-app.png"
+          alt="The real Keyframe iPhone app offering local performance and remote control modes"
+          width={1206}
+          height={2622}
+          priority
+          sizes="(max-width: 720px) 26vw, 12vw"
+        />
       </div>
-    </div>
+      <figcaption>CAPTURED FROM THE CURRENT MAC + IPHONE BUILDS</figcaption>
+    </figure>
   );
 }
 
