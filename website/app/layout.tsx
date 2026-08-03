@@ -2,9 +2,10 @@ import type { Metadata, Viewport } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import appIcon from "../../iOS/Keyframe/Assets.xcassets/AppIcon.appiconset/AppIcon.png";
 import { site } from "@/lib/site";
 import "./globals.css";
+
+const appIcon = "/keyframe-app-icon.png";
 
 export const metadata: Metadata = {
   metadataBase: new URL(site.url),
@@ -27,8 +28,8 @@ export const metadata: Metadata = {
   authors: [{ name: "Keyframe" }],
   creator: "Keyframe",
   icons: {
-    icon: appIcon.src,
-    apple: appIcon.src,
+    icon: appIcon,
+    apple: appIcon,
   },
   openGraph: {
     type: "website",
@@ -58,7 +59,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         {children}
         <footer className="site-footer">
           <div className="footer-brand">
-            <Image src={appIcon} alt="" sizes="28px" />
+            <Image src={appIcon} alt="" width={512} height={512} sizes="28px" />
             <div>
               <strong>KEYFRAME</strong>
               <span>Built for the moment the lights come up.</span>

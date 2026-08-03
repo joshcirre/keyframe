@@ -1,8 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { CSSProperties } from "react";
-import appIcon from "../../iOS/Keyframe/Assets.xcassets/AppIcon.appiconset/AppIcon.png";
 import { site } from "@/lib/site";
+
+const appIcon = "/keyframe-app-icon.png";
 
 const scenes = ["INTRO", "VERSE", "CHORUS", "BRIDGE"] as const;
 const channels = [
@@ -89,7 +90,7 @@ export default function Home() {
     <div className="home-page">
       <header className="home-header">
         <Link className="home-brand" href="/" aria-label="Homepage">
-          <Image src={appIcon} alt="" priority sizes="44px" />
+          <Image src={appIcon} alt="" width={512} height={512} priority sizes="44px" />
           <span><strong>KEYFRAME</strong><small>LIVE PERFORMANCE SYSTEM</small></span>
         </Link>
         <nav className="home-nav" aria-label="Primary navigation">
@@ -107,7 +108,7 @@ export default function Home() {
       <main id="main-content" className="home-main">
         <section className="keyframe-frame">
           <div className="hero-copy">
-            <Image className="hero-icon" src={appIcon} alt="Keyframe app icon" priority sizes="(max-width: 720px) 96px, 120px" />
+            <Image className="hero-icon" src={appIcon} alt="Keyframe app icon" width={512} height={512} priority sizes="(max-width: 720px) 96px, 120px" />
             <p className="eyebrow">MAC · IPHONE · IPAD</p>
             <h1>Your whole live rig.<br />One frame.</h1>
             <p className="hero-description">
