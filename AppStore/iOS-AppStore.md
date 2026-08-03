@@ -1,5 +1,14 @@
 # Keyframe - iOS App Store Listing
 
+## App Store Connect Record
+
+- Apple ID: `6797355107`
+- Bundle ID: `com.keyframe.mki`
+- SKU: `KEYFRAME-IOS-001`
+- Product URL after release: `https://apps.apple.com/app/id6797355107`
+- Version: `1.0`
+- Status: Prepare for Submission
+
 ## App Name (App Store Connect)
 **Keyframe - Live Performance**
 

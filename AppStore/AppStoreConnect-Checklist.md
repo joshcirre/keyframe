@@ -3,9 +3,11 @@
 ## Before You Start
 
 ### Developer Account Setup
-- [ ] Apple Developer Program membership active ($99/year)
-- [ ] Certificates created (Development + Distribution)
-- [ ] App IDs registered in Developer Portal
+- [x] Apple Developer Program membership active through March 23, 2027
+- [x] Development certificate valid through January 6, 2027
+- [x] Developer ID Application certificate valid through April 25, 2031
+- [ ] Apple Distribution certificate available for App Store/TestFlight uploads
+- [x] App IDs registered in Developer Portal
 - [ ] Provisioning profiles created
 
 ### App IDs to Register
@@ -20,15 +22,16 @@ App Group: group.com.keyframe.mki (for shared data)
 ## iOS App Submission
 
 ### 1. App Store Connect Setup
-- [ ] Create new app in App Store Connect
-- [ ] Select "iOS" platform
-- [ ] Enter bundle ID: `com.keyframe.mki`
-- [ ] Set primary language
-- [ ] Set app name: "Keyframe - Live Performance"
+- [x] Create new app in App Store Connect (Apple ID `6797355107`)
+- [x] Select "iOS" platform
+- [x] Enter bundle ID: `com.keyframe.mki`
+- [x] Set primary language: English (U.S.)
+- [x] Set app name: "Keyframe - Live Performance"
+- [x] Set internal SKU: `KEYFRAME-IOS-001`
 
 ### 2. App Information
-- [ ] Subtitle: "Synths, MIDI & Live Control"
-- [ ] Category: Music (Primary), Entertainment (Secondary)
+- [x] Subtitle: "Synths, MIDI & Live Control"
+- [x] Category: Music (Primary), Entertainment (Secondary)
 - [ ] Content Rights: You own all content
 - [ ] Age Rating: 4+
 
@@ -46,11 +49,11 @@ App Group: group.com.keyframe.mki (for shared data)
   - [ ] Select "No, we do not collect data from this app" while all audio, MIDI, session, and performance data remains on-device
 
 ### 5. Version Information
-- [ ] Version number: 1.0 (or 1.1)
 - [ ] Build number: Must be unique
 - [ ] What's New text (for updates)
-- [ ] Description (from iOS-AppStore.md)
-- [ ] Keywords (100 chars max)
+- [x] Version number: 1.0
+- [x] Description (from iOS-AppStore.md)
+- [x] Keywords (99 of 100 characters)
 - [ ] Support URL: `https://YOUR-PRODUCTION-DOMAIN/support`
 - [ ] Confirm the support page contains working contact information before submission
 - [ ] Marketing URL: `https://YOUR-PRODUCTION-DOMAIN` (optional)
@@ -93,7 +96,7 @@ App Group: group.com.keyframe.mki (for shared data)
 ### 9. Submit
 - [ ] All fields complete
 - [ ] Submit for review
-- [ ] Choose manual, automatic, or scheduled release after approval
+- [x] Manual release selected to prevent automatic publication after approval
 
 ---
 
