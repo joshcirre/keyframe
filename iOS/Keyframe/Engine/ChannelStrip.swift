@@ -24,7 +24,7 @@ final class ChannelStrip: Identifiable {
     var instrumentInfo: AUv3Info?
 
     /// Live hardware input source for audio channels.
-    @ObservationIgnored private weak var audioInputNode: AVAudioNode?
+    @ObservationIgnored private var audioInputNode: AVAudioNode?
 
     /// Insert effects chain (up to 4)
     private(set) var effects: [AVAudioUnit] = []
@@ -39,10 +39,15 @@ final class ChannelStrip: Identifiable {
 
     // MARK: - Channel Controls
 
+    @ObservationIgnored var onMixerStateChanged: (() -> Void)?
+
     var volume: Float = 1.0 {
         didSet {
             if !isMuted {
                 mixer.outputVolume = pow(volume, 2.2)
+            }
+            if oldValue != volume {
+                onMixerStateChanged?()
             }
         }
     }
@@ -50,12 +55,18 @@ final class ChannelStrip: Identifiable {
     var pan: Float = 0.0 {
         didSet {
             mixer.pan = pan
+            if oldValue != pan {
+                onMixerStateChanged?()
+            }
         }
     }
 
     var isMuted: Bool = false {
         didSet {
             mixer.outputVolume = isMuted ? 0 : pow(volume, 2.2)
+            if oldValue != isMuted {
+                onMixerStateChanged?()
+            }
         }
     }
 
@@ -452,7 +463,11 @@ final class ChannelStrip: Identifiable {
         print("🔧 ChannelStrip \(index): Rebuilding audio chain (kind: \(kind.rawValue), instrument: \(instrument != nil), effects: \(effects.count))")
 
         // Disconnect existing connections from nodes we'll reconnect
-        // Note: input nodes are shared hardware sources; disconnect channel-owned inputs instead of the input node's output.
+        // Hardware input is a shared I/O node. AVAudioEngine can retain stale
+        // source mixer connections unless the input node output is cleared.
+        if kind == .audioInput, let audioInputNode {
+            engine.disconnectNodeOutput(audioInputNode)
+        }
         engine.disconnectNodeInput(mixer)
         if let instrument = instrument {
             engine.disconnectNodeOutput(instrument)
@@ -469,20 +484,28 @@ final class ChannelStrip: Identifiable {
 
         for (i, effect) in effects.enumerated() {
             if let prev = previousNode {
-                engine.connect(prev, to: effect, format: connectionFormat(from: prev))
-                print("   Connected \(type(of: prev)) → effect[\(i)]")
+                if connect(prev, to: effect, engine: engine) {
+                    print("   Connected \(type(of: prev)) → effect[\(i)]")
+                    previousNode = effect
+                } else {
+                    print("   ⚠️ Skipped effect[\(i)] connection: source format is not ready")
+                    previousNode = nil
+                }
             } else {
                 // No source yet - effect can't receive input
                 // This is okay during async loading; chain will rebuild when the source loads
                 print("   ⚠️ Effect[\(i)] has no input source yet")
+                previousNode = nil
             }
-            previousNode = effect
         }
 
         // Connect final node to mixer
         if let finalNode = previousNode {
-            engine.connect(finalNode, to: mixer, format: connectionFormat(from: finalNode))
-            print("   Connected \(type(of: finalNode)) → mixer")
+            if connect(finalNode, to: mixer, engine: engine) {
+                print("   Connected \(type(of: finalNode)) → mixer")
+            } else {
+                print("   ⚠️ Skipped mixer connection: source format is not ready")
+            }
         } else if !effects.isEmpty {
             print("   ⚠️ No source - effects waiting for input")
         } else {
@@ -501,9 +524,24 @@ final class ChannelStrip: Identifiable {
 
     private func connectionFormat(from node: AVAudioNode) -> AVAudioFormat? {
         if node === audioInputNode {
-            return node.outputFormat(forBus: 0)
+            let format = node.outputFormat(forBus: 0)
+            guard format.sampleRate > 0, format.channelCount > 0 else {
+                print("   ⚠️ Audio input format not ready: \(format.sampleRate)Hz / \(format.channelCount)ch")
+                return nil
+            }
+            return format
         }
         return nil
+    }
+
+    private func connect(_ source: AVAudioNode, to destination: AVAudioNode, engine: AVAudioEngine) -> Bool {
+        let format = connectionFormat(from: source)
+        if source === audioInputNode, format == nil {
+            return false
+        }
+
+        engine.connect(source, to: destination, format: format)
+        return true
     }
     
     /// Debug helper to verify the audio chain is fully connected
@@ -914,18 +952,29 @@ final class ChannelStrip: Identifiable {
 
         if meterTap {
             mixer.removeTap(onBus: 0)
+            meterTap = false
+        }
+
+        engine.disconnectNodeInput(mixer)
+        engine.disconnectNodeOutput(mixer)
+
+        if kind == .audioInput, let audioInputNode {
+            engine.disconnectNodeOutput(audioInputNode)
         }
 
         // Clear musical context blocks before detaching to avoid dangling references
         if let instrument = instrument {
             instrument.auAudioUnit.musicalContextBlock = nil
             instrument.auAudioUnit.transportStateBlock = nil
+            engine.disconnectNodeOutput(instrument)
             engine.detach(instrument)
         }
 
         for effect in effects {
             effect.auAudioUnit.musicalContextBlock = nil
             effect.auAudioUnit.transportStateBlock = nil
+            engine.disconnectNodeInput(effect)
+            engine.disconnectNodeOutput(effect)
             engine.detach(effect)
         }
 
@@ -933,7 +982,11 @@ final class ChannelStrip: Identifiable {
 
         // Clear references
         self.instrument = nil
+        self.instrumentInfo = nil
+        self.audioInputNode = nil
         self.effects.removeAll()
+        self.effectInfos.removeAll()
+        self.effectBypasses.removeAll()
     }
 }
 

@@ -37,6 +37,34 @@ struct RemotePreset: Identifiable, Equatable {
     }
 }
 
+/// A mixer layer exposed by a Keyframe performance host.
+struct RemoteChannel: Identifiable, Equatable {
+    let id: UUID
+    let name: String
+    let kind: ChannelKind
+    var volume: Float
+    var pan: Float
+    var isMuted: Bool
+    let order: Int
+
+    init?(from dict: [String: Any]) {
+        guard let idString = dict["id"] as? String,
+              let id = UUID(uuidString: idString),
+              let name = dict["name"] as? String,
+              let order = dict["order"] as? Int else {
+            return nil
+        }
+
+        self.id = id
+        self.name = name
+        self.kind = (dict["kind"] as? String).flatMap(ChannelKind.init(rawValue:)) ?? .instrument
+        self.volume = Float(dict["volume"] as? Double ?? 1)
+        self.pan = Float(dict["pan"] as? Double ?? 0)
+        self.isMuted = dict["isMuted"] as? Bool ?? false
+        self.order = order
+    }
+}
+
 /// Represents a discovered Keyframe host on the local network.
 struct RemoteHost: Identifiable, Equatable {
     let id: String
@@ -67,6 +95,7 @@ final class KeyframeRemote: ObservableObject {
 
     @Published var connectionState: RemoteConnectionState = .disconnected
     @Published var presets: [RemotePreset] = []
+    @Published var channels: [RemoteChannel] = []
     @Published var discoveredHosts: [RemoteHost] = []
     @Published var activePresetIndex: Int?
     @Published var masterVolume: Float = 1.0
@@ -112,6 +141,7 @@ final class KeyframeRemote: ObservableObject {
 
         connectionState = .disconnected
         presets = []
+        channels = []
         discoveredHosts = []
         activePresetIndex = nil
         hostName = nil
@@ -173,6 +203,43 @@ final class KeyframeRemote: ObservableObject {
 
         // Update local state
         masterVolume = volume
+    }
+
+    /// Set an individual layer's volume on the connected host.
+    func setChannelVolume(_ volume: Float, channelID: UUID) {
+        sendMixerCommand("setChannelVolume", channelID: channelID, value: volume)
+        updateChannel(channelID) { $0.volume = volume }
+    }
+
+    /// Set an individual layer's pan on the connected host.
+    func setChannelPan(_ pan: Float, channelID: UUID) {
+        sendMixerCommand("setChannelPan", channelID: channelID, value: pan)
+        updateChannel(channelID) { $0.pan = pan }
+    }
+
+    /// Mute or unmute an individual layer on the connected host.
+    func setChannelMuted(_ isMuted: Bool, channelID: UUID) {
+        guard connection?.state == .ready else { return }
+        sendCommand([
+            "command": "setChannelMuted",
+            "channelID": channelID.uuidString,
+            "value": isMuted
+        ])
+        updateChannel(channelID) { $0.isMuted = isMuted }
+    }
+
+    private func sendMixerCommand(_ command: String, channelID: UUID, value: Float) {
+        guard connection?.state == .ready else { return }
+        sendCommand([
+            "command": command,
+            "channelID": channelID.uuidString,
+            "value": Double(value)
+        ])
+    }
+
+    private func updateChannel(_ id: UUID, update: (inout RemoteChannel) -> Void) {
+        guard let index = channels.firstIndex(where: { $0.id == id }) else { return }
+        update(&channels[index])
     }
 
     // MARK: - Bonjour Browsing
@@ -371,9 +438,14 @@ final class KeyframeRemote: ObservableObject {
             print("KeyframeRemote: Received \(presets.count) presets")
         }
 
+        // Handle per-layer mixer sync. Older Mac hosts simply omit this field.
+        if let channelData = json["channels"] as? [[String: Any]] {
+            channels = channelData.compactMap(RemoteChannel.init(from:)).sorted { $0.order < $1.order }
+        }
+
         // Handle active preset update
-        if let index = json["activePresetIndex"] as? Int {
-            activePresetIndex = index
+        if json.keys.contains("activePresetIndex") {
+            activePresetIndex = json["activePresetIndex"] as? Int
         }
 
         // Handle master volume update

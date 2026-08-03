@@ -8,7 +8,7 @@ A professional music performance system for live musicians and producers. Keyfra
 
 **Keyframe iOS** has two modes:
 - **Local Mode**: A complete standalone performance engine with 4-channel mixing, full AUv3 hosting, built-in scale filtering, and chord generation
-- **Remote Mode**: Control your Mac Keyframe session from your iPad
+- **Remote Mode**: Control a Keyframe Mac or an iPhone/iPad running Local Mode
 
 ## Features
 
@@ -50,10 +50,11 @@ A professional music performance system for live musicians and producers. Keyfra
 - MIDI output (Network MIDI, Bluetooth)
 - Background audio support
 
-#### Remote Mode (Mac Controller)
-- Automatic Mac discovery via Bonjour
+#### Remote Mode (Mac or iOS Controller)
+- Automatic Mac, iPhone, and iPad discovery via Bonjour
 - Preset/section grid for one-tap selection
 - Bi-directional master volume sync
+- Bi-directional layer volume, pan, and mute sync with iOS performance hosts
 - Real-time section display
 - Auto-reconnect on network changes
 

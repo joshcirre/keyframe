@@ -14,6 +14,9 @@ final class KeyframeRemoteHost {
 
     var onPresetSelected: ((Int) -> Void)?
     var onMasterVolumeChanged: ((Float) -> Void)?
+    var onChannelVolumeChanged: ((UUID, Float) -> Void)?
+    var onChannelPanChanged: ((UUID, Float) -> Void)?
+    var onChannelMuteChanged: ((UUID, Bool) -> Void)?
 
     private let serviceType = "_keyframe._tcp"
     private var listener: NWListener?
@@ -83,6 +86,10 @@ final class KeyframeRemoteHost {
 
     func broadcastMasterVolume(_ volume: Float) {
         sendMessageToReadyConnections(["masterVolume": Double(volume)])
+    }
+
+    func broadcastChannelState() {
+        sendMessageToReadyConnections(["channels": buildChannelData()])
     }
 
     private func handleListenerState(_ state: NWListener.State) {
@@ -200,11 +207,28 @@ final class KeyframeRemoteHost {
             if let value = json["value"] as? Double {
                 onMasterVolumeChanged?(Float(value))
             }
+        case "setChannelVolume":
+            if let channelID = channelID(from: json), let value = json["value"] as? Double {
+                onChannelVolumeChanged?(channelID, Float(value))
+            }
+        case "setChannelPan":
+            if let channelID = channelID(from: json), let value = json["value"] as? Double {
+                onChannelPanChanged?(channelID, Float(value))
+            }
+        case "setChannelMuted":
+            if let channelID = channelID(from: json), let value = json["value"] as? Bool {
+                onChannelMuteChanged?(channelID, value)
+            }
         case "ping":
             sendMessage(["response": "pong"], to: connection)
         default:
             print("KeyframeRemoteHost: Unknown command - \(command)")
         }
+    }
+
+    private func channelID(from json: [String: Any]) -> UUID? {
+        guard let id = json["channelID"] as? String else { return nil }
+        return UUID(uuidString: id)
     }
 
     private func sendMessageToReadyConnections(_ message: [String: Any]) {
@@ -252,6 +276,7 @@ final class KeyframeRemoteHost {
 
         var message: [String: Any] = [
             "presets": presets,
+            "channels": buildChannelData(),
             "masterVolume": Double(AudioEngine.shared.masterVolume)
         ]
 
@@ -261,5 +286,23 @@ final class KeyframeRemoteHost {
         }
 
         return message
+    }
+
+    private func buildChannelData() -> [[String: Any]] {
+        let configurations = SessionStore.shared.currentSession.channels
+        let strips = AudioEngine.shared.channelStrips
+
+        return configurations.enumerated().map { index, configuration in
+            let strip = strips.indices.contains(index) ? strips[index] : nil
+            return [
+                "id": configuration.id.uuidString,
+                "name": configuration.name,
+                "kind": configuration.kind.rawValue,
+                "volume": Double(strip?.volume ?? configuration.volume),
+                "pan": Double(strip?.pan ?? configuration.pan),
+                "isMuted": strip?.isMuted ?? configuration.isMuted,
+                "order": index
+            ]
+        }
     }
 }

@@ -43,9 +43,13 @@ final class AudioEngine {
     // Track pending plugin loads
     private var pendingPluginLoads = 0
     private let pluginLoadQueue = DispatchQueue(label: "com.keyframe.pluginLoad")
+    @ObservationIgnored var onMasterVolumeChanged: ((Float) -> Void)?
     var masterVolume: Float = 1.0 {
         didSet {
             masterMixer.outputVolume = masterVolume
+            if oldValue != masterVolume {
+                onMasterVolumeChanged?(masterVolume)
+            }
         }
     }
 
@@ -146,6 +150,10 @@ final class AudioEngine {
         if wasRunning {
             start()
         }
+
+        if enabled {
+            rebuildAudioInputChannelsAfterRouteSettles()
+        }
     }
 
     func refreshAudioRouteInfo() {
@@ -179,6 +187,11 @@ final class AudioEngine {
 
     func setPreferredAudioInput(portUID: String?) {
         let session = AVAudioSession.sharedInstance()
+        let wasRunning = isRunning
+
+        if audioInputEnabled && wasRunning {
+            stop()
+        }
 
         do {
             if let portUID,
@@ -190,6 +203,14 @@ final class AudioEngine {
             refreshAudioRouteInfo()
         } catch {
             print("AudioEngine: Failed to set preferred input: \(error)")
+        }
+
+        if audioInputEnabled && wasRunning {
+            start()
+        }
+
+        if audioInputEnabled {
+            rebuildAudioInputChannelsAfterRouteSettles()
         }
     }
     
@@ -296,6 +317,27 @@ final class AudioEngine {
             print("🔌 Reconnected channel \(index) to master (rebuilt internal chain)")
         }
     }
+
+    private func rebuildAudioInputChannelsAfterRouteSettles() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+
+            let wasRunning = self.isRunning
+            if wasRunning {
+                self.stop()
+            }
+
+            self.refreshAudioRouteInfo()
+            for channel in self.channelStrips where channel.kind == .audioInput {
+                channel.useAudioInput(self.engine.inputNode)
+            }
+            self.ensureChannelConnections()
+
+            if wasRunning {
+                self.start()
+            }
+        }
+    }
     
     // MARK: - Notifications
     
@@ -324,6 +366,9 @@ final class AudioEngine {
         
         print("AudioEngine: Route change - \(reason)")
         refreshAudioRouteInfo()
+        if audioInputEnabled {
+            rebuildAudioInputChannelsAfterRouteSettles()
+        }
         
         if reason == .oldDeviceUnavailable {
             // Headphones disconnected, etc.
@@ -436,15 +481,33 @@ final class AudioEngine {
             print("  [\(i)] midiSource='\(strip.midiSourceName ?? "nil")' midiCh=\(strip.midiChannel)")
         }
 
-        // Create new channel and connect to master (don't stop engine - it breaks AUv3 plugins)
+        let wasRunning = isRunning
+        if kind == .audioInput && wasRunning {
+            stop()
+        }
+
+        if kind == .audioInput {
+            setupAudioSession(allowsInput: true)
+        }
+
+        // Create new channel and connect to master.
+        // Audio input channels are configured while stopped because rewiring the
+        // hardware input node while rendering can crash AVAudioEngine.
         let channel = ChannelStrip(engine: engine, index: channelStrips.count)
         channel.kind = kind
-        if kind == .audioInput {
-            setAudioInputEnabled(true)
-            channel.useAudioInput(engine.inputNode)
-        }
         channelStrips.append(channel)
         connectChannelToMaster(channel)
+        if kind == .audioInput {
+            channel.useAudioInput(engine.inputNode)
+        }
+
+        if kind == .audioInput && wasRunning {
+            start()
+        }
+
+        if kind == .audioInput {
+            rebuildAudioInputChannelsAfterRouteSettles()
+        }
 
         // Debug: Log channel states after adding
         print("🎛️ addChannel: After - \(channelStrips.count) strips exist")

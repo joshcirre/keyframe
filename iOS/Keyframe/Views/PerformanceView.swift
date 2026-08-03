@@ -114,6 +114,11 @@ struct PerformanceView: View {
                         deleteChannel(at: index)
                     }
                 )
+            } else {
+                MissingChannelDetailView {
+                    selectedChannelIndex = nil
+                    showingChannelDetail = false
+                }
             }
         }
         .sheet(isPresented: $showingSettings) {
@@ -329,8 +334,7 @@ struct PerformanceView: View {
                                     config: sessionStore.currentSession.channels[safe: index],
                                     isLocked: isChannelsLocked,
                                     onEdit: {
-                                        selectedChannelIndex = index
-                                        showingChannelDetail = true
+                                        presentChannelDetail(at: index)
                                     }
                                 )
                             }
@@ -432,8 +436,7 @@ struct PerformanceView: View {
                                 config: sessionStore.currentSession.channels[safe: index],
                                 isSelected: selectedChannelIndex == index
                             ) {
-                                selectedChannelIndex = index
-                                showingChannelDetail = true
+                                presentChannelDetail(at: index)
                             }
                         }
                         
@@ -512,6 +515,7 @@ struct PerformanceView: View {
                 // Start the audio engine after plugins are loaded
                 audioEngine.start()
                 self.isInitializing = false
+                self.remoteHost.broadcastState()
             }
         }
 
@@ -523,6 +527,7 @@ struct PerformanceView: View {
             }
             audioEngine.start()
             isInitializing = false
+            remoteHost.broadcastState()
         }
 
         // Set up MIDI song trigger callback
@@ -655,16 +660,41 @@ struct PerformanceView: View {
             }
         }
 
-        remoteHost.onMasterVolumeChanged = { [weak sessionStore, weak audioEngine] volume in
-            guard let sessionStore, let audioEngine else { return }
+        remoteHost.onMasterVolumeChanged = { [weak audioEngine] volume in
+            guard let audioEngine else { return }
             let clampedVolume = min(max(volume, 0), 1)
 
             DispatchQueue.main.async {
                 audioEngine.masterVolume = clampedVolume
-                sessionStore.currentSession.masterVolume = clampedVolume
-                sessionStore.saveCurrentSession()
-                self.remoteHost.broadcastMasterVolume(clampedVolume)
             }
+        }
+
+        remoteHost.onChannelVolumeChanged = { [weak sessionStore, weak audioEngine] channelID, volume in
+            guard let sessionStore, let audioEngine,
+                  let index = sessionStore.currentSession.channels.firstIndex(where: { $0.id == channelID }),
+                  audioEngine.channelStrips.indices.contains(index) else { return }
+            audioEngine.channelStrips[index].volume = min(max(volume, 0), 1)
+        }
+
+        remoteHost.onChannelPanChanged = { [weak sessionStore, weak audioEngine] channelID, pan in
+            guard let sessionStore, let audioEngine,
+                  let index = sessionStore.currentSession.channels.firstIndex(where: { $0.id == channelID }),
+                  audioEngine.channelStrips.indices.contains(index) else { return }
+            audioEngine.channelStrips[index].pan = min(max(pan, -1), 1)
+        }
+
+        remoteHost.onChannelMuteChanged = { [weak sessionStore, weak audioEngine] channelID, isMuted in
+            guard let sessionStore, let audioEngine,
+                  let index = sessionStore.currentSession.channels.firstIndex(where: { $0.id == channelID }),
+                  audioEngine.channelStrips.indices.contains(index) else { return }
+            audioEngine.channelStrips[index].isMuted = isMuted
+        }
+
+        audioEngine.onMasterVolumeChanged = { [weak sessionStore, weak remoteHost] volume in
+            guard let sessionStore, let remoteHost else { return }
+            sessionStore.currentSession.masterVolume = volume
+            sessionStore.saveCurrentSession()
+            remoteHost.broadcastMasterVolume(volume)
         }
 
         audioEngine.masterVolume = sessionStore.currentSession.masterVolume
@@ -680,8 +710,12 @@ struct PerformanceView: View {
                 let inputDisplay = config.midiSourceName == "__none__" ? "NONE" : (config.midiSourceName ?? "ALL")
                 print("  Channel \(index): input='\(inputDisplay)' midiCh=\(config.midiChannel)")
                 if config.kind == .audioInput {
-                    audioEngine.setPreferredAudioInput(portUID: config.audioInputPortUID)
-                    strip.useAudioInput(audioEngine.inputNode)
+                    if let portUID = config.audioInputPortUID {
+                        audioEngine.setPreferredAudioInput(portUID: portUID)
+                    }
+                    if strip.kind != .audioInput {
+                        strip.useAudioInput(audioEngine.inputNode)
+                    }
                 } else if strip.kind != .instrument {
                     strip.useInstrumentSource()
                 }
@@ -697,13 +731,28 @@ struct PerformanceView: View {
                 strip.isMuted = config.isMuted
                 strip.ccParameterMappings = config.ccParameterMappings
                 strip.rebuildCCParamCache()
+                configureMixerSync(for: strip, channelID: config.id)
             }
         }
     }
 
+    private func configureMixerSync(for strip: ChannelStrip, channelID: UUID) {
+        strip.onMixerStateChanged = { [weak strip, weak sessionStore, weak remoteHost] in
+            guard let strip, let sessionStore, let remoteHost,
+                  let index = sessionStore.currentSession.channels.firstIndex(where: { $0.id == channelID }) else {
+                return
+            }
+
+            sessionStore.currentSession.channels[index].volume = strip.volume
+            sessionStore.currentSession.channels[index].pan = strip.pan
+            sessionStore.currentSession.channels[index].isMuted = strip.isMuted
+            sessionStore.saveCurrentSession()
+            remoteHost.broadcastChannelState()
+        }
+    }
+
     private func addChannel(kind: ChannelKind) {
-        if let strip = audioEngine.addChannel() {
-            strip.kind = kind
+        if audioEngine.addChannel(kind: kind) != nil {
             let channelNumber = audioEngine.channelStrips.count
             let newConfig = ChannelConfiguration(
                 kind: kind,
@@ -718,6 +767,7 @@ struct PerformanceView: View {
             sessionStore.saveCurrentSession()
             // Re-sync all channel configs to ensure existing settings aren't lost
             syncChannelConfigs()
+            remoteHost.broadcastState()
             // Debug: Log state after adding channel
             logChannelState("After adding \(kind.displayName) channel")
         }
@@ -848,6 +898,9 @@ struct PerformanceView: View {
     }
     
     private func deleteChannel(at index: Int) {
+        showingChannelDetail = false
+        selectedChannelIndex = nil
+
         // Remove from audio engine
         audioEngine.removeChannel(at: index)
 
@@ -858,9 +911,23 @@ struct PerformanceView: View {
         }
 
         audioEngine.setAudioInputEnabled(sessionStore.currentSession.channels.contains { $0.kind == .audioInput })
+        remoteHost.broadcastState()
 
         // Clear selection
         selectedChannelIndex = nil
+    }
+
+    private func presentChannelDetail(at index: Int) {
+        guard index >= 0,
+              index < audioEngine.channelStrips.count,
+              index < sessionStore.currentSession.channels.count else {
+            selectedChannelIndex = nil
+            showingChannelDetail = false
+            return
+        }
+
+        selectedChannelIndex = index
+        showingChannelDetail = true
     }
 
     private func binding(for index: Int) -> Binding<ChannelConfiguration> {
@@ -881,8 +948,12 @@ struct PerformanceView: View {
                         let strip = audioEngine.channelStrips[index]
                         audioEngine.setAudioInputEnabled(sessionStore.currentSession.channels.contains { $0.kind == .audioInput })
                         if newValue.kind == .audioInput {
-                            audioEngine.setPreferredAudioInput(portUID: newValue.audioInputPortUID)
-                            strip.useAudioInput(audioEngine.inputNode)
+                            if oldValue.audioInputPortUID != newValue.audioInputPortUID {
+                                audioEngine.setPreferredAudioInput(portUID: newValue.audioInputPortUID)
+                            }
+                            if strip.kind != .audioInput {
+                                strip.useAudioInput(audioEngine.inputNode)
+                            }
                         } else if strip.kind != .instrument {
                             strip.useInstrumentSource()
                         }
@@ -899,6 +970,35 @@ struct PerformanceView: View {
                 }
             }
         )
+    }
+}
+
+private struct MissingChannelDetailView: View {
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Text("CHANNEL UNAVAILABLE")
+                .font(TEFonts.mono(16, weight: .bold))
+                .foregroundStyle(TEColors.black)
+
+            Text("The selected channel was removed or has not finished syncing.")
+                .font(TEFonts.mono(12))
+                .foregroundStyle(TEColors.darkGray)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 280)
+
+            Button(action: onClose) {
+                Text("CLOSE")
+                    .font(TEFonts.mono(12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(TEColors.black)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(TEColors.cream)
     }
 }
 

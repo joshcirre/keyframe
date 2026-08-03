@@ -177,14 +177,32 @@ struct RemoteModeView: View {
                 remoteHeader(name: name)
 
                 // Main content
-                HStack(spacing: 0) {
-                    // Preset Grid
-                    presetGrid
-                        .frame(width: geometry.size.width * 0.75)
+                if !remote.channels.isEmpty && geometry.size.width < 600 {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) {
+                            presetGrid
+                                .frame(width: geometry.size.width * 0.72)
 
-                    // Master Fader
-                    masterFaderPanel
-                        .frame(width: geometry.size.width * 0.25)
+                            masterFaderPanel
+                                .frame(width: geometry.size.width * 0.28)
+                        }
+
+                        layerMixerPanel
+                            .frame(height: min(280, geometry.size.height * 0.42))
+                    }
+                } else {
+                    HStack(spacing: 0) {
+                        presetGrid
+                            .frame(width: geometry.size.width * (remote.channels.isEmpty ? 0.75 : 0.55))
+
+                        if !remote.channels.isEmpty {
+                            layerMixerPanel
+                                .frame(width: geometry.size.width * 0.30)
+                        }
+
+                        masterFaderPanel
+                            .frame(width: geometry.size.width * (remote.channels.isEmpty ? 0.25 : 0.15))
+                    }
                 }
             }
         }
@@ -335,6 +353,43 @@ struct RemoteModeView: View {
         .padding(.vertical, 20)
         .frame(maxWidth: .infinity)
         .background(TEColors.darkGray.opacity(0.3))
+    }
+
+    private var layerMixerPanel: some View {
+        VStack(spacing: 10) {
+            Text("LAYERS")
+                .font(TEFonts.mono(12, weight: .bold))
+                .foregroundStyle(TEColors.cream)
+                .padding(.top, 14)
+
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(remote.channels) { channel in
+                        RemoteLayerStrip(
+                            channel: channel,
+                            volume: Binding(
+                                get: { remote.channels.first(where: { $0.id == channel.id })?.volume ?? channel.volume },
+                                set: { remote.setChannelVolume($0, channelID: channel.id) }
+                            ),
+                            pan: Binding(
+                                get: { remote.channels.first(where: { $0.id == channel.id })?.pan ?? channel.pan },
+                                set: { remote.setChannelPan($0, channelID: channel.id) }
+                            ),
+                            onToggleMute: {
+                                let isMuted = remote.channels.first(where: { $0.id == channel.id })?.isMuted ?? channel.isMuted
+                                remote.setChannelMuted(!isMuted, channelID: channel.id)
+                            }
+                        )
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .frame(maxHeight: .infinity)
+        .background(TEColors.darkGray.opacity(0.18))
+        .overlay(Rectangle().frame(width: 1).foregroundStyle(TEColors.darkGray), alignment: .leading)
     }
 
     // MARK: - Error View
@@ -700,6 +755,64 @@ struct RemoteFader: View {
                     }
             )
         }
+    }
+}
+
+// MARK: - Remote Layer Strip
+
+private struct RemoteLayerStrip: View {
+    let channel: RemoteChannel
+    @Binding var volume: Float
+    @Binding var pan: Float
+    let onToggleMute: () -> Void
+
+    private var accent: Color {
+        channel.kind == .audioInput ? TEColors.blue : TEColors.orange
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text(channel.name.uppercased())
+                .font(TEFonts.mono(9, weight: .bold))
+                .foregroundStyle(TEColors.cream)
+                .lineLimit(1)
+                .frame(width: 64)
+
+            Text(channel.kind == .audioInput ? "AUDIO" : "INST")
+                .font(TEFonts.mono(7, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(accent)
+
+            RemoteFader(value: $volume)
+                .frame(width: 38, height: 120)
+
+            Text("\(Int(volume * 100))")
+                .font(TEFonts.mono(11, weight: .bold))
+                .foregroundStyle(TEColors.cream)
+                .monospacedDigit()
+
+            Button(action: onToggleMute) {
+                Text("M")
+                    .font(TEFonts.mono(10, weight: .bold))
+                    .foregroundStyle(channel.isMuted ? .white : TEColors.red)
+                    .frame(width: 36, height: 24)
+                    .background(channel.isMuted ? TEColors.red : TEColors.black)
+                    .overlay(Rectangle().strokeBorder(TEColors.red, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
+            Slider(value: $pan, in: -1...1)
+                .tint(accent)
+                .frame(width: 62)
+                .accessibilityLabel("\(channel.name) pan")
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 5)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(TEColors.black.opacity(0.55))
+        .overlay(Rectangle().strokeBorder(TEColors.darkGray, lineWidth: 1))
     }
 }
 
