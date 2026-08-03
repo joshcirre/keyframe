@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import appIcon from "../../iOS/Keyframe/Assets.xcassets/AppIcon.appiconset/AppIcon.png";
 import { site } from "@/lib/site";
 import "./globals.css";
 
@@ -24,6 +26,10 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Keyframe" }],
   creator: "Keyframe",
+  icons: {
+    icon: appIcon.src,
+    apple: appIcon.src,
+  },
   openGraph: {
     type: "website",
     title: "Keyframe — Your whole live rig, in one frame",
@@ -38,8 +44,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  colorScheme: "dark",
-  themeColor: "#ff681f",
+  colorScheme: "light",
+  themeColor: "#faf5eb",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
@@ -52,7 +58,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         {children}
         <footer className="site-footer">
           <div className="footer-brand">
-            <span className="brand-mark brand-mark--small" aria-hidden="true">KF</span>
+            <Image src={appIcon} alt="" sizes="28px" />
             <div>
               <strong>KEYFRAME</strong>
               <span>Built for the moment the lights come up.</span>
