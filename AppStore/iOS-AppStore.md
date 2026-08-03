@@ -138,12 +138,12 @@ Turn iPhone or iPad into a live performance instrument—or keep it close as a t
 ---
 
 ## Support URL
-`https://YOUR-PRODUCTION-DOMAIN/support`
+`https://keyframeapp.com/support`
 
 ---
 
 ## Privacy Policy URL
-`https://YOUR-PRODUCTION-DOMAIN/privacy`
+`https://keyframeapp.com/privacy`
 
 ---
 

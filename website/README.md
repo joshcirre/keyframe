@@ -19,7 +19,8 @@ The site is ready for the release URLs without a code change:
 
 - `NEXT_PUBLIC_SITE_URL`: the production origin used by metadata, robots, and the sitemap.
 - `NEXT_PUBLIC_MAC_DOWNLOAD_URL`: the signed/notarized Mac download URL. Until it is set, the site links to the GitHub releases page and labels the Mac build as release prep.
-- `NEXT_PUBLIC_IOS_APP_STORE_URL`: add after App Store approval; until then the iPhone/iPad card displays release-in-preparation state.
+- `NEXT_PUBLIC_IOS_TESTFLIGHT_URL`: add after the public TestFlight invitation link is enabled; until then the iPhone/iPad card displays an early-access pending state.
+- `NEXT_PUBLIC_IOS_APP_STORE_URL`: add after App Store approval. It takes precedence over the TestFlight URL.
 
 The deployed `/privacy` and `/support` routes can be used for the corresponding App Store Connect fields.
 
@@ -32,10 +33,8 @@ cd website && npm ci && npm run build
 cd website && npm run start
 ```
 
-Set the three environment variables above in the production environment. Next.js reads the platform-provided `PORT` automatically when running `next start`.
+Set the relevant environment variables above in the production environment. Next.js reads the platform-provided `PORT` automatically when running `next start`.
 
 ### Laravel Cloud compatibility
 
-Laravel Cloud's current public documentation exposes Node 20, 22, or 24 to **build commands**, while its documented web compute serves a Laravel/PHP application. Do not assume a standalone `next start` process can receive web traffic there unless the target Laravel Cloud account explicitly offers a Node web runtime.
-
-If the account has that runtime, use the commands above. Otherwise, either deploy this package to a general Node host or add a small Laravel application that serves a static export of this site before configuring Laravel Cloud.
+The `keyframe` production environment is configured with a Node 24 web runtime and push-to-deploy from `main`. Laravel Cloud builds and serves this Next.js package successfully.

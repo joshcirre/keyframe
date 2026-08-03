@@ -126,6 +126,8 @@ function RigPreview() {
 
 export default function Home() {
   const macReleaseUrl = site.macDownloadUrl ?? site.macReleasesUrl;
+  const iosReleaseUrl = site.iosAppStoreUrl ?? site.iosTestFlightUrl;
+  const iosReleaseState = site.iosAppStoreUrl ? "AVAILABLE" : "EARLY ACCESS";
 
   return (
     <>
@@ -230,16 +232,16 @@ export default function Home() {
               <a className="button button--dark" href={macReleaseUrl}>{site.macDownloadUrl ? "DOWNLOAD MAC APP" : "VIEW MAC RELEASES"} <ArrowIcon /></a>
               <small>macOS 13 or later · Apple silicon and Intel</small>
             </article>
-            <article className="release-card release-card--soon">
-              <div><span className="device-glyph">▯</span><span>IPHONE + IPAD</span><i>UP NEXT</i></div>
+            <article className={site.iosAppStoreUrl ? "release-card release-card--available" : "release-card release-card--soon"}>
+              <div><span className="device-glyph">▯</span><span>IPHONE + IPAD</span><i>{iosReleaseState}</i></div>
               <h3>Keyframe for iOS</h3>
               <p>A standalone AUv3 performance engine and a two-way remote for your Mac or iPad rig.</p>
-              {site.iosAppStoreUrl ? (
-                <a className="button button--outline" href={site.iosAppStoreUrl}>VIEW ON THE APP STORE <ArrowIcon /></a>
+              {iosReleaseUrl ? (
+                <a className="button button--outline" href={iosReleaseUrl}>{site.iosAppStoreUrl ? "VIEW ON THE APP STORE" : "JOIN THE TESTFLIGHT BETA"} <ArrowIcon /></a>
               ) : (
-                <span className="button button--outline button--pending">APP STORE RELEASE IN PREPARATION</span>
+                <span className="button button--outline button--pending">BETA ACCESS COMING SOON</span>
               )}
-              <small>One universal app · iPhone and iPad</small>
+              <small>Free during early access · One universal app</small>
             </article>
           </div>
           <div className="release-links">

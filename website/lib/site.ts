@@ -7,6 +7,7 @@ export const site = {
   url: process.env.NEXT_PUBLIC_SITE_URL ?? fallbackSiteUrl,
   macDownloadUrl: process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL,
   macReleasesUrl: "https://github.com/joshcirre/keyframe/releases",
+  iosTestFlightUrl: process.env.NEXT_PUBLIC_IOS_TESTFLIGHT_URL,
   iosAppStoreUrl: process.env.NEXT_PUBLIC_IOS_APP_STORE_URL,
   repositoryUrl: "https://github.com/joshcirre/keyframe",
   issuesUrl: "https://github.com/joshcirre/keyframe/issues",

@@ -7,7 +7,7 @@ The `website/` package is the public marketing, download, privacy, and support s
 - Next.js Node application in `website/`
 - Product page positioning Keyframe as a focused alternative to Apple MainStage
 - Mac release link with an honest release-prep fallback
-- iPhone/iPad App Store card with a release-prep fallback
+- iPhone/iPad early-access card with TestFlight, App Store, and pending states
 - `/privacy` route for App Store Connect
 - `/support` route for App Store Connect
 - `robots.txt`, `sitemap.xml`, Open Graph image, and app icon
@@ -17,18 +17,22 @@ The `website/` package is the public marketing, download, privacy, and support s
 - Mac App ID registered as `com.keyframe.mac`
 - Existing App Group `group.com.keyframe.mki` verified in the developer team
 - App Store listing copy, subtitle, categories, copyright, and manual-release mode saved
+- App Store base price set to Free across all price territories
+- Internal TestFlight group `Keyframe Team` created
+- Laravel Cloud production environment running the Next.js site on Node 24
 
 ## Production configuration
 
 Set these variables when the website is deployed:
 
 ```dotenv
-NEXT_PUBLIC_SITE_URL=https://YOUR-PRODUCTION-DOMAIN
+NEXT_PUBLIC_SITE_URL=https://keyframeapp.com
 NEXT_PUBLIC_MAC_DOWNLOAD_URL=https://YOUR-SIGNED-MAC-ARTIFACT
+NEXT_PUBLIC_IOS_TESTFLIGHT_URL=https://testflight.apple.com/join/YOUR-CODE
 NEXT_PUBLIC_IOS_APP_STORE_URL=https://apps.apple.com/app/id6797355107
 ```
 
-The Mac variable should remain unset until the linked `.dmg` or `.zip` is signed, notarized, published, and tested on a clean Mac. The iOS variable should remain unset until the App Store product page is available. The website displays release-prep states when either link is absent.
+The Mac variable should remain unset until the linked `.dmg` or `.zip` is signed, notarized, published, and tested on a clean Mac. Set the TestFlight variable only after the public invitation link is enabled. Set the App Store variable only after the product page is public; it takes precedence over TestFlight. The website displays honest release-prep or early-access states when links are absent.
 
 ## Node deployment commands
 
@@ -39,17 +43,17 @@ cd website && npm ci && npm run build
 cd website && npm run start
 ```
 
-Next.js supports this as a standard Node deployment. Laravel Cloud's current public documentation only promises Node for frontend build commands and describes Laravel/PHP as the web runtime. Use these commands on Laravel Cloud only if the target account explicitly offers a Node web runtime. Otherwise, deploy the package to a general Node host or add a Laravel wrapper that serves a static export.
+The production Laravel Cloud environment is configured with Node 24 and builds the `website/` package successfully. Push-to-deploy is enabled for `main`.
 
 ## Remaining release gates
 
-1. Confirm the production host/runtime, choose the domain, and deploy the site.
+1. Configure the Laravel Cloud DNS records for `keyframeapp.com` and `www.keyframeapp.com` at Namecheap, then verify HTTPS.
 2. Add working contact information to `/support`.
 3. Add an easily accessible link to the deployed `/privacy` page inside the iOS app.
-4. Complete age rating, content-rights, pricing/availability, privacy, and reviewer-contact fields in App Store Connect.
+4. Complete age rating, content-rights, availability, EU DSA status, privacy, and reviewer-contact fields in App Store Connect.
 5. Capture current iPhone 6.9-inch and iPad 13-inch screenshots from real builds.
-6. Archive with a unique build number, upload to App Store Connect, and complete TestFlight testing.
+6. Archive with a unique build number, upload to App Store Connect, create internal then external TestFlight groups, and submit the first external build for beta review.
 7. Sign and notarize the Mac release, publish it, test the public URL, and set `NEXT_PUBLIC_MAC_DOWNLOAD_URL`.
-8. After the iOS product page is public at `https://apps.apple.com/app/id6797355107`, set `NEXT_PUBLIC_IOS_APP_STORE_URL` and redeploy the site.
+8. When the public beta link exists, set `NEXT_PUBLIC_IOS_TESTFLIGHT_URL`. After the iOS product page is public at `https://apps.apple.com/app/id6797355107`, set `NEXT_PUBLIC_IOS_APP_STORE_URL` and redeploy the site.
 
 Do not replace the release-prep states with “available” until the public links resolve to installable production builds.

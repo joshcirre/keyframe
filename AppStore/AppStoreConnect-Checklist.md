@@ -36,13 +36,14 @@ App Group: group.com.keyframe.mki (for shared data)
 - [ ] Age Rating: 4+
 
 ### 3. Pricing and Availability
-- [ ] Set price (Free or Paid)
+- [x] Set price to Free in all 175 price territories
 - [ ] Select availability (All countries or specific)
 - [ ] Set pre-order if desired
 
 ### 4. App Privacy
-- [ ] Deploy the website to the production domain
-- [ ] Privacy Policy URL: `https://YOUR-PRODUCTION-DOMAIN/privacy` (required)
+- [x] Attach `keyframeapp.com` to the Laravel Cloud production environment
+- [ ] Add the Laravel Cloud DNS records at Namecheap and verify HTTPS
+- [ ] Privacy Policy URL: `https://keyframeapp.com/privacy` (required)
 - [ ] Add the same privacy-policy link inside the iOS app in an easily accessible location
 - [ ] Data collection:
   - [ ] Confirm the shipped app and every third-party SDK still match `PrivacyInfo.xcprivacy`
@@ -54,9 +55,9 @@ App Group: group.com.keyframe.mki (for shared data)
 - [x] Version number: 1.0
 - [x] Description (from iOS-AppStore.md)
 - [x] Keywords (99 of 100 characters)
-- [ ] Support URL: `https://YOUR-PRODUCTION-DOMAIN/support`
+- [ ] Support URL: `https://keyframeapp.com/support`
 - [ ] Confirm the support page contains working contact information before submission
-- [ ] Marketing URL: `https://YOUR-PRODUCTION-DOMAIN` (optional)
+- [ ] Marketing URL: `https://keyframeapp.com` (optional)
 
 ### 6. Screenshots (Required)
 | Device | Size | Required |
@@ -81,6 +82,10 @@ App Group: group.com.keyframe.mki (for shared data)
 - [ ] Build uploaded via Xcode
 - [ ] Build processing complete (wait for email)
 - [ ] Build selected in App Store Connect
+- [x] Create internal TestFlight group: `Keyframe Team`
+- [ ] Create external TestFlight group: `Keyframe Early Access` (available after a build is uploaded)
+- [ ] Submit the first external-testing build to TestFlight App Review
+- [ ] Enable a public TestFlight link and set `NEXT_PUBLIC_IOS_TESTFLIGHT_URL`
 
 ### 8. App Review Information
 - [ ] Contact info (name, phone, email)
@@ -197,7 +202,8 @@ xcrun notarytool submit YourApp.zip --apple-id YOUR_ID --team-id TEAM_ID --passw
 
 ### Launch Preparation
 - [x] Website/landing page package created (`website/`)
-- [ ] Production domain and Laravel Cloud environment configured
+- [x] `keyframeapp.com` attached to the running Laravel Cloud production environment
+- [ ] Namecheap DNS records added and Laravel Cloud hostname/SSL checks verified
 - [ ] Signed and notarized Mac artifact published
 - [ ] `NEXT_PUBLIC_MAC_DOWNLOAD_URL` points to that artifact
 - [ ] Add `NEXT_PUBLIC_IOS_APP_STORE_URL` after the App Store product page is available
