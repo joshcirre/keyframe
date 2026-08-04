@@ -18,7 +18,7 @@ Open `http://localhost:3000`.
 The site is ready for the release URLs without a code change:
 
 - `NEXT_PUBLIC_SITE_URL`: the production origin used by metadata, robots, and the sitemap.
-- `NEXT_PUBLIC_MAC_DOWNLOAD_URL`: the signed/notarized Mac download URL. Until it is set, the site links to the GitHub releases page and labels the Mac build as release prep.
+- `NEXT_PUBLIC_MAC_DOWNLOAD_URL`: optional signed/notarized Mac download override. When unset, the site downloads the stable `Keyframe-Mac.zip` asset from the latest GitHub Release.
 - `NEXT_PUBLIC_IOS_TESTFLIGHT_URL`: add after the public TestFlight invitation link is enabled; until then the iPhone/iPad card displays an early-access pending state.
 - `NEXT_PUBLIC_IOS_APP_STORE_URL`: add after App Store approval. It takes precedence over the TestFlight URL.
 

@@ -6,7 +6,7 @@ The `website/` package is the public marketing, download, privacy, and support s
 
 - Next.js Node application in `website/`
 - Product page positioning Keyframe as a focused alternative to Apple MainStage
-- Mac release link with an honest release-prep fallback
+- Mac download link that tracks the latest GitHub Release asset
 - iPhone/iPad early-access card with TestFlight, App Store, and pending states
 - `/privacy` route for App Store Connect
 - `/support` route for App Store Connect
@@ -15,6 +15,7 @@ The `website/` package is the public marketing, download, privacy, and support s
 - Universal iOS target configured for iPhone and iPad (`TARGETED_DEVICE_FAMILY = "1,2"`)
 - App Store Connect record created for `com.keyframe.mki` (Apple ID `6797355107`)
 - Mac App ID registered as `com.keyframe.mac`
+- Mac 1.0 signed, notarized, and published as GitHub Release `v1.0.0`
 - Existing App Group `group.com.keyframe.mki` verified in the developer team
 - App Store listing copy, subtitle, categories, copyright, and manual-release mode saved
 - App Store base price set to Free across all price territories
@@ -27,12 +28,13 @@ Set these variables when the website is deployed:
 
 ```dotenv
 NEXT_PUBLIC_SITE_URL=https://keyframeapp.com
+# Optional override; otherwise the site uses the latest Keyframe-Mac.zip GitHub Release asset.
 NEXT_PUBLIC_MAC_DOWNLOAD_URL=https://YOUR-SIGNED-MAC-ARTIFACT
 NEXT_PUBLIC_IOS_TESTFLIGHT_URL=https://testflight.apple.com/join/YOUR-CODE
 NEXT_PUBLIC_IOS_APP_STORE_URL=https://apps.apple.com/app/id6797355107
 ```
 
-The Mac variable should remain unset until the linked `.dmg` or `.zip` is signed, notarized, published, and tested on a clean Mac. Set the TestFlight variable only after the public invitation link is enabled. Set the App Store variable only after the product page is public; it takes precedence over TestFlight. The website displays honest release-prep or early-access states when links are absent.
+Every GitHub Release should upload the signed and notarized Mac build with the stable asset name `Keyframe-Mac.zip`. The website then resolves `https://github.com/joshcirre/keyframe/releases/latest/download/Keyframe-Mac.zip`, so routine releases do not require a Laravel Cloud environment change. `NEXT_PUBLIC_MAC_DOWNLOAD_URL` remains available as an override. Set the TestFlight variable only after the public invitation link is enabled. Set the App Store variable only after the product page is public; it takes precedence over TestFlight.
 
 ## Node deployment commands
 
@@ -47,13 +49,8 @@ The production Laravel Cloud environment is configured with Node 24 and builds t
 
 ## Remaining release gates
 
-1. Configure the Laravel Cloud DNS records for `keyframeapp.com` and `www.keyframeapp.com` at Namecheap, then verify HTTPS.
-2. Add working contact information to `/support`.
-3. Add an easily accessible link to the deployed `/privacy` page inside the iOS app.
-4. Complete age rating, content-rights, availability, EU DSA status, privacy, and reviewer-contact fields in App Store Connect.
-5. Capture current iPhone 6.9-inch and iPad 13-inch screenshots from real builds.
-6. Archive with a unique build number, upload to App Store Connect, create internal then external TestFlight groups, and submit the first external build for beta review.
-7. Sign and notarize the Mac release, publish it, test the public URL, and set `NEXT_PUBLIC_MAC_DOWNLOAD_URL`.
-8. When the public beta link exists, set `NEXT_PUBLIC_IOS_TESTFLIGHT_URL`. After the iOS product page is public at `https://apps.apple.com/app/id6797355107`, set `NEXT_PUBLIC_IOS_APP_STORE_URL` and redeploy the site.
+1. Wait for App Review on iOS 1.0 build 1, respond to any review feedback, and manually release the approved version.
+2. Wait for external TestFlight beta review. Once approved, set `NEXT_PUBLIC_IOS_TESTFLIGHT_URL=https://testflight.apple.com/join/1t2dse4k` and redeploy the site.
+3. After the iOS product page is public at `https://apps.apple.com/app/id6797355107`, set `NEXT_PUBLIC_IOS_APP_STORE_URL` and redeploy the site.
 
-Do not replace the release-prep states with “available” until the public links resolve to installable production builds.
+The Mac build is public. Keep the iPhone/iPad early-access state until its TestFlight or App Store link resolves to an installable approved build.
